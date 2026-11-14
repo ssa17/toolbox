@@ -1,0 +1,84 @@
+# Toolbox: macOS quality-of-life utilities
+
+Lightweight, native macOS utilities for Dock window toggling, clipboard history, display sleep control, independent mouse scroll direction, and global shortcuts.
+
+**[Download .dmg](https://github.com/ssa17/toolbox/releases/latest/download/Toolbox.dmg)** · [All releases](https://github.com/ssa17/toolbox/releases)
+
+![Toolbox dashboard](docs/screenshots/dashboard.png)
+
+## Install
+
+1. Download the latest **Toolbox.dmg** (the link above, or the [releases page](https://github.com/ssa17/toolbox/releases))
+2. Open it and drag **Toolbox** into your **Applications** folder
+3. Launch Toolbox from Applications
+
+Toolbox checks for updates automatically via Sparkle and installs them in place.
+
+> **Private by design.** Toolbox runs locally on your Mac. Nothing is sent off your machine, password-manager clipboard entries are ignored by default, and Accessibility permission is only requested for features that control windows, paste, or mouse scroll events.
+
+## What you get
+
+- **Dock Click to Minimize:** click the active app's Dock icon to hide its windows cleanly (Windows taskbar style, without cluttering the Dock's minimized tray) and click again to bring them straight back. Supports send-behind, minimize-tray modes, single/double-click, and per-app exclusions.
+- **Clipboard History (`⌘ ⌥ V`):** searchable floating clipboard dropdown with keyboard navigation (`↑`/`↓`/`⏎`/`Esc`), full-text preview, pinning with custom titles, password-manager filtering, customizable history limits (`1–200`), and optional auto-paste.
+- **Keep Awake (`⌘ ⌥ K`):** reads your Mac's `pmset` display sleep timeout and nudges the cursor just before sleep and/or holds an IOKit power assertion for quick timers (`15m`, `30m`, `1h`, `2h`) or indefinitely.
+- **Scroll Direction:** invert classic notched mouse wheels while leaving Apple trackpads and smooth-scroll mice on your system setting.
+- **Custom Commands:** bind global hotkeys to shell commands, applications, URLs, or text snippets with optional toast feedback.
+- **Menu-bar item & dropdown:** pause or resume all modules at once, toggle individual features, check Clipboard count or toggle Keep Awake, and open Dashboard or Settings in one click.
+- **Configuration as code:** all settings live in `~/.config/toolbox/config.json` with automatic hot-reload and an in-app JSON editor. Pinned clipboard entries persist in `~/.config/toolbox/pinned_clipboard.json`.
+
+<p align="center">
+  <img src="docs/screenshots/menubar.png" width="320" alt="Toolbox status bar menu" />
+</p>
+
+## Requirements
+
+- macOS 14 (Sonoma) or later, Apple Silicon
+
+---
+
+## License
+
+**Toolbox is free to use and free to modify, but not for sale.**
+
+You may use, study, and modify this software for personal or non-commercial purposes. You may distribute modified versions, provided you also distribute them for free and do not charge money for them or bundle them into a paid product.
+
+See [LICENSE](LICENSE) for the full text.
+
+---
+
+## For developers
+
+**Tech stack:** native Swift / SwiftUI / AppKit (`Package.swift`, Apple CommandLineTools or Xcode) with bundled [Sparkle 2](https://sparkle-project.org) for auto-updates.
+
+### Build from source
+
+```bash
+./scripts/build-app.sh --fast       # debug build + Developer ID / ad-hoc sign (~2s)
+./scripts/build-app.sh --notarize   # release build + Developer ID sign + Notarize & Staple
+open ./build/Toolbox.app
+```
+
+Built-in CLI checks:
+
+```bash
+./build/Toolbox.app/Contents/MacOS/Toolbox --version
+./build/Toolbox.app/Contents/MacOS/Toolbox --self-test
+./build/Toolbox.app/Contents/MacOS/Toolbox --snapshot-ui .work/snapshots
+```
+
+See [EXTENDING.md](EXTENDING.md) to add a new module, [docs/testing.md](docs/testing.md) for the test workflow, and [docs/distribution-guide.md](docs/distribution-guide.md) for DMG packaging and Sparkle releases.
+
+### Project layout
+
+```text
+Sources/Toolbox/
+├── ToolboxApp.swift          app entry point, CLI flags, single-instance guard
+├── Core/                     module registry, config watcher, hotkeys, permissions, Sparkle, self-tests
+├── Modules/                  DockMinimize, Clipboard, KeepAwake, CustomCommands, ScrollDirection
+└── UI/                       dashboard, sidebar shell, menu bar popover, settings, JSON editor
+scripts/build-app.sh          builds, signs, and notarizes build/Toolbox.app
+scripts/make-dmg-bg.mjs       generates the Retina DMG installer background
+vendor/fetch-sparkle.sh       fetches pre-built Sparkle 2 framework (gitignored)
+fastlane/Fastfile             release pipeline (notarized DMG + Sparkle zip + GitHub Release + appcast)
+releases/appcast.xml          Sparkle update feed (served via raw GitHub)
+```

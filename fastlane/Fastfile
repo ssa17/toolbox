@@ -1,0 +1,196 @@
+# ============================================================================
+# Fastfile — Toolbox macOS app distribution pipeline
+# ============================================================================
+# Run:  fastlane distrib   (notarized DMG only)
+#       fastlane release   (DMG + Sparkle zip + appcast + GitHub Release)
+# ============================================================================
+
+default_platform(:mac)
+
+require 'tmpdir'
+require 'fileutils'
+
+PROJECT_DIR  = File.expand_path("..")
+APP_NAME     = "Toolbox"
+BUILD_SCRIPT = "#{PROJECT_DIR}/scripts/build-app.sh"
+APP_BUNDLE   = "#{PROJECT_DIR}/build/#{APP_NAME}.app"
+OUTPUT_DIR   = "#{PROJECT_DIR}/build"
+VERSION_FILE = "#{PROJECT_DIR}/VERSION"
+
+def app_version
+  v = `plutil -extract CFBundleShortVersionString raw '#{APP_BUNDLE}/Contents/Info.plist' 2>/dev/null`.strip
+  return v unless v.empty?
+  File.read(VERSION_FILE).strip
+end
+
+def build_sign_notarize
+  UI.message "--- Building, Signing & Notarizing ---"
+  sh("bash '#{BUILD_SCRIPT}' --notarize")
+  notarized = system("codesign -vvvv -R='notarized' '#{APP_BUNDLE}' >/dev/null 2>&1")
+  if notarized
+    UI.success "Built, signed, and notarized ✅"
+  else
+    UI.user_error!("App bundle failed notarization verification.")
+  end
+  true
+end
+
+def make_dmg
+  UI.message "--- Packaging DMG ---"
+  # Stable name (no version) so README's latest download link stays valid.
+  dmg_path = "#{OUTPUT_DIR}/#{APP_NAME}.dmg"
+  rw_dmg   = "#{OUTPUT_DIR}/#{APP_NAME}-rw.dmg"
+  File.delete(dmg_path) if File.exist?(dmg_path)
+  File.delete(rw_dmg)   if File.exist?(rw_dmg)
+
+  bg_path = File.join(PROJECT_DIR, "assets", "dmg-background.png")
+  sh("node '#{File.join(PROJECT_DIR, "scripts", "make-dmg-bg.mjs")}' '#{bg_path}'")
+
+  stage = Dir.mktmpdir("toolbox-dmg")
+  sh("cp -R '#{APP_BUNDLE}' '#{stage}/'")
+  sh("ln -s /Applications '#{stage}/Applications'")
+  bg_dir = File.join(stage, ".background")
+  FileUtils.mkdir_p(bg_dir)
+  FileUtils.cp(bg_path, File.join(bg_dir, "background.png")) if File.exist?(bg_path)
+
+  icns_src = File.join(APP_BUNDLE, "Contents", "Resources", "AppIcon.icns")
+  if File.exist?(icns_src)
+    FileUtils.cp(icns_src, File.join(stage, ".VolumeIcon.icns"))
+    system("SetFile -a C '#{stage}' 2>/dev/null || xcrun SetFile -a C '#{stage}' 2>/dev/null || true")
+  end
+
+  sh("hdiutil create -volname '#{APP_NAME}' -srcfolder '#{stage}' -ov -format UDRW '#{rw_dmg}'")
+  FileUtils.rm_rf(stage)
+
+  mount_out = `hdiutil attach -readwrite -noverify -noautoopen '#{rw_dmg}'`
+  mount_pt = mount_out.lines.reverse.map { |l| l.split("\t").last&.strip }.find { |p| p&.start_with?("/Volumes/") }
+  if mount_pt && File.directory?(mount_pt)
+    vol_name = File.basename(mount_pt)
+    applescript = <<~APPLESCRIPT
+      tell application "Finder"
+        tell disk "#{vol_name}"
+          open
+          set current view of container window to icon view
+          set toolbar visible of container window to false
+          set statusbar visible of container window to false
+          set the bounds of container window to {200, 140, 860, 568}
+          set viewOptions to the icon view options of container window
+          set arrangement of viewOptions to not arranged
+          set icon size of viewOptions to 112
+          set text size of viewOptions to 13
+          set background picture of viewOptions to file ".background:background.png"
+          set position of item "#{APP_NAME}.app" of container window to {185, 195}
+          set position of item "Applications" of container window to {475, 195}
+          close
+          open
+          update without registering applications
+          delay 1
+          close
+        end tell
+      end tell
+    APPLESCRIPT
+    unless system("osascript", "-e", applescript)
+      UI.warn "Finder DMG layout skipped (headless session?); continuing with unstyled DMG."
+    end
+    system("sync")
+    system("hdiutil detach '#{mount_pt}' -quiet || hdiutil detach '#{mount_pt}' -force -quiet")
+  end
+
+  sh("hdiutil convert '#{rw_dmg}' -format UDZO -imagekey zlib-level=9 -o '#{dmg_path}'")
+  File.delete(rw_dmg) if File.exist?(rw_dmg)
+  UI.success "Created #{dmg_path} (v#{app_version})"
+  dmg_path
+end
+
+desc "Build, sign, notarize, and create a DMG"
+lane :distrib do
+  build_sign_notarize
+  make_dmg
+  UI.success "🎉 Distribution complete!"
+end
+
+desc "Full release: distrib + Sparkle update zip + appcast + GitHub Release"
+lane :release do
+  build_sign_notarize
+  make_dmg
+
+  version = app_version
+  tag     = "v#{version}"
+
+  # ── Sparkle update zip (from the stapled app) ───────────────────
+  UI.message "--- Creating Sparkle update zip ---"
+  zip_path = "#{OUTPUT_DIR}/#{APP_NAME}-#{version}.zip"
+  File.delete(zip_path) if File.exist?(zip_path)
+  sh("ditto -c -k --keepParent '#{APP_BUNDLE}' '#{zip_path}'")
+  UI.success "Created #{zip_path}"
+
+  # ── GitHub Release (upload DMG + zip) ───────────────────────────
+  UI.message "--- Publishing GitHub Release #{tag} ---"
+  if system("gh auth status >/dev/null 2>&1")
+    sh("gh release create '#{tag}' " +
+       "'#{OUTPUT_DIR}/#{APP_NAME}.dmg' " +
+       "'#{zip_path}' " +
+       "--title '#{APP_NAME} #{version}' " +
+       "--notes 'Download the .dmg to install, or let Sparkle auto-update.'")
+    UI.success "Published #{tag}"
+  else
+    UI.warn "⚠️  Not authenticated to GitHub (run: gh auth login)."
+    UI.warn "    Skipping the release. The DMG + zip are in build/."
+  end
+
+  # ── Generate the appcast (for Sparkle auto-updates) ─────────────
+  UI.message "--- Generating appcast ---"
+  releases_dir = "#{PROJECT_DIR}/releases"
+  Dir.mkdir(releases_dir) unless Dir.exist?(releases_dir)
+  File.delete("#{releases_dir}/appcast.xml") if File.exist?("#{releases_dir}/appcast.xml")
+  Dir.glob("#{releases_dir}/*.zip").each { |z| File.delete(z) }
+  Dir.glob("#{releases_dir}/*.md").each { |m| File.delete(m) }
+  FileUtils.cp(zip_path, releases_dir)
+
+  changelog = "#{PROJECT_DIR}/CHANGELOG.md"
+  if File.exist?(changelog)
+    lines = File.read(changelog).lines
+    start = lines.index { |l| l =~ /^##\s+\[Unreleased\]/ }
+    if start
+      rest  = lines[(start + 1)..]
+      rel   = rest.index { |l| l =~ /^##\s+\[/ }
+      end_i = rel.nil? ? lines.size : start + 1 + rel
+      body  = lines[(start + 1)...end_i].join
+      if body.strip.empty?
+        UI.warn "No entries under [Unreleased] — the release will have no notes."
+      else
+        File.write("#{releases_dir}/#{APP_NAME}-#{version}.md", body)
+        UI.success "Release notes → #{APP_NAME}-#{version}.md"
+      end
+      lines[start] = "## [#{version}] - #{Time.now.utc.strftime('%Y-%m-%d')}\n"
+      lines.insert(start, "## [Unreleased]\n\n")
+      File.write(changelog, lines.join)
+    else
+      UI.warn "CHANGELOG.md has no [Unreleased] section — the release will have no notes."
+    end
+  else
+    UI.warn "No CHANGELOG.md — the release will have no notes."
+  end
+
+  base_url = "https://github.com/ssa17/toolbox/releases/download/#{tag}/"
+  sh("#{PROJECT_DIR}/vendor/sparkle/bin/generate_appcast --embed-release-notes --download-url-prefix '#{base_url}' '#{releases_dir}/'")
+  UI.success "Generated releases/appcast.xml"
+
+  # ── Commit + push the appcast (so installed users auto-update) ──
+  UI.message "--- Publishing appcast ---"
+  if system("git remote get-url origin >/dev/null 2>&1") && system("gh auth status >/dev/null 2>&1")
+    if `git status --porcelain '#{releases_dir}/appcast.xml' '#{changelog}'`.strip.empty?
+      UI.message "Appcast + changelog unchanged — nothing to commit."
+    else
+      sh("git add '#{releases_dir}/appcast.xml' '#{changelog}'")
+      sh("git commit -m 'Release #{tag}: update appcast + changelog'")
+      sh("git push")
+      UI.success "Pushed the appcast — installed users will be offered the update."
+    end
+  else
+    UI.warn "⚠️  No git remote / not authenticated. Commit + push manually:"
+    UI.warn "      git add releases/appcast.xml CHANGELOG.md && git commit -m 'Release #{tag}' && git push"
+  end
+
+  UI.success "🎉 Release complete!"
+end

@@ -1,0 +1,371 @@
+import AppKit
+import SwiftUI
+
+enum SidebarDestination: Hashable {
+    case dashboard
+    case module(String)
+    case jsonConfig
+    case settings
+
+    @MainActor
+    var title: String {
+        switch self {
+        case .dashboard: return "Dashboard"
+        case .module(let id):
+            return ModuleRegistry.shared.module(withID: id)?.name ?? "Module"
+        case .jsonConfig: return "JSON Config"
+        case .settings: return "Settings & About"
+        }
+    }
+}
+
+@MainActor
+final class NavigationState: ObservableObject {
+    @Published var selection: SidebarDestination = .dashboard
+    @Published var isSidebarVisible: Bool = true
+    @Published private(set) var history: [SidebarDestination] = []
+
+    var canGoBack: Bool {
+        !history.isEmpty
+    }
+
+    func navigate(to destination: SidebarDestination) {
+        guard destination != selection else { return }
+        history.append(selection)
+        if history.count > 25 {
+            history.removeFirst()
+        }
+        selection = destination
+    }
+
+    func goBack() {
+        if let previous = history.popLast() {
+            selection = previous
+        } else if selection != .dashboard {
+            selection = .dashboard
+        }
+    }
+
+    func toggleSidebar() {
+        isSidebarVisible.toggle()
+    }
+}
+
+@MainActor
+private final class ToolboxWindow: NSWindow {
+    override var contentMinSize: NSSize {
+        get { super.contentMinSize }
+        set {
+            super.contentMinSize = NSSize(
+                width: max(newValue.width, MainWindowController.minimumContentSize.width),
+                height: max(newValue.height, MainWindowController.minimumContentSize.height)
+            )
+        }
+    }
+
+    override var minSize: NSSize {
+        get { super.minSize }
+        set {
+            super.minSize = NSSize(
+                width: max(newValue.width, MainWindowController.minimumContentSize.width),
+                height: max(newValue.height, MainWindowController.minimumContentSize.height + 28)
+            )
+        }
+    }
+
+    override func sendEvent(_ event: NSEvent) {
+        super.sendEvent(event)
+        switch event.type {
+        case .mouseMoved, .mouseEntered, .mouseExited, .cursorUpdate, .leftMouseDown, .leftMouseUp, .scrollWheel:
+            PointerCursorNSView.syncCursor(in: self)
+            if event.type == .leftMouseDown || event.type == .leftMouseUp {
+                RunLoop.main.perform(inModes: [.common]) { [weak self] in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        PointerCursorNSView.syncCursor(in: self)
+                    }
+                }
+            }
+        default:
+            break
+        }
+    }
+}
+
+@MainActor
+final class MainWindowController: NSObject, NSWindowDelegate {
+    static let shared = MainWindowController()
+    static let minimumContentSize = NSSize(width: 820, height: 560)
+
+    let navState = NavigationState()
+    private var window: NSWindow?
+    internal var currentWindow: NSWindow? { window }
+
+    private override init() {
+        super.init()
+    }
+
+    @discardableResult
+    internal func ensureWindow() -> NSWindow {
+        if let window { return window }
+
+        let rootView = MainSplitView(navState: navState)
+        let hosting = NSHostingView(rootView: rootView)
+        // Prevent SwiftUI's ScrollView from overriding NSWindow's minimum size constraints.
+        hosting.sizingOptions = []
+
+        let win = ToolboxWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 960, height: 680),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        win.title = "Toolbox"
+        win.isReleasedWhenClosed = false
+        win.titlebarAppearsTransparent = false
+        win.acceptsMouseMovedEvents = true
+        win.delegate = self
+        win.contentView = hosting
+        win.layoutIfNeeded()
+        win.contentMinSize = Self.minimumContentSize
+        win.minSize = NSSize(width: max(win.minSize.width, Self.minimumContentSize.width), height: max(win.minSize.height, Self.minimumContentSize.height + 28))
+        win.center()
+        self.window = win
+        return win
+    }
+
+    /// Opens or focuses the main window. Pass `nil` to preserve the user's current page.
+    func show(destination: SidebarDestination? = nil) {
+        if let destination {
+            navState.navigate(to: destination)
+        }
+
+        let win = ensureWindow()
+        if win.isMiniaturized {
+            win.deminiaturize(nil)
+        }
+        win.makeKeyAndOrderFront(nil)
+        win.makeFirstResponder(nil)
+        win.contentMinSize = Self.minimumContentSize
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
+        NSSize(
+            width: max(frameSize.width, Self.minimumContentSize.width),
+            height: max(frameSize.height, Self.minimumContentSize.height + 28)
+        )
+    }
+
+    static func makeRootView(navState: NavigationState) -> some View {
+        MainSplitView(navState: navState)
+    }
+}
+
+struct MainSplitView: View {
+    @ObservedObject var navState: NavigationState
+    @ObservedObject private var registry = ModuleRegistry.shared
+    @ObservedObject private var configManager = ConfigManager.shared
+    @ObservedObject private var permissions = PermissionsManager.shared
+
+    var body: some View {
+        HStack(spacing: 0) {
+            if navState.isSidebarVisible {
+                sidebarView
+                    .frame(width: 228)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+
+                Divider()
+            }
+
+            VStack(spacing: 0) {
+                if navState.selection != .dashboard {
+                    detailTopBar
+                }
+
+                Group {
+                    switch navState.selection {
+                    case .dashboard:
+                        DashboardView(
+                            onSelectModule: { id in navState.navigate(to: .module(id)) }
+                        )
+                    case .module(let id):
+                        if let module = registry.module(withID: id) {
+                            ModuleDetailContainerView(module: module)
+                        } else {
+                            Text("Module not found")
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                    case .jsonConfig:
+                        ConfigEditorView()
+                    case .settings:
+                        SettingsView()
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .animation(.easeInOut(duration: 0.16), value: navState.isSidebarVisible)
+        .background {
+            Button("") {
+                navState.goBack()
+            }
+            .keyboardShortcut("[", modifiers: .command)
+            .hidden()
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button {
+                    navState.toggleSidebar()
+                } label: {
+                    Image(systemName: "sidebar.left")
+                }
+                .help(navState.isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
+                .pointerCursor()
+            }
+        }
+    }
+
+    private var sidebarView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Overview")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+
+                    Button {
+                        navState.navigate(to: .dashboard)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "square.grid.2x2")
+                                .foregroundStyle(navState.selection == .dashboard ? .white : .accentColor)
+                            Text("Dashboard")
+                                .font(.callout.weight(.medium))
+                            Spacer()
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(
+                            navState.selection == .dashboard
+                                ? Color.accentColor
+                                : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 7)
+                        )
+                        .foregroundStyle(navState.selection == .dashboard ? .white : .primary)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .focusEffectDisabled()
+                    .pointerCursor()
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Modules")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+
+                    ForEach(registry.modules, id: \.id) { module in
+                        let dest = SidebarDestination.module(module.id)
+                        let isSelected = navState.selection == dest
+                        Button {
+                            navState.navigate(to: dest)
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: module.symbolName)
+                                    .foregroundStyle(isSelected ? .white : module.accentColor)
+                                    .frame(width: 16)
+                                Text(module.name)
+                                    .font(.callout)
+                                    .lineLimit(1)
+                                Spacer()
+                                Circle()
+                                    .fill(
+                                        !module.isEnabled(in: configManager.config)
+                                            ? Color.secondary.opacity(0.35)
+                                            : (!configManager.config.general.appEnabled || (module.requiresAccessibility && !permissions.isAccessibilityGranted)
+                                                ? Color.orange
+                                                : Color.green)
+                                    )
+                                    .frame(width: 7, height: 7)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                            .background(
+                                isSelected ? Color.accentColor : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 7)
+                            )
+                            .foregroundStyle(isSelected ? .white : .primary)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .focusEffectDisabled()
+                        .pointerCursor()
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Configuration")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+
+                    sidebarConfigItem(
+                        title: "JSON Config",
+                        symbol: "curlybraces",
+                        destination: .jsonConfig
+                    )
+                    sidebarConfigItem(
+                        title: "Settings & About",
+                        symbol: "gearshape",
+                        destination: .settings
+                    )
+                }
+
+                Spacer()
+            }
+            .padding(12)
+        }
+        .background(Color.primary.opacity(0.03))
+    }
+
+    private func sidebarConfigItem(title: String, symbol: String, destination: SidebarDestination) -> some View {
+        let isSelected = navState.selection == destination
+        return Button {
+            navState.navigate(to: destination)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: symbol)
+                    .foregroundStyle(isSelected ? .white : .secondary)
+                    .frame(width: 16)
+                Text(title)
+                    .font(.callout)
+                Spacer()
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(
+                isSelected ? Color.accentColor : Color.clear,
+                in: RoundedRectangle(cornerRadius: 7)
+            )
+            .foregroundStyle(isSelected ? .white : .primary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusEffectDisabled()
+        .pointerCursor()
+    }
+
+    private var detailTopBar: some View {
+        BackToDashboardBar {
+            navState.navigate(to: .dashboard)
+        }
+        .padding(.horizontal, 22)
+        .padding(.top, 14)
+        .padding(.bottom, 4)
+    }
+}

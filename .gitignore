@@ -1,0 +1,28 @@
+# Swift Package Manager & app build artifacts
+.build/
+build/
+.swiftpm/
+
+# Generated DMG background
+assets/dmg-background.png
+
+# Vendored third-party binaries (fetched by vendor/fetch-sparkle.sh)
+vendor/sparkle/
+
+# Fastlane generated artifacts
+fastlane/report.xml
+fastlane/README.md
+
+# Sparkle update archives (releases/appcast.xml IS committed; zips/notes are not)
+releases/*.zip
+releases/*.md
+releases/old_updates/
+
+# Secrets — never commit signing keys
+secrets/
+
+# Local working workspace
+.work/
+
+# macOS
+.DS_Store
