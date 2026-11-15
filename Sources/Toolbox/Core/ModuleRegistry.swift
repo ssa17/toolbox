@@ -9,6 +9,7 @@ final class ModuleRegistry: ObservableObject {
 
     let dockMinimize = DockMinimizeModule()
     let clipboard = ClipboardModule()
+    let portKiller = PortKillerModule()
     let keepAwake = KeepAwakeModule()
     let customCommands = CustomCommandsModule()
     let scrollDirection = ScrollDirectionModule()
@@ -16,6 +17,7 @@ final class ModuleRegistry: ObservableObject {
     lazy var modules: [any ToolboxModule] = [
         dockMinimize,
         clipboard,
+        portKiller,
         keepAwake,
         customCommands,
         scrollDirection

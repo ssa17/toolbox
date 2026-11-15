@@ -264,6 +264,7 @@ struct MenuBarPopoverView: View {
     @ObservedObject private var registry = ModuleRegistry.shared
     @ObservedObject private var keepAwake = ModuleRegistry.shared.keepAwake
     @ObservedObject private var clipboard = ModuleRegistry.shared.clipboard
+    @ObservedObject private var portKiller = ModuleRegistry.shared.portKiller
     @ObservedObject private var updateManager = UpdateManager.shared
     @StateObject private var headerHover = MenuBarHeaderHoverState()
 
@@ -465,6 +466,33 @@ struct MenuBarPopoverView: View {
                                     .padding(.horizontal, 5)
                                     .padding(.vertical, 1)
                                     .background(Color.primary.opacity(0.08), in: Capsule())
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 7)
+                            .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.75)
+                            )
+                            .contentShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                        .buttonStyle(.plain)
+                        .focusEffectDisabled()
+                        .pointerCursor()
+
+                        Button {
+                            onClosePopover(false)
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                                portKiller.showPopover()
+                            }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "network")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.indigo)
+                                Text("Ports")
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(.primary)
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 7)

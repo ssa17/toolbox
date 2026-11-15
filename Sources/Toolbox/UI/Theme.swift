@@ -247,6 +247,37 @@ final class PointerCursorNSView: NSView {
     }
 }
 
+/// `NSHostingView` subclass for popovers and panels using `.pointerCursor()`.
+/// Prevents AppKit `cursorUpdate(with:)` and SwiftUI `layout()` passes from
+/// reverting the cursor to `.arrow` while hovering a `.pointerCursor()` control.
+final class PointerCursorHostingView<Content: View>: NSHostingView<Content> {
+    static func shouldUsePointingHand(in window: NSWindow, atWindowPoint pt: NSPoint) -> Bool {
+        guard let rootView = window.contentView?.superview ?? window.contentView,
+              rootView.bounds.contains(pt) else {
+            return false
+        }
+        return PointerCursorNSView.containsPointerCursorView(in: rootView, atWindowPoint: pt)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        if let window, window.isVisible {
+            let pt = window.convertPoint(fromScreen: NSEvent.mouseLocation)
+            if Self.shouldUsePointingHand(in: window, atWindowPoint: pt) {
+                PointerCursorNSView.forcePointingHandCursor()
+                return
+            }
+        }
+        super.cursorUpdate(with: event)
+    }
+
+    override func layout() {
+        super.layout()
+        if let window, window.isVisible {
+            PointerCursorNSView.syncCursor(in: window)
+        }
+    }
+}
+
 struct BackToDashboardBar: View {
     let onBackToDashboard: () -> Void
 

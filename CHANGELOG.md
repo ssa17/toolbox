@@ -10,6 +10,7 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 ## [Unreleased]
 
 ### Added
+- **Port Killer (`⌃ ⌥ ⌘ P`)** — inspect all active listening TCP ports (including root and other-user services via `netstat` + `lsof`), pin favorite dev ports, and stop or force-kill stuck servers in one click with macOS administrator authorization when needed
 - Status Bar Menu: choose which features, quick-action buttons, and quick commands appear in the menu-bar popover, and reorder features via drag-and-drop or up/down controls in Settings
 - Global toggle shortcuts for **Dock Click to Minimize** and **Scroll Direction**, plus `⌘ 1`–`⌘ 9` quick-paste in the Clipboard History popover
 

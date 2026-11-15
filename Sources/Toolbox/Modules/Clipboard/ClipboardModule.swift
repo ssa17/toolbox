@@ -320,7 +320,7 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
             }
         )
 
-        newPanel.contentView = NSHostingView(rootView: contentView)
+        newPanel.contentView = PointerCursorHostingView(rootView: contentView)
         self.panel = newPanel
         return newPanel
     }

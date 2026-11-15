@@ -93,6 +93,7 @@ struct GeneralConfig: Codable, Equatable, Sendable {
     static let defaultMenuBarModuleOrder: [String] = [
         "dock_minimize",
         "clipboard",
+        "port_killer",
         "keep_awake",
         "custom_commands",
         "scroll_direction"
@@ -389,11 +390,68 @@ struct ScrollDirectionConfig: Codable, Equatable, Sendable {
     }
 }
 
+enum PortKillSignal: String, Codable, CaseIterable, Sendable {
+    case sigterm = "sigterm"
+    case sigkill = "sigkill"
+
+    var label: String {
+        switch self {
+        case .sigterm: return "Graceful Stop (SIGTERM)"
+        case .sigkill: return "Force Kill (SIGKILL)"
+        }
+    }
+
+    var shortLabel: String {
+        switch self {
+        case .sigterm: return "Stop"
+        case .sigkill: return "Kill"
+        }
+    }
+
+    var posixSignal: Int32 {
+        switch self {
+        case .sigterm: return SIGTERM
+        case .sigkill: return SIGKILL
+        }
+    }
+
+    var posixNumber: Int32 {
+        posixSignal
+    }
+}
+
+struct PortKillerConfig: Codable, Equatable, Sendable {
+    var enabled: Bool = false
+    var shortcut: ShortcutSpec = ShortcutSpec(key: "p", modifiers: [.control, .option, .command])
+    var refreshIntervalSeconds: Int = 5
+    var hideSystemProcesses: Bool = true
+    var favoritePorts: [Int] = [3000, 5173, 8000, 8080]
+    var defaultSignal: PortKillSignal = .sigterm
+    var popoverWidth: Int = 480
+    var popoverHeight: Int = 500
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        shortcut = try c.decodeIfPresent(ShortcutSpec.self, forKey: .shortcut)
+            ?? ShortcutSpec(key: "p", modifiers: [.control, .option, .command])
+        refreshIntervalSeconds = try c.decodeIfPresent(Int.self, forKey: .refreshIntervalSeconds) ?? 5
+        hideSystemProcesses = try c.decodeIfPresent(Bool.self, forKey: .hideSystemProcesses) ?? true
+        favoritePorts = try c.decodeIfPresent([Int].self, forKey: .favoritePorts) ?? [3000, 5173, 8000, 8080]
+        defaultSignal = try c.decodeIfPresent(PortKillSignal.self, forKey: .defaultSignal) ?? .sigterm
+        popoverWidth = try c.decodeIfPresent(Int.self, forKey: .popoverWidth) ?? 480
+        popoverHeight = try c.decodeIfPresent(Int.self, forKey: .popoverHeight) ?? 500
+    }
+}
+
 struct ToolboxConfig: Codable, Equatable, Sendable {
-    var schemaVersion: Int = 3
+    var schemaVersion: Int = 4
     var general: GeneralConfig = GeneralConfig()
     var dockMinimize: DockMinimizeConfig = DockMinimizeConfig()
     var clipboard: ClipboardConfig = ClipboardConfig()
+    var portKiller: PortKillerConfig = PortKillerConfig()
     var keepAwake: KeepAwakeConfig = KeepAwakeConfig()
     var customCommands: CustomCommandsConfig = CustomCommandsConfig()
     var scrollDirection: ScrollDirectionConfig = ScrollDirectionConfig()
@@ -403,10 +461,11 @@ struct ToolboxConfig: Codable, Equatable, Sendable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        schemaVersion = try c.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 3
+        schemaVersion = try c.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 4
         general = try c.decodeIfPresent(GeneralConfig.self, forKey: .general) ?? GeneralConfig()
         dockMinimize = try c.decodeIfPresent(DockMinimizeConfig.self, forKey: .dockMinimize) ?? DockMinimizeConfig()
         clipboard = try c.decodeIfPresent(ClipboardConfig.self, forKey: .clipboard) ?? ClipboardConfig()
+        portKiller = try c.decodeIfPresent(PortKillerConfig.self, forKey: .portKiller) ?? PortKillerConfig()
         keepAwake = try c.decodeIfPresent(KeepAwakeConfig.self, forKey: .keepAwake) ?? KeepAwakeConfig()
         customCommands = try c.decodeIfPresent(CustomCommandsConfig.self, forKey: .customCommands) ?? CustomCommandsConfig()
         scrollDirection = try c.decodeIfPresent(ScrollDirectionConfig.self, forKey: .scrollDirection) ?? ScrollDirectionConfig()

@@ -61,6 +61,15 @@ enum SnapshotRunner {
             to: outURL.appendingPathComponent("module_clipboard.png")
         )
 
+        let navPortKiller = NavigationState()
+        navPortKiller.selection = .module("port_killer")
+        navPortKiller.isSidebarVisible = true
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navPortKiller),
+            size: NSSize(width: 940, height: 760),
+            to: outURL.appendingPathComponent("module_port_killer.png")
+        )
+
         let navCommands = NavigationState()
         navCommands.selection = .module("custom_commands")
         navCommands.isSidebarVisible = true
@@ -142,6 +151,23 @@ enum SnapshotRunner {
             MenuBarPopoverView(onOpenDashboard: { _ in }, onClosePopover: { _ in }),
             size: NSSize(width: 340, height: 470),
             to: outURL.appendingPathComponent("menubar_active.png")
+        )
+
+        let pkModule = ModuleRegistry.shared.portKiller
+        saveViewSnapshot(
+            ZStack(alignment: .topLeading) {
+                PortKillerPopoverView(
+                    module: pkModule,
+                    uiState: pkModule.popoverState,
+                    onClose: {}
+                )
+                .background(Color(nsColor: .windowBackgroundColor))
+
+                PortKillerTooltipBubbleView(text: "Graceful Stop (SIGTERM) on PID 88038 (↩)")
+                    .offset(x: 212, y: 114)
+            },
+            size: NSSize(width: 480, height: 500),
+            to: outURL.appendingPathComponent("popover_port_killer.png")
         )
 
         configManager.config.general.appEnabled = false

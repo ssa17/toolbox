@@ -8,8 +8,22 @@ private enum JSONEditorMode: String, CaseIterable, Identifiable {
 }
 
 private enum JSONDepthPalette {
-    static let swiftUIColors: [Color] = [.cyan, .blue, .teal, .purple, .orange]
-    static let nsColors: [NSColor] = [.systemCyan, .systemBlue, .systemTeal, .systemPurple, .systemOrange]
+    static let nsColors: [NSColor] = [
+        NSColor(calibratedRed: 0.36, green: 0.78, blue: 1.00, alpha: 1.0), // Level 0: Sky Cyan
+        NSColor(calibratedRed: 0.52, green: 0.62, blue: 1.00, alpha: 1.0), // Level 1: Periwinkle Blue
+        NSColor(calibratedRed: 0.78, green: 0.56, blue: 1.00, alpha: 1.0), // Level 2: Soft Lavender
+        NSColor(calibratedRed: 0.27, green: 0.84, blue: 0.78, alpha: 1.0), // Level 3: Aqua Teal
+        NSColor(calibratedRed: 1.00, green: 0.64, blue: 0.45, alpha: 1.0)  // Level 4: Soft Peach
+    ]
+    static let swiftUIColors: [Color] = nsColors.map { Color(nsColor: $0) }
+
+    static let nsStringColor = NSColor(calibratedRed: 0.44, green: 0.86, blue: 0.58, alpha: 1.0)
+    static let nsNumberColor = NSColor(calibratedRed: 0.96, green: 0.75, blue: 0.34, alpha: 1.0)
+    static let nsBoolColor = NSColor(calibratedRed: 0.96, green: 0.48, blue: 0.60, alpha: 1.0)
+
+    static let stringColor = Color(nsColor: nsStringColor)
+    static let numberColor = Color(nsColor: nsNumberColor)
+    static let boolColor = Color(nsColor: nsBoolColor)
 
     static func color(for depth: Int) -> Color {
         swiftUIColors[max(0, depth) % swiftUIColors.count]
@@ -158,106 +172,91 @@ struct ConfigEditorView: View {
                     .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
             )
 
-            VStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    Button("Apply & Save") {
-                        editorState.formatError = nil
-                        if configManager.applyRawJSON(editorState.text) {
-                            editorState.syncFromManager()
-                            editorState.statusMessage = "Saved and reloaded config.json"
-                        } else {
+            HStack(spacing: 8) {
+                Button("Apply & Save") {
+                    editorState.formatError = nil
+                    if configManager.applyRawJSON(editorState.text) {
+                        editorState.syncFromManager()
+                        editorState.statusMessage = "Saved and reloaded config.json"
+                    } else {
+                        editorState.statusMessage = nil
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut("s", modifiers: .command)
+                .disabled(!editorState.hasUnsavedChanges)
+                .help(editorState.hasUnsavedChanges ? "Apply & Save JSON (⌘S)" : "No unsaved changes")
+                .pointerCursor(editorState.hasUnsavedChanges)
+
+                if editorState.mode == .tree {
+                    Button("Expand All") {
+                        editorState.collapsedPaths.removeAll()
+                    }
+                    .buttonStyle(.bordered)
+                    .pointerCursor()
+
+                    Button("Collapse All") {
+                        if let root = parsedRoot {
+                            editorState.collapsedPaths = collectAllContainerPaths(node: root, path: "root")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .pointerCursor()
+                } else {
+                    Button("Format") {
+                        do {
+                            guard let data = editorState.text.data(using: .utf8) else {
+                                editorState.formatError = "Invalid UTF-8 text"
+                                editorState.statusMessage = nil
+                                return
+                            }
+                            let obj = try JSONSerialization.jsonObject(with: data)
+                            let pretty = try JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys])
+                            if let formatted = String(data: pretty, encoding: .utf8) {
+                                editorState.formatError = nil
+                                editorState.text = formatted
+                                editorState.statusMessage = formatted == editorState.savedText ? nil : "Formatted JSON (not yet saved)"
+                            }
+                        } catch {
+                            editorState.formatError = "Invalid JSON: \(error.localizedDescription)"
                             editorState.statusMessage = nil
                         }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut("s", modifiers: .command)
-                    .disabled(!editorState.hasUnsavedChanges)
-                    .help(editorState.hasUnsavedChanges ? "Apply & Save JSON (⌘S)" : "No unsaved changes")
-                    .pointerCursor(editorState.hasUnsavedChanges)
-
-                    if editorState.mode == .tree {
-                        Button("Expand All") {
-                            editorState.collapsedPaths.removeAll()
-                        }
-                        .buttonStyle(.bordered)
-                        .pointerCursor()
-
-                        Button("Collapse All") {
-                            if let root = parsedRoot {
-                                editorState.collapsedPaths = collectAllContainerPaths(node: root, path: "root")
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                        .pointerCursor()
-                    } else {
-                        Button("Format") {
-                            do {
-                                guard let data = editorState.text.data(using: .utf8) else {
-                                    editorState.formatError = "Invalid UTF-8 text"
-                                    editorState.statusMessage = nil
-                                    return
-                                }
-                                let obj = try JSONSerialization.jsonObject(with: data)
-                                let pretty = try JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys])
-                                if let formatted = String(data: pretty, encoding: .utf8) {
-                                    editorState.formatError = nil
-                                    editorState.text = formatted
-                                    editorState.statusMessage = formatted == editorState.savedText ? nil : "Formatted JSON (not yet saved)"
-                                }
-                            } catch {
-                                editorState.formatError = "Invalid JSON: \(error.localizedDescription)"
-                                editorState.statusMessage = nil
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                        .help("Pretty-print JSON in editor")
-                        .pointerCursor()
-                    }
-
-                    Button("Reload") {
-                        configManager.loadFromDisk()
-                        editorState.syncFromManager()
-                        editorState.statusMessage = "Reloaded from disk"
-                    }
                     .buttonStyle(.bordered)
-                    .help("Reload from disk")
+                    .help("Pretty-print JSON in editor")
                     .pointerCursor()
+                }
 
-                    Spacer()
+                Button("Reload") {
+                    configManager.loadFromDisk()
+                    editorState.syncFromManager()
+                    editorState.statusMessage = "Reloaded from disk"
+                }
+                .buttonStyle(.bordered)
+                .help("Reload from disk")
+                .pointerCursor()
 
+                Spacer()
+
+                Button("Reset to Defaults", role: .destructive) {
+                    editorState.showResetConfirmation = true
+                }
+                .buttonStyle(.bordered)
+                .pointerCursor()
+                .confirmationDialog(
+                    "Reset all Toolbox settings to defaults?",
+                    isPresented: $editorState.showResetConfirmation,
+                    titleVisibility: .visible
+                ) {
                     Button("Reset to Defaults", role: .destructive) {
-                        editorState.showResetConfirmation = true
+                        configManager.resetToDefaults()
+                        editorState.syncFromManager()
+                        editorState.statusMessage = "Restored default settings"
                     }
-                    .buttonStyle(.bordered)
-                    .pointerCursor()
-                    .confirmationDialog(
-                        "Reset all Toolbox settings to defaults?",
-                        isPresented: $editorState.showResetConfirmation,
-                        titleVisibility: .visible
-                    ) {
-                        Button("Reset to Defaults", role: .destructive) {
-                            configManager.resetToDefaults()
-                            editorState.syncFromManager()
-                            editorState.statusMessage = "Restored default settings"
-                        }
-                        Button("Cancel", role: .cancel) {}
-                    } message: {
-                        Text("This will overwrite custom commands, exclusions, shortcuts, and preferences.")
-                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("This will overwrite custom commands, exclusions, shortcuts, and preferences.")
                 }
-
-                HStack(spacing: 10) {
-                    Text("Depth levels:")
-                        .foregroundStyle(.tertiary)
-                    ForEach(0..<5, id: \.self) { depth in
-                        legendDot("Level \(depth)", color: JSONDepthPalette.color(for: depth))
-                    }
-                    Spacer()
-                    Text(editorState.mode == .tree ? "Click any value to edit · Click chevrons to collapse" : "⌘S to save · Indent guides & keys colored by depth")
-                        .foregroundStyle(.tertiary)
-                }
-                .font(.caption2)
-                .foregroundStyle(.secondary)
             }
         }
         .padding(22)
@@ -268,15 +267,6 @@ struct ConfigEditorView: View {
             if !editorState.hasUnsavedChanges {
                 editorState.syncFromManager()
             }
-        }
-    }
-
-    private func legendDot(_ title: String, color: Color) -> some View {
-        HStack(spacing: 3) {
-            Circle()
-                .fill(color)
-                .frame(width: 6, height: 6)
-            Text(title)
         }
     }
 
@@ -362,11 +352,16 @@ private struct JSONTreeNodeView: View {
         value is [String: Any] || value is [Any]
     }
 
+    private var formattedLabel: String {
+        if case .index = keyPathComponents.last {
+            return label
+        }
+        return "\"\(label)\""
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                indentGuides(depth: depth)
-
+            HStack(spacing: 5) {
                 if isContainer {
                     Button {
                         if isCollapsed {
@@ -380,7 +375,7 @@ private struct JSONTreeNodeView: View {
                                 .font(.system(size: 10, weight: .bold))
                                 .foregroundStyle(levelColor)
                                 .frame(width: 12)
-                            Text("\"\(label)\"")
+                            Text(formattedLabel)
                                 .font(.system(.callout, design: .monospaced).weight(.semibold))
                                 .foregroundStyle(levelColor)
                             Text(":")
@@ -394,7 +389,7 @@ private struct JSONTreeNodeView: View {
                     .pointerCursor()
                 } else {
                     Color.clear.frame(width: 12, height: 1)
-                    Text("\"\(label)\"")
+                    Text(formattedLabel)
                         .font(.system(.callout, design: .monospaced).weight(.semibold))
                         .foregroundStyle(levelColor)
                     Text(":")
@@ -414,47 +409,42 @@ private struct JSONTreeNodeView: View {
                 in: RoundedRectangle(cornerRadius: 6)
             )
 
-            if !isCollapsed {
-                if let dict = value as? [String: Any] {
-                    let sortedKeys = dict.keys.sorted()
-                    ForEach(sortedKeys, id: \.self) { childKey in
-                        JSONTreeNodeView(
-                            label: childKey,
-                            value: dict[childKey] as Any,
-                            path: "\(path).\(childKey)",
-                            depth: depth + 1,
-                            keyPathComponents: keyPathComponents + [.key(childKey)],
-                            editorState: editorState
-                        )
-                    }
-                } else if let arr = value as? [Any] {
-                    ForEach(Array(arr.enumerated()), id: \.offset) { idx, item in
-                        JSONTreeNodeView(
-                            label: "[\(idx)]",
-                            value: item,
-                            path: "\(path)[\(idx)]",
-                            depth: depth + 1,
-                            keyPathComponents: keyPathComponents + [.index(idx)],
-                            editorState: editorState
-                        )
+            if !isCollapsed, isContainer {
+                VStack(alignment: .leading, spacing: 2) {
+                    if let dict = value as? [String: Any] {
+                        let sortedKeys = dict.keys.sorted()
+                        ForEach(sortedKeys, id: \.self) { childKey in
+                            JSONTreeNodeView(
+                                label: childKey,
+                                value: dict[childKey] as Any,
+                                path: "\(path).\(childKey)",
+                                depth: depth + 1,
+                                keyPathComponents: keyPathComponents + [.key(childKey)],
+                                editorState: editorState
+                            )
+                        }
+                    } else if let arr = value as? [Any] {
+                        ForEach(Array(arr.enumerated()), id: \.offset) { idx, item in
+                            JSONTreeNodeView(
+                                label: "[\(idx)]",
+                                value: item,
+                                path: "\(path)[\(idx)]",
+                                depth: depth + 1,
+                                keyPathComponents: keyPathComponents + [.index(idx)],
+                                editorState: editorState
+                            )
+                        }
                     }
                 }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func indentGuides(depth: Int) -> some View {
-        if depth > 0 {
-            HStack(spacing: 14) {
-                ForEach(0..<depth, id: \.self) { level in
-                    Rectangle()
-                        .fill(JSONDepthPalette.color(for: level).opacity(0.35))
-                        .frame(width: 1.5, height: 18)
+                .padding(.leading, 18)
+                .overlay(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(levelColor.opacity(0.32))
+                        .frame(width: 1.5)
+                        .padding(.leading, 11.25)
+                        .padding(.vertical, 2)
                 }
             }
-            .padding(.leading, 5)
-            .padding(.trailing, 4)
         }
     }
 
@@ -486,10 +476,10 @@ private struct JSONTreeNodeView: View {
             } label: {
                 Text(boolVal ? "true" : "false")
                     .font(.system(.callout, design: .monospaced).weight(.semibold))
-                    .foregroundStyle(.purple)
+                    .foregroundStyle(JSONDepthPalette.boolColor)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
-                    .background(Color.purple.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+                    .background(JSONDepthPalette.boolColor.opacity(0.14), in: RoundedRectangle(cornerRadius: 4))
             }
             .buttonStyle(.plain)
             .help("Click to toggle boolean")
@@ -523,7 +513,7 @@ private struct JSONTreeNodeView: View {
             } label: {
                 Text(num.stringValue)
                     .font(.system(.callout, design: .monospaced))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(JSONDepthPalette.numberColor)
             }
             .buttonStyle(.plain)
             .help("Click to edit number")
@@ -535,7 +525,7 @@ private struct JSONTreeNodeView: View {
             } label: {
                 Text("\"\(str)\"")
                     .font(.system(.callout, design: .monospaced))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(JSONDepthPalette.stringColor)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -545,7 +535,7 @@ private struct JSONTreeNodeView: View {
         } else if value is NSNull {
             Text("null")
                 .font(.system(.callout, design: .monospaced).weight(.semibold))
-                .foregroundStyle(.purple)
+                .foregroundStyle(JSONDepthPalette.boolColor)
         } else {
             Text(String(describing: value))
                 .font(.system(.callout, design: .monospaced))
@@ -638,17 +628,18 @@ private final class JSONCodeTextView: NSTextView {
             }
 
             let levels = spaces / 2
-            if levels > 0 {
+            if levels > 1 {
                 let glyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
-                let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
-                for level in 0..<levels {
-                    let x = floor(origin.x + textContainer.lineFragmentPadding + CGFloat(level) * indentStep) + 0.5
-                    JSONDepthPalette.nsColor(for: level).withAlphaComponent(0.28).setStroke()
-                    let path = NSBezierPath()
-                    path.lineWidth = 1.0
-                    path.move(to: NSPoint(x: x, y: lineRect.minY + origin.y))
-                    path.line(to: NSPoint(x: x, y: lineRect.maxY + origin.y))
-                    path.stroke()
+                layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { lineRect, _, _, _, _ in
+                    for level in 1..<levels {
+                        let x = floor(origin.x + textContainer.lineFragmentPadding + CGFloat(level) * indentStep) + 0.5
+                        JSONDepthPalette.nsColor(for: level - 1).withAlphaComponent(0.32).setStroke()
+                        let path = NSBezierPath()
+                        path.lineWidth = 1.2
+                        path.move(to: NSPoint(x: x, y: lineRect.minY + origin.y))
+                        path.line(to: NSPoint(x: x, y: lineRect.maxY + origin.y))
+                        path.stroke()
+                    }
                 }
             }
 
@@ -682,8 +673,11 @@ private struct SyntaxHighlightedJSONView: NSViewRepresentable {
         textView.isAutomaticTextReplacementEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.drawsBackground = false
-        textView.textContainerInset = NSSize(width: 10, height: 10)
+        textView.textContainerInset = NSSize(width: 12, height: 12)
         textView.font = NSFont.monospacedSystemFont(ofSize: 12.5, weight: .regular)
+        let defaultParagraph = NSMutableParagraphStyle()
+        defaultParagraph.lineSpacing = 2.0
+        textView.defaultParagraphStyle = defaultParagraph
         textView.autoresizingMask = [.width]
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
@@ -745,6 +739,21 @@ private struct SyntaxHighlightedJSONView: NSViewRepresentable {
             let fullRange = NSRange(location: 0, length: nsSource.length)
             let font = NSFont.monospacedSystemFont(ofSize: 12.5, weight: .regular)
             let keyFont = NSFont.monospacedSystemFont(ofSize: 12.5, weight: .semibold)
+            let spaceWidth = (" " as NSString).size(withAttributes: [.font: font]).width
+            let baseParagraphStyle = NSMutableParagraphStyle()
+            baseParagraphStyle.lineSpacing = 2.0
+            baseParagraphStyle.lineBreakMode = .byWordWrapping
+
+            var cachedParagraphStyles: [Int: NSMutableParagraphStyle] = [0: baseParagraphStyle]
+            func paragraphStyle(forLeadingSpaces spaces: Int) -> NSMutableParagraphStyle {
+                if let cached = cachedParagraphStyles[spaces] { return cached }
+                let style = NSMutableParagraphStyle()
+                style.lineSpacing = 2.0
+                style.lineBreakMode = .byWordWrapping
+                style.headIndent = CGFloat(spaces + 2) * spaceWidth
+                cachedParagraphStyles[spaces] = style
+                return style
+            }
 
             // Compute brace/bracket depth at every UTF-16 offset (ignoring strings)
             var depths = [Int](repeating: 0, count: nsSource.length)
@@ -779,22 +788,50 @@ private struct SyntaxHighlightedJSONView: NSViewRepresentable {
             storage.beginEditing()
             storage.setAttributes([
                 .font: font,
-                .foregroundColor: NSColor.secondaryLabelColor
+                .foregroundColor: NSColor.secondaryLabelColor,
+                .paragraphStyle: baseParagraphStyle
             ], range: fullRange)
+
+            var linePos = 0
+            while linePos < nsSource.length {
+                let lineRange = nsSource.lineRange(for: NSRange(location: linePos, length: 0))
+                var spaces = 0
+                var idx = lineRange.location
+                while idx < NSMaxRange(lineRange) {
+                    let ch = nsSource.character(at: idx)
+                    if ch == 32 {
+                        spaces += 1
+                    } else if ch == 9 {
+                        spaces += 2
+                    } else {
+                        break
+                    }
+                    idx += 1
+                }
+                if spaces > 0 {
+                    storage.addAttribute(
+                        .paragraphStyle,
+                        value: paragraphStyle(forLeadingSpaces: spaces),
+                        range: lineRange
+                    )
+                }
+                linePos = NSMaxRange(lineRange)
+                if lineRange.length == 0 { break }
+            }
 
             for match in Self.boolNullRegex.matches(in: source, range: fullRange) {
                 storage.addAttributes([
                     .font: keyFont,
-                    .foregroundColor: NSColor.systemPurple
+                    .foregroundColor: JSONDepthPalette.nsBoolColor
                 ], range: match.range)
             }
 
             for match in Self.numberRegex.matches(in: source, range: fullRange) {
-                storage.addAttribute(.foregroundColor, value: NSColor.systemOrange, range: match.range)
+                storage.addAttribute(.foregroundColor, value: JSONDepthPalette.nsNumberColor, range: match.range)
             }
 
             for match in Self.stringRegex.matches(in: source, range: fullRange) {
-                storage.addAttribute(.foregroundColor, value: NSColor.systemGreen, range: match.range)
+                storage.addAttribute(.foregroundColor, value: JSONDepthPalette.nsStringColor, range: match.range)
             }
 
             for match in Self.keyRegex.matches(in: source, range: fullRange) {
@@ -807,9 +844,12 @@ private struct SyntaxHighlightedJSONView: NSViewRepresentable {
             }
 
             for (range, braceDepth) in braceColors {
+                let braceColor = braceDepth == 0
+                    ? NSColor.secondaryLabelColor
+                    : JSONDepthPalette.nsColor(for: braceDepth - 1)
                 storage.addAttributes([
                     .font: keyFont,
-                    .foregroundColor: JSONDepthPalette.nsColor(for: braceDepth)
+                    .foregroundColor: braceColor
                 ], range: range)
             }
 

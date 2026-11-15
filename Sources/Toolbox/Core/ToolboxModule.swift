@@ -3,6 +3,7 @@ import SwiftUI
 enum ModuleCategory: String, CaseIterable, Identifiable {
     case windowAndDock = "Window & Dock"
     case productivity = "Clipboard & Text"
+    case developer = "Developer Tools"
     case system = "System & Power"
     case automation = "Commands & Shortcuts"
 

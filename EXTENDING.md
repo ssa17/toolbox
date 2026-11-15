@@ -23,3 +23,7 @@ Toolbox is structured so both human developers and AI agents can add a new utili
    ./scripts/build-app.sh --notarize
    ./build/Toolbox.app/Contents/MacOS/Toolbox --self-test
    ```
+
+## Planned Modules & Feature Specs
+
+See **[`docs/feature-roadmap.md`](docs/feature-roadmap.md)** for the full specifications, macOS APIs, config schemas, self-test plans, and rollout order for upcoming modules (`PortKiller`, `ColorPicker`, `DevTools`, `ScreenOCR`, `CleanLock`, and `AudioGuard`).

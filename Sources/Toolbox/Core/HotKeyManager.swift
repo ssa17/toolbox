@@ -210,6 +210,12 @@ final class HotKeyManager: ObservableObject {
            config.clipboard.shortcut == shortcut {
             matches.append("Clipboard History")
         }
+        if excludingSourceID != "port_killer",
+           config.portKiller.enabled,
+           !config.portKiller.shortcut.isEmpty,
+           config.portKiller.shortcut == shortcut {
+            matches.append("Port Killer")
+        }
         if excludingSourceID != "keep_awake",
            config.keepAwake.enabled,
            !config.keepAwake.shortcut.isEmpty,
@@ -249,6 +255,11 @@ final class HotKeyManager: ObservableObject {
            config.clipboard.enabled,
            config.clipboard.shortcut == shortcut {
             config.clipboard.shortcut = .none
+        }
+        if excludingSourceID != "port_killer",
+           config.portKiller.enabled,
+           config.portKiller.shortcut == shortcut {
+            config.portKiller.shortcut = .none
         }
         if excludingSourceID != "keep_awake",
            config.keepAwake.enabled,
@@ -317,7 +328,14 @@ final class HotKeyManager: ObservableObject {
         ShortcutSpec(key: "q", modifiers: [.control, .command]): "Lock Screen",
         ShortcutSpec(key: "h", modifiers: [.command]): "Hide Active Application",
         ShortcutSpec(key: "h", modifiers: [.command, .option]): "Hide Other Applications",
-        ShortcutSpec(key: "m", modifiers: [.command]): "Minimize Window"
+        ShortcutSpec(key: "m", modifiers: [.command]): "Minimize Window",
+        ShortcutSpec(key: "d", modifiers: [.command, .option]): "Toggle Dock Hiding",
+        ShortcutSpec(key: "m", modifiers: [.command, .option]): "Minimize All Windows",
+        ShortcutSpec(key: "l", modifiers: [.command, .option]): "Downloads / Format Code",
+        ShortcutSpec(key: "p", modifiers: [.command, .option]): "Toggle Path Bar (Finder)",
+        ShortcutSpec(key: "b", modifiers: [.command, .option]): "Toggle Bookmarks Bar",
+        ShortcutSpec(key: "i", modifiers: [.command, .option]): "Inspector / DevTools",
+        ShortcutSpec(key: "c", modifiers: [.command, .option]): "DevTools Console / Copy Path"
     ]
 
     private static let alwaysReservedSystemShortcuts: Set<ShortcutSpec> = [

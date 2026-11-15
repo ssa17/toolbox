@@ -31,9 +31,11 @@ enum SelfTestRunner {
         testDockMinimizeWindowsBehaviorAndPreFilter()
         testUpdateManagerAndCustomDialog()
         testMenuBarCustomizationOrderAndVisibility()
+        testPortScannerParsersAndElevatedMerge()
+        testPortKillerSafetyAndLiveLoopbackListener()
 
         if failures.isEmpty {
-            print("All 19 self-test suites passed.")
+            print("All 21 self-test suites passed.")
             return 0
         } else {
             for f in failures {
@@ -373,13 +375,13 @@ enum SelfTestRunner {
         win.layoutIfNeeded()
         expect(win.acceptsMouseMovedEvents, "Dashboard NSWindow must accept mouse moved events so hover cursors reset outside clickable items")
         if let rootView = win.contentView?.superview ?? win.contentView {
-            // 1. Blank areas on the page (e.g. header banner, padding, bottom-right empty quadrant) must NOT match PointerCursorNSView.
+            // 1. Blank areas on the page (e.g. header banner, bottom margin below grid) must NOT match PointerCursorNSView.
             let emptyBannerPt = NSPoint(x: 500, y: 650)
-            let emptyBottomRightPt = NSPoint(x: 800, y: 120)
+            let emptyBottomMarginPt = NSPoint(x: 500, y: 16)
             expect(!PointerCursorNSView.containsPointerCursorView(in: rootView, atWindowPoint: emptyBannerPt),
                    "Blank header area on Dashboard must not trigger pointingHand cursor")
-            expect(!PointerCursorNSView.containsPointerCursorView(in: rootView, atWindowPoint: emptyBottomRightPt),
-                   "Empty bottom-right Dashboard area must not trigger pointingHand cursor")
+            expect(!PointerCursorNSView.containsPointerCursorView(in: rootView, atWindowPoint: emptyBottomMarginPt),
+                   "Empty bottom margin on Dashboard must not trigger pointingHand cursor")
 
             // 2. Clickable toolbar sidebar toggle and sidebar Dashboard item must match PointerCursorNSView.
             let toolbarBtnPt = NSPoint(x: 104, y: 734)
@@ -440,7 +442,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(cfg),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.scrollDirection == cfg.scrollDirection, "ScrollDirectionConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 3, "ToolboxConfig schemaVersion should be 3")
+            expect(decoded.schemaVersion == 4, "ToolboxConfig schemaVersion should be 4")
         } else {
             failures.append("ToolboxConfig Codable encode/decode failed")
         }
@@ -672,7 +674,7 @@ enum SelfTestRunner {
     private static func testMenuBarCustomizationOrderAndVisibility() {
         var cfg = ToolboxConfig()
         let registry = ModuleRegistry.shared
-        let expectedDefaultOrder = ["dock_minimize", "clipboard", "keep_awake", "custom_commands", "scroll_direction"]
+        let expectedDefaultOrder = ["dock_minimize", "clipboard", "port_killer", "keep_awake", "custom_commands", "scroll_direction"]
 
         expect(!cfg.general.hasCustomMenuBarLayout, "Default config should not report custom menu bar layout")
         expect(cfg.general.showQuickActionsInMenuBar, "Quick actions should be shown in menu bar by default")
@@ -683,32 +685,32 @@ enum SelfTestRunner {
         )
         expect(
             registry.visibleMenuBarModules(for: cfg).map(\.id) == expectedDefaultOrder,
-            "All 5 modules should be visible in menu bar by default"
+            "All 6 modules should be visible in menu bar by default"
         )
 
         cfg.general.moveModuleInMenuBar(id: "keep_awake", direction: -1)
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["dock_minimize", "keep_awake", "clipboard", "custom_commands", "scroll_direction"],
-            "Moving keep_awake up by 1 should place it before clipboard"
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["dock_minimize", "clipboard", "keep_awake", "port_killer", "custom_commands", "scroll_direction"],
+            "Moving keep_awake up by 1 should place it before port_killer"
         )
         expect(cfg.general.hasCustomMenuBarLayout, "Reordering should mark hasCustomMenuBarLayout = true")
 
         cfg.general.moveModuleInMenuBar(fromId: "scroll_direction", toId: "dock_minimize")
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "dock_minimize", "keep_awake", "clipboard", "custom_commands"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "dock_minimize", "clipboard", "keep_awake", "port_killer", "custom_commands"],
             "Dragging scroll_direction to dock_minimize should place it first"
         )
 
         cfg.general.setModuleVisibleInMenuBar("dock_minimize", visible: false)
         expect(
-            registry.visibleMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "keep_awake", "clipboard", "custom_commands"],
+            registry.visibleMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "clipboard", "keep_awake", "port_killer", "custom_commands"],
             "Hiding dock_minimize from menu bar should omit it from visibleMenuBarModules"
         )
         expect(cfg.dockMinimize.enabled, "Hiding dock_minimize from status bar menu must not disable the module itself")
 
         cfg.general.menuBarModuleOrder = ["keep_awake", "keep_awake", "unknown_id"]
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["keep_awake", "dock_minimize", "clipboard", "custom_commands", "scroll_direction"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["keep_awake", "dock_minimize", "clipboard", "port_killer", "custom_commands", "scroll_direction"],
             "Partial or unknown menuBarModuleOrder must normalize with remaining registered modules and no duplicates"
         )
 
@@ -720,5 +722,169 @@ enum SelfTestRunner {
         expect(!cfg.general.hasCustomMenuBarLayout, "resetMenuBarLayout must clear custom layout state")
         expect(registry.visibleMenuBarModules(for: cfg).map(\.id) == expectedDefaultOrder, "resetMenuBarLayout must restore default visible modules")
         expect(cfg.general.showQuickActionsInMenuBar && cfg.general.showQuickCommandsInMenuBar, "resetMenuBarLayout must restore quick actions & quick commands")
+    }
+
+    private static func testPortScannerParsersAndElevatedMerge() {
+        let syntheticLsof = """
+        p1234
+        cnode
+        u501
+        f19
+        n127.0.0.1:3000
+        f20
+        n[::1]:3000
+        f21
+        n127.0.0.1:9229
+        p5678
+        cpython3.11
+        u501
+        f5
+        n*:8080
+        """
+
+        let syntheticNetstat = """
+        Active Internet connections (including servers)
+        Proto Recv-Q Send-Q  Local Address          Foreign Address        (state)          rxbytes      txbytes  rhiwat  shiwat          process:pid    state
+        tcp4       0      0  127.0.0.1.3000         *.*                    LISTEN                 0            0  131072  131072             node:1234   00100
+        tcp6       0      0  ::1.3000               *.*                    LISTEN                 0            0  131072  131072             node:1234   00100
+        tcp4       0      0  *.80                   *.*                    LISTEN                 0            0  131072  131072            nginx:412    00100
+        tcp4       0      0  127.0.0.1.49401        *.*                    LISTEN                 0            0  131072  131072 Antigravity Help:1616   00100
+        tcp4       0      0  127.0.0.1.8000         127.0.0.1.51603        ESTABLISHED          760         2122  408000  146988       python3.11:1384   00102
+        """
+
+        let lsofRecs = PortScanner.parseLsofOutput(syntheticLsof)
+        let netstatRecs = PortScanner.parseNetstatOutput(syntheticNetstat)
+
+        expect(lsofRecs.count == 4, "Expected 4 lsof socket records, got \(lsofRecs.count)")
+        expect(netstatRecs.count == 4, "Expected 4 netstat LISTEN records (ignoring ESTABLISHED), got \(netstatRecs.count)")
+        expect(netstatRecs.contains(where: { $0.pid == 1616 && $0.command == "Antigravity Help" && $0.port == 49401 }), "netstat parser should preserve spaces in process names")
+
+        let merged = PortScanner.mergeAndDeduplicate(
+            lsofRecords: lsofRecs,
+            netstatRecords: netstatRecs,
+            currentUID: 501
+        ) { pid in
+            if pid == 412 {
+                return ProcessMetadata(command: "nginx", uid: 0, executablePath: "/opt/homebrew/bin/nginx", workingDirectory: "/etc/nginx")
+            }
+            if pid == 1234 {
+                return ProcessMetadata(command: "node", uid: 501, executablePath: "/usr/local/bin/node", workingDirectory: "/Users/dev/myapp")
+            }
+            return ProcessMetadata(command: nil, uid: nil, executablePath: nil, workingDirectory: nil)
+        }
+
+        // Expect: 412:80, 1234:3000 (deduped), 5678:8080, 1234:9229, 1616:49401 -> 5 entries
+        expect(merged.count == 5, "Expected 5 deduplicated entries, got \(merged.count)")
+
+        if let node3000 = merged.first(where: { $0.pid == 1234 && $0.port == 3000 }) {
+            expect(node3000.addresses == ["127.0.0.1", "[::1]"], "Dual-stack node:3000 should collapse IPv4+IPv6: \(node3000.addresses)")
+            expect(node3000.bindDisplay == "localhost (IPv4 + IPv6)", "bindDisplay mismatch: \(node3000.bindDisplay)")
+            expect(!node3000.requiresElevation, "Same-UID process must not require elevation")
+            expect(node3000.cwdBasename == "myapp", "cwdBasename mismatch: \(node3000.cwdBasename ?? "nil")")
+        } else {
+            failures.append("Missing merged entry for node:3000")
+        }
+
+        expect(merged.contains(where: { $0.pid == 1234 && $0.port == 9229 }), "Multi-port process should keep distinct (pid, port) entries")
+
+        if let nginx80 = merged.first(where: { $0.pid == 412 && $0.port == 80 }) {
+            expect(nginx80.requiresElevation, "Root-owned nginx:80 must be marked requiresElevation = true")
+            expect(nginx80.ownerLabel == "root", "Root-owned nginx:80 ownerLabel should be 'root'")
+            expect(!nginx80.seenInLsof, "Root-owned nginx:80 was surfaced via netstat, not lsof")
+            expect(!nginx80.isSystemDaemon, "Root dev server nginx must not be hidden as an Apple system daemon")
+        } else {
+            failures.append("Missing root-owned nginx:80 entry from netstat merge")
+        }
+    }
+
+    private static func testPortKillerSafetyAndLiveLoopbackListener() {
+        expect(!PortKillerModule.validateKillTarget(pid: 0), "Must refuse PID 0")
+        expect(!PortKillerModule.validateKillTarget(pid: 1), "Must refuse PID 1 (launchd)")
+        expect(!PortKillerModule.validateKillTarget(pid: -1), "Must refuse negative PID")
+        expect(!PortKillerModule.validateKillTarget(pid: ProcessInfo.processInfo.processIdentifier), "Must refuse self PID")
+        expect(PortKillerModule.validateKillTarget(pid: 999_999), "Should allow normal non-self PID > 1")
+
+        let module = PortKillerModule()
+        let panel = module.ensurePanel()
+        expect(!panel.hidesOnDeactivate, "PortKiller nonactivatingPanel must set hidesOnDeactivate = false")
+        expect(panel.acceptsMouseMovedEvents, "PortKiller panel must accept mouse moved events for hover tooltips and cursors")
+        expect(
+            panel.contentView?.subviews.contains(where: { $0 is PointerCursorHostingView<PortKillerPopoverView> }) == true,
+            "PortKiller panel must use PointerCursorHostingView to preserve hover cursors across layout and cursorUpdate"
+        )
+
+        // Verify PortKillerTooltipState respects 0.5s delay and exit-after-enter race protection
+        let tipState = PortKillerTooltipState()
+        var presented: HoverTooltipTarget?
+        tipState.onPresent = { presented = $0 }
+        tipState.setTooltip(HoverTooltipTarget(id: "btnA", text: "A", screenRect: CGRect(x: 10, y: 10, width: 20, height: 20)))
+        expect(presented == nil, "Tooltip must wait 0.5s before presenting")
+        tipState.setTooltip(HoverTooltipTarget(id: "btnB", text: "B", screenRect: CGRect(x: 40, y: 10, width: 20, height: 20)))
+        tipState.setTooltip(nil, clearingID: "btnA") // Delayed exit from A must NOT cancel B
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.6))
+        expect(presented?.id == "btnB", "Delayed exit for previous control must not cancel newer hovered tooltip")
+        tipState.setTooltip(nil)
+        expect(presented == nil, "Clearing tooltip state must hide presented tooltip")
+
+        // Verify tooltip presents in an ignoresMouseEvents child NSPanel without mutating the popover hosting view
+        panel.setFrame(NSRect(x: -5000, y: -5000, width: 400, height: 400), display: true)
+        panel.orderFrontRegardless()
+        let hostingView = panel.contentView?.subviews.first { $0 is PointerCursorHostingView<PortKillerPopoverView> }
+        let hostingSubviewsBefore = hostingView?.subviews.count ?? -1
+        module.updateTooltipPanel(
+            with: HoverTooltipTarget(
+                id: "test.tip",
+                text: "Graceful Stop (SIGTERM)",
+                screenRect: CGRect(x: -4720, y: -4760, width: 44, height: 20)
+            ),
+            requireMouseInside: false
+        )
+        let tipPanel = module.tooltipPanel
+        expect(tipPanel != nil, "Tooltip must allocate a dedicated child NSPanel")
+        expect(tipPanel?.ignoresMouseEvents == true, "Tooltip panel must ignore mouse events so hover stays on button")
+        expect(tipPanel?.parent === panel, "Tooltip panel must attach as a child window of the popover panel")
+        expect((hostingView?.subviews.count ?? -1) == hostingSubviewsBefore, "Presenting tooltip must not mutate popover hosting view")
+        module.updateTooltipPanel(with: nil)
+        expect(tipPanel?.parent == nil && tipPanel?.isVisible == false, "Clearing tooltip must detach and hide child panel")
+        panel.orderOut(nil)
+
+        // Bind a real ephemeral TCP loopback socket and verify PortScanner detects it live
+        let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        expect(fd >= 0, "Should create test loopback socket")
+        guard fd >= 0 else { return }
+        defer { Darwin.close(fd) }
+
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = 0
+        addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+
+        let bindResult = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { saPtr in
+                Darwin.bind(fd, saPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        expect(bindResult == 0, "Should bind test loopback socket to 127.0.0.1:0")
+        expect(Darwin.listen(fd, 1) == 0, "Should listen on test loopback socket")
+
+        var boundAddr = sockaddr_in()
+        var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let nameResult = withUnsafeMutablePointer(to: &boundAddr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { saPtr in
+                Darwin.getsockname(fd, saPtr, &len)
+            }
+        }
+        expect(nameResult == 0, "getsockname should succeed")
+        let assignedPort = Int(UInt16(bigEndian: boundAddr.sin_port))
+        expect(assignedPort > 0, "Assigned ephemeral port should be > 0")
+
+        let scannedPorts = PortScanner.scanListeningPortsSync()
+
+        let selfPID = ProcessInfo.processInfo.processIdentifier
+        expect(
+            scannedPorts.contains(where: { $0.pid == selfPID && $0.port == assignedPort }),
+            "Live PortScanner.scanListeningPortsSync() should detect self PID \(selfPID) listening on :\(assignedPort)"
+        )
     }
 }
