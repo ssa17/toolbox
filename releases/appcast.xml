@@ -3,29 +3,27 @@
     <channel>
         <title>Toolbox</title>
         <item>
-            <title>1.1</title>
-            <pubDate>Sun, 15 Nov 2026 16:45:42 +0000</pubDate>
-            <sparkle:version>1.1</sparkle:version>
-            <sparkle:shortVersionString>1.1</sparkle:shortVersionString>
+            <title>1.2</title>
+            <pubDate>Sun, 15 Nov 2026 23:02:57 +0000</pubDate>
+            <sparkle:version>1.2</sparkle:version>
+            <sparkle:shortVersionString>1.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <description sparkle:format="markdown"><![CDATA[
 ### Added
-- **Port Killer (`⌃ ⌥ ⌘ P`)** — inspect active listening TCP ports, pin favorite dev ports, and stop or force-kill stuck servers in one click with macOS authorization when needed
-- **Status Bar Menu** — choose which features, quick actions, and custom commands appear in the menu-bar popover, and reorder features in Settings
-- Global toggle shortcuts for **Dock Click to Minimize** and **Scroll Direction**, plus `⌘ 1`–`⌘ 9` quick-paste in the Clipboard History popover
-- **Developer Tools** — hidden PIN-gated workspace in Settings & About for simulating software updates and release notes, testing toasts and Accessibility states, monitoring live module events and window order, testing global hotkeys and config diffs, and verifying code signing and Gatekeeper health
+- **Call Controls (`⌃ ⌥ ⌘ M` / `⌃ ⌥ ⌘ V`)** — unified global Mic and Video shortcuts that mute your system microphone and control FaceTime, Microsoft Teams, Zoom, Slack, Google Meet, Discord, or custom call apps, paired with a draggable floating Mic/Camera status pill, output device cycling, and auto-mute while typing
+- **Clean Lock** — temporarily lock your keyboard (including media, volume, and brightness keys) and mouse/trackpad input for `10s`–`3m` with a center-screen countdown and `Hold ⌃ ⌥ ⌘ Esc (3s)` emergency unlock
+- **Clipboard History** — keep recent unpinned clipboard items across restarts by default, with a toggle in Privacy & Cleanup
+- **Developer Tools** — added live background update schedule diagnostics and a Call Controls simulation and telemetry workspace
 
 ### Changed
-- Inline click-to-record shortcut controls across all modules with F-key and arrow-key support, clear/reset buttons, and one-click conflict resolution
-- Streamlined **Custom Commands** layout with compact expandable rows, a collapsible builder, top-positioned output, and a menu-bar toggle
+- Expanded the **Dashboard** module grid up to 3 columns on wider windows and standardized **HUD Toast** height across all status icons
 
 ### Fixed
-- Confined the **Scroll Direction** test pad to the sample list bounds so scrolling elsewhere on the settings page works normally
-- Centered the software update dialog cleanly over the Toolbox window across all download and install stages
+- Stabilized the Call Controls floating pill position when toggling Mic or Camera and fixed a crash when closing the pill
 
 ]]></description>
-            <enclosure url="https://github.com/ssa17/toolbox/releases/download/v1.1/Toolbox-1.1.zip" length="3663112" type="application/octet-stream" sparkle:edSignature="5L02mTLoknUHUsrg6z7PJk2dynJoFqWA8tfzl2/7Wy6b+YG9JbhmFfREIhGKk6NVCYartcW2OZRskrRsJHemDQ=="/>
+            <enclosure url="https://github.com/ssa17/toolbox/releases/download/v1.2/Toolbox-1.2.zip" length="4464534" type="application/octet-stream" sparkle:edSignature="E6CBA/cW3BgJr3ky7VBkcnhbzGSE3udKhkdgPc79IDTGcahdBtiobMRLda8yrekq8wGNd8qVaNI7Q0scAzkWAQ=="/>
         </item>
     </channel>
 </rss>
