@@ -4,21 +4,21 @@
         <title>Toolbox</title>
         <item>
             <title>1.0</title>
-            <pubDate>Sat, 14 Nov 2026 23:52:50 +0000</pubDate>
+            <pubDate>Sun, 15 Nov 2026 00:07:39 +0000</pubDate>
             <sparkle:version>1.0</sparkle:version>
             <sparkle:shortVersionString>1.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <description sparkle:format="markdown"><![CDATA[
-### Added
+            <description sparkle:format="markdown"><![CDATA[### Added
 - **Dock Click to Minimize** — click the active app's Dock icon to hide its windows Windows-style (without cluttering the minimized Dock tray) and click again to bring them straight back, plus send-to-back and minimize modes
 - **Clipboard History (`⌘ ⌥ V`)** — searchable floating clipboard dropdown with keyboard navigation, pinning, custom labels, password-manager filtering, and optional auto-paste
 - **Keep Awake (`⌘ ⌥ K`)** — reads `pmset` display sleep timing and nudges the cursor just before sleep and/or holds an IOKit power assertion for a quick timer or indefinitely
 - **Scroll Direction** — flip classic wheel-mouse scroll direction without touching trackpad or high-resolution scrolling
 - **Custom Commands** — bind global shortcuts to shell scripts, apps, URLs, or text snippets with optional toast feedback
 - **Menu-bar quick popover & JSON Config** — toggle Toolbox or individual modules, trigger actions from the menu bar, and edit `~/.config/toolbox/config.json` with live reload
+- **Inline update checker & custom update dialog** — silent inline progress bar, version badge, and last-checked timestamp in Settings, paired with a dark update dialog and persistent indicators across the sidebar, dashboard strip, and menu bar when a release is available
 ]]></description>
-            <enclosure url="https://github.com/ssa17/toolbox/releases/download/v1.0/Toolbox-1.0.zip" length="2662844" type="application/octet-stream" sparkle:edSignature="E0wew2trCq+FOTJ71Qc7YMYtJUIoPpHVGZJrVz0MhjQlcK84gV23vngnHxYH3N0tNdPbVj623veNy/QW7V2ABg=="/>
+            <enclosure url="https://github.com/ssa17/toolbox/releases/download/v1.0/Toolbox-1.0.zip" length="2765297" type="application/octet-stream" sparkle:edSignature="6UCyN0yT84Q5t0eSb3WAtqF9GmlfKAT47CBPvztRB1YpY4+mKYygZtuNrcMOmwh/HA+hzKjseKppZtZkurAiAw=="/>
         </item>
     </channel>
 </rss>

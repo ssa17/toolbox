@@ -57,6 +57,18 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         updateHostedViewSize()
         contentMenuItem.view = containerView
         menu.addItem(contentMenuItem)
+
+        NotificationCenter.default.addObserver(
+            forName: .toolboxWillPresentUpdateWindow,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.keepAppActiveOnClose = true
+                self.closeMenu()
+            }
+        }
     }
 
     func setVisible(_ visible: Bool, isActive: Bool = true) {
@@ -248,6 +260,7 @@ struct MenuBarPopoverView: View {
     @ObservedObject private var registry = ModuleRegistry.shared
     @ObservedObject private var keepAwake = ModuleRegistry.shared.keepAwake
     @ObservedObject private var clipboard = ModuleRegistry.shared.clipboard
+    @ObservedObject private var updateManager = UpdateManager.shared
     @StateObject private var headerHover = MenuBarHeaderHoverState()
 
     let onOpenDashboard: (SidebarDestination) -> Void
@@ -324,6 +337,14 @@ struct MenuBarPopoverView: View {
                                         lineWidth: 0.75
                                     )
                             )
+                            .overlay(alignment: .topTrailing) {
+                                if updateManager.pendingUpdateVersion != nil {
+                                    Circle()
+                                        .fill(Color.blue)
+                                        .frame(width: 7, height: 7)
+                                        .offset(x: 2, y: -2)
+                                }
+                            }
                             .contentShape(RoundedRectangle(cornerRadius: 7))
                     }
                     .buttonStyle(.plain)
@@ -516,25 +537,58 @@ struct MenuBarPopoverView: View {
             Divider()
 
             HStack(spacing: 8) {
-                Button {
-                    onClosePopover(true)
-                    UpdateManager.shared.checkForUpdates()
-                } label: {
-                    Label("Check for Updates", systemImage: "arrow.triangle.2.circlepath")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
+                if let pendingVer = updateManager.pendingUpdateVersion {
+                    Button {
+                        onClosePopover(true)
+                        updateManager.checkForUpdates()
+                    } label: {
+                        Label("Update to v\(pendingVer)…", systemImage: "arrow.down.circle.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
+                            .background(Color.blue, in: RoundedRectangle(cornerRadius: 7))
+                            .contentShape(RoundedRectangle(cornerRadius: 7))
+                    }
+                    .buttonStyle(.plain)
+                    .focusEffectDisabled()
+                    .pointerCursor()
+                } else {
+                    Button {
+                        updateManager.checkForUpdates()
+                    } label: {
+                        VStack(spacing: 0) {
+                            Label(
+                                updateManager.isChecking ? "Checking…" : "Check for Updates",
+                                systemImage: "arrow.triangle.2.circlepath"
+                            )
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(updateManager.lastCheckFailed ? .orange : .primary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
+
+                            if updateManager.isChecking || updateManager.checkProgress > 0 {
+                                GeometryReader { proxy in
+                                    Capsule()
+                                        .fill(Color.blue)
+                                        .frame(width: max(8, proxy.size.width * min(1.0, updateManager.checkProgress)), height: 2)
+                                }
+                                .frame(height: 2)
+                            }
+                        }
                         .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 7))
                         .overlay(
                             RoundedRectangle(cornerRadius: 7)
                                 .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.75)
                         )
+                        .clipShape(RoundedRectangle(cornerRadius: 7))
                         .contentShape(RoundedRectangle(cornerRadius: 7))
+                    }
+                    .buttonStyle(.plain)
+                    .focusEffectDisabled()
+                    .disabled(updateManager.isChecking)
+                    .pointerCursor(!updateManager.isChecking)
                 }
-                .buttonStyle(.plain)
-        .focusEffectDisabled()
-                .pointerCursor()
 
                 Button {
                     AppDelegate.terminateNow()

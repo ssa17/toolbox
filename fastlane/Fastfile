@@ -127,12 +127,20 @@ lane :release do
   # ── GitHub Release (upload DMG + zip) ───────────────────────────
   UI.message "--- Publishing GitHub Release #{tag} ---"
   if system("gh auth status >/dev/null 2>&1")
-    sh("gh release create '#{tag}' " +
-       "'#{OUTPUT_DIR}/#{APP_NAME}.dmg' " +
-       "'#{zip_path}' " +
-       "--title '#{APP_NAME} #{version}' " +
-       "--notes 'Download the .dmg to install, or let Sparkle auto-update.'")
-    UI.success "Published #{tag}"
+    if system("gh release view '#{tag}' >/dev/null 2>&1")
+      sh("gh release upload '#{tag}' " +
+         "'#{OUTPUT_DIR}/#{APP_NAME}.dmg' " +
+         "'#{zip_path}' " +
+         "--clobber")
+      UI.success "Updated assets on #{tag}"
+    else
+      sh("gh release create '#{tag}' " +
+         "'#{OUTPUT_DIR}/#{APP_NAME}.dmg' " +
+         "'#{zip_path}' " +
+         "--title '#{APP_NAME} #{version}' " +
+         "--notes 'Download the .dmg to install, or let Sparkle auto-update.'")
+      UI.success "Published #{tag}"
+    end
   else
     UI.warn "⚠️  Not authenticated to GitHub (run: gh auth login)."
     UI.warn "    Skipping the release. The DMG + zip are in build/."

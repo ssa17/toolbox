@@ -29,9 +29,10 @@ enum SelfTestRunner {
         testScrollInversionClassificationAndInversion()
         testScrollDirectionModuleLifecycleAndRegistry()
         testDockMinimizeWindowsBehaviorAndPreFilter()
+        testUpdateManagerAndCustomDialog()
 
         if failures.isEmpty {
-            print("All 17 self-test suites passed.")
+            print("All 18 self-test suites passed.")
             return 0
         } else {
             for f in failures {
@@ -544,5 +545,67 @@ enum SelfTestRunner {
                "Bottom Dock edge on offset secondary display should pass pre-filter")
         expect(!DockMinimizeModule.isPointNearDockEdge(CGPoint(x: 2000, y: 110), inDisplayBounds: secondaryBounds),
                "Top menu bar on offset secondary display must be rejected")
+    }
+
+    private static func testUpdateManagerAndCustomDialog() {
+        expect(UpdateManager.isNewerVersion("1.1", than: "1.0"), "1.1 should be newer than 1.0")
+        expect(UpdateManager.isNewerVersion("1.10", than: "1.9"), "1.10 should be newer than 1.9 numerically")
+        expect(!UpdateManager.isNewerVersion("1.0", than: "1.0"), "Equal versions must not count as newer")
+        expect(!UpdateManager.isNewerVersion("0.9", than: "1.0"), "Older version must not count as newer")
+        expect(UpdateManager.isNewerVersion("1.2", than: "1.2-beta"), "Plain release should supersede suffixed prerelease")
+        expect(!UpdateManager.isNewerVersion("1.2-beta", than: "1.2"), "Prerelease must not supersede plain release")
+
+        let manager = UpdateManager.shared
+        expect(!manager.currentVersion.isEmpty, "UpdateManager.currentVersion must not be empty")
+
+        let baseNow = Date()
+        manager.configureStateForTesting(lastCheckedAt: nil)
+        expect(manager.formattedLastChecked(relativeTo: baseNow) == "Never", "Nil lastCheckedAt must format as Never")
+
+        manager.configureStateForTesting(lastCheckedAt: baseNow.addingTimeInterval(-10))
+        expect(manager.formattedLastChecked(relativeTo: baseNow).hasPrefix("Just now"), "Recent check must format as Just now")
+
+        manager.configureStateForTesting(lastCheckedAt: baseNow.addingTimeInterval(-3600))
+        let hourAgoFormatted = manager.formattedLastChecked(relativeTo: baseNow)
+        expect(hourAgoFormatted.hasPrefix("Today at ") || hourAgoFormatted.hasPrefix("Yesterday at "),
+               "Check from 1h ago formatted unexpectedly: \(hourAgoFormatted)")
+
+        manager.configureStateForTesting(
+            isSparkleAvailable: true,
+            isChecking: true,
+            checkProgress: 0.45,
+            pendingUpdateVersion: nil,
+            lastCheckedAt: baseNow
+        )
+        expect(manager.isChecking && manager.checkProgress == 0.45, "Checking progress state mismatch")
+
+        manager.configureStateForTesting(
+            isSparkleAvailable: true,
+            isChecking: false,
+            checkProgress: 0,
+            pendingUpdateVersion: "1.1",
+            pendingUpdateSizeBytes: 2_500_000,
+            lastCheckedAt: baseNow
+        )
+        expect(manager.pendingUpdateVersion == "1.1", "pendingUpdateVersion mismatch")
+        expect(manager.formattedPendingSize != nil, "formattedPendingSize should format non-zero byte counts")
+
+        let dialog = ToolboxUpdateWindowController()
+        dialog.populatePreviewAvailable(
+            version: "1.1",
+            currentVersion: "1.0",
+            sizeBytes: 2_500_000,
+            notes: "<p><b>New Update</b></p>"
+        )
+        expect(dialog.currentTitleForTesting == "Toolbox v1.1 Available", "Custom update dialog title mismatch")
+        expect(dialog.currentSubtitleForTesting.contains("v1.0"), "Custom update dialog subtitle must include current version")
+        expect(!dialog.window.isVisible, "populatePreviewAvailable must stay offscreen during headless testing")
+
+        manager.configureStateForTesting(
+            isChecking: false,
+            checkProgress: 0,
+            pendingUpdateVersion: nil,
+            lastCheckedAt: nil
+        )
     }
 }

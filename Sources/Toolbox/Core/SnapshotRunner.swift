@@ -70,6 +70,65 @@ enum SnapshotRunner {
             to: outURL.appendingPathComponent("json_config.png")
         )
 
+        let navSettings = NavigationState()
+        navSettings.selection = .settings
+        navSettings.isSidebarVisible = true
+        UpdateManager.shared.configureStateForTesting(
+            isSparkleAvailable: true,
+            isChecking: false,
+            checkProgress: 0,
+            pendingUpdateVersion: nil,
+            lastCheckedAt: Date()
+        )
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navSettings),
+            size: NSSize(width: 940, height: 920),
+            to: outURL.appendingPathComponent("settings_up_to_date.png")
+        )
+
+        UpdateManager.shared.configureStateForTesting(
+            isSparkleAvailable: true,
+            isChecking: true,
+            checkProgress: 0.62,
+            pendingUpdateVersion: nil,
+            lastCheckedAt: Date().addingTimeInterval(-3600)
+        )
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navSettings),
+            size: NSSize(width: 940, height: 940),
+            to: outURL.appendingPathComponent("settings_checking.png")
+        )
+
+        UpdateManager.shared.configureStateForTesting(
+            isSparkleAvailable: true,
+            isChecking: false,
+            checkProgress: 0,
+            pendingUpdateVersion: "1.1",
+            pendingUpdateSizeBytes: 3_420_000,
+            lastCheckedAt: Date()
+        )
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navSettings),
+            size: NSSize(width: 940, height: 980),
+            to: outURL.appendingPathComponent("settings_update_available.png")
+        )
+
+        saveViewSnapshot(
+            MenuBarPopoverView(onOpenDashboard: { _ in }, onClosePopover: { _ in }),
+            size: NSSize(width: 340, height: 470),
+            to: outURL.appendingPathComponent("menubar_update_available.png")
+        )
+
+        saveUpdateDialogSnapshot(to: outURL.appendingPathComponent("update_dialog.png"))
+
+        UpdateManager.shared.configureStateForTesting(
+            isSparkleAvailable: true,
+            isChecking: false,
+            checkProgress: 0,
+            pendingUpdateVersion: nil,
+            lastCheckedAt: nil
+        )
+
         saveViewSnapshot(
             MenuBarPopoverView(onOpenDashboard: { _ in }, onClosePopover: { _ in }),
             size: NSSize(width: 340, height: 470),
@@ -184,6 +243,33 @@ enum SnapshotRunner {
 
         NSGraphicsContext.restoreGraphicsState()
 
+        if let data = rep.representation(using: .png, properties: [:]) {
+            try? data.write(to: url)
+        }
+    }
+
+    private static func saveUpdateDialogSnapshot(to url: URL) {
+        let controller = ToolboxUpdateWindowController()
+        controller.populatePreviewAvailable(
+            version: "1.1",
+            currentVersion: "1.0",
+            sizeBytes: 3_420_000,
+            notes: """
+            <p><b>What's New in Toolbox 1.1</b></p>
+            <ul>
+              <li>Inline Settings update checker with progress bar, version badge, and last checked timestamp.</li>
+              <li>Custom dark update dialog shown only when a new release is ready.</li>
+              <li>Update-available indicators across the sidebar, dashboard banner, and status bar menu.</li>
+            </ul>
+            """
+        )
+        guard let view = controller.window.contentView else { return }
+        view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        NSAppearance(named: .darkAqua)?.performAsCurrentDrawingAppearance {
+            view.cacheDisplay(in: view.bounds, to: rep)
+        }
         if let data = rep.representation(using: .png, properties: [:]) {
             try? data.write(to: url)
         }

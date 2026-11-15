@@ -18,3 +18,4 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 - **Scroll Direction** — flip classic wheel-mouse scroll direction without touching trackpad or high-resolution scrolling
 - **Custom Commands** — bind global shortcuts to shell scripts, apps, URLs, or text snippets with optional toast feedback
 - **Menu-bar quick popover & JSON Config** — toggle Toolbox or individual modules, trigger actions from the menu bar, and edit `~/.config/toolbox/config.json` with live reload
+- **Inline update checker & custom update dialog** — silent inline progress bar, version badge, and last-checked timestamp in Settings, paired with a dark update dialog and persistent indicators across the sidebar, dashboard strip, and menu bar when a release is available

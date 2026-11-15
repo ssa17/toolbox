@@ -167,6 +167,7 @@ struct MainSplitView: View {
     @ObservedObject private var registry = ModuleRegistry.shared
     @ObservedObject private var configManager = ConfigManager.shared
     @ObservedObject private var permissions = PermissionsManager.shared
+    @ObservedObject private var updateManager = UpdateManager.shared
 
     var body: some View {
         HStack(spacing: 0) {
@@ -179,6 +180,10 @@ struct MainSplitView: View {
             }
 
             VStack(spacing: 0) {
+                if let newVer = updateManager.pendingUpdateVersion {
+                    updateAvailableBanner(version: newVer)
+                }
+
                 if navState.selection != .dashboard {
                     detailTopBar
                 }
@@ -322,7 +327,8 @@ struct MainSplitView: View {
                     sidebarConfigItem(
                         title: "Settings & About",
                         symbol: "gearshape",
-                        destination: .settings
+                        destination: .settings,
+                        badge: updateManager.pendingUpdateVersion.map { "v\($0)" }
                     )
                 }
 
@@ -333,7 +339,12 @@ struct MainSplitView: View {
         .background(Color.primary.opacity(0.03))
     }
 
-    private func sidebarConfigItem(title: String, symbol: String, destination: SidebarDestination) -> some View {
+    private func sidebarConfigItem(
+        title: String,
+        symbol: String,
+        destination: SidebarDestination,
+        badge: String? = nil
+    ) -> some View {
         let isSelected = navState.selection == destination
         return Button {
             navState.navigate(to: destination)
@@ -345,6 +356,14 @@ struct MainSplitView: View {
                 Text(title)
                     .font(.callout)
                 Spacer()
+                if let badge {
+                    Text(badge)
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundStyle(isSelected ? Color.accentColor : .white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(isSelected ? Color.white : Color.blue, in: Capsule())
+                }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
@@ -353,6 +372,40 @@ struct MainSplitView: View {
                 in: RoundedRectangle(cornerRadius: 7)
             )
             .foregroundStyle(isSelected ? .white : .primary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusEffectDisabled()
+        .pointerCursor()
+    }
+
+    private func updateAvailableBanner(version: String) -> some View {
+        Button {
+            updateManager.checkForUpdates()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.caption.weight(.bold))
+                Text("Toolbox v\(version) is available - click to review and update")
+                    .font(.caption.weight(.semibold))
+                Spacer(minLength: 8)
+                Text("Update…")
+                    .font(.caption2.weight(.bold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+                    .background(Color.white.opacity(0.22), in: Capsule())
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .frame(height: 30)
+            .frame(maxWidth: .infinity)
+            .background(
+                LinearGradient(
+                    colors: [Color(red: 0.16, green: 0.45, blue: 0.94), Color(red: 0.10, green: 0.36, blue: 0.84)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
