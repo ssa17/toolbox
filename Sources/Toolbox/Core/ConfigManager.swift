@@ -544,6 +544,7 @@ final class ConfigManager: ObservableObject {
             isReloadingFromDisk = false
             lastConfigError = nil
             lastReloadedAt = Date()
+            DeveloperEventLog.shared.record(.config, "Reloaded config.json from disk")
             onConfigChanged?(decoded)
         } catch {
             lastConfigError = "Invalid config.json: \(error.localizedDescription)"
@@ -559,6 +560,7 @@ final class ConfigManager: ObservableObject {
             try data.write(to: configURL, options: .atomic)
             lastConfigError = nil
             lastReloadedAt = Date()
+            DeveloperEventLog.shared.record(.config, "Saved config.json")
         } catch {
             lastConfigError = "Failed to save config.json: \(error.localizedDescription)"
             NSLog("Toolbox: \(lastConfigError ?? "")")

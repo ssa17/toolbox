@@ -33,9 +33,10 @@ enum SelfTestRunner {
         testMenuBarCustomizationOrderAndVisibility()
         testPortScannerParsersAndElevatedMerge()
         testPortKillerSafetyAndLiveLoopbackListener()
+        testDeveloperModeAndSimulations()
 
         if failures.isEmpty {
-            print("All 21 self-test suites passed.")
+            print("All 22 self-test suites passed.")
             return 0
         } else {
             for f in failures {
@@ -886,5 +887,228 @@ enum SelfTestRunner {
             scannedPorts.contains(where: { $0.pid == selfPID && $0.port == assignedPort }),
             "Live PortScanner.scanListeningPortsSync() should detect self PID \(selfPID) listening on :\(assignedPort)"
         )
+    }
+
+    private static func testDeveloperModeAndSimulations() {
+        let suiteName = "com.toolbox.selftest.devmode.\(UUID().uuidString)"
+        guard let testDefaults = UserDefaults(suiteName: suiteName) else {
+            failures.append("Failed to allocate isolated UserDefaults suite")
+            return
+        }
+        defer { testDefaults.removePersistentDomain(forName: suiteName) }
+
+        let devMode = DeveloperModeManager(userDefaults: testDefaults, isSessionOnly: false)
+        expect(!devMode.isUnlocked, "Developer mode must be locked by default")
+        expect(!devMode.isPinPromptPresented, "PIN prompt must be hidden by default")
+        expect(!devMode.stayUnlockedAcrossLaunches, "Session-only unlock should default to false")
+        expect(devMode.unlockProgressHint == nil, "No hint should show before 2 taps")
+
+        expect(!devMode.registerAboutHeaderTap(), "Tap 1 must not trigger PIN prompt")
+        expect(devMode.unlockProgressHint == nil, "Tap 1 must not show hint yet")
+        expect(!devMode.registerAboutHeaderTap(), "Tap 2 must not trigger PIN prompt")
+        expect(devMode.unlockProgressHint == "3 more clicks to enter developer PIN", "Tap 2 hint mismatch: \(devMode.unlockProgressHint ?? "nil")")
+        expect(!devMode.registerAboutHeaderTap(), "Tap 3 must not trigger PIN prompt")
+        expect(!devMode.registerAboutHeaderTap(), "Tap 4 must not trigger PIN prompt")
+        expect(devMode.unlockProgressHint == "1 more click to enter developer PIN", "Tap 4 hint mismatch: \(devMode.unlockProgressHint ?? "nil")")
+        expect(devMode.registerAboutHeaderTap(), "Tap 5 must trigger PIN prompt")
+        expect(devMode.isPinPromptPresented, "Tap 5 should present PIN prompt")
+        expect(!devMode.isUnlocked, "Tap 5 must NOT bypass the PIN gate")
+        expect(devMode.unlockProgressHint == nil, "Hint must clear once PIN prompt triggers")
+
+        // Verify PIN validation, brute-force rate limiting, and cooldown recovery
+        expect(!devMode.verifyPIN("0000") && devMode.verifyPIN("1708"), "PIN verification mismatch")
+        let t0 = Date()
+        expect(devMode.submitPIN("1111", now: t0) == .wrongPin(remainingAttempts: 4), "Attempt 1 wrong PIN mismatch")
+        expect(devMode.submitPIN("2222", now: t0) == .wrongPin(remainingAttempts: 3), "Attempt 2 wrong PIN mismatch")
+        expect(devMode.submitPIN("3333", now: t0) == .wrongPin(remainingAttempts: 2), "Attempt 3 wrong PIN mismatch")
+        expect(devMode.submitPIN("4444", now: t0) == .wrongPin(remainingAttempts: 1), "Attempt 4 wrong PIN mismatch")
+        expect(devMode.submitPIN("5555", now: t0) == .lockedOut(remainingSeconds: 15), "Attempt 5 should trigger 15s lockout")
+        expect(devMode.submitPIN("1708", now: t0.addingTimeInterval(2)) == .lockedOut(remainingSeconds: 13), "Even correct PIN must be blocked during lockout")
+        expect(!devMode.isUnlocked, "Must stay locked during cooldown")
+
+        expect(devMode.submitPIN("1708", now: t0.addingTimeInterval(16)) == .unlocked, "Correct PIN after cooldown should unlock")
+        expect(devMode.isUnlocked && !devMode.isPinPromptPresented, "Unlock should dismiss PIN prompt")
+
+        // Session-only by default (does not persist unless opt-in is enabled)
+        let sessionReload = DeveloperModeManager(userDefaults: testDefaults, isSessionOnly: false)
+        expect(!sessionReload.isUnlocked, "Developer mode must re-lock across launches by default")
+
+        // Opt-in persistent unlock
+        devMode.stayUnlockedAcrossLaunches = true
+        let persistedReload = DeveloperModeManager(userDefaults: testDefaults, isSessionOnly: false)
+        expect(persistedReload.isUnlocked, "Developer mode should persist when stayUnlockedAcrossLaunches is enabled")
+        persistedReload.lock()
+        let postLockReload = DeveloperModeManager(userDefaults: testDefaults, isSessionOnly: false)
+        expect(!postLockReload.isUnlocked, "Explicit lock() must require PIN on next launch")
+
+        // Developer sections, presets, and release notes templates
+        expect(DeveloperSection.allCases.count == 5, "Expected 5 DeveloperSection cases")
+        expect(
+            UpdateSimulationPreset.allCases.allSatisfy { !$0.summary.isEmpty },
+            "All UpdateSimulationPreset cases should have non-empty summaries"
+        )
+        devMode.selectedReleaseNotesPreset = .longScrollable
+        expect(
+            devMode.effectiveReleaseNotesHTML(for: "2.0.0").contains("Bug Fixes &amp; Hardening"),
+            "Long release notes preset should populate extended changelog HTML"
+        )
+        devMode.selectedErrorPreset = .eddsaSignatureInvalid
+        expect(
+            devMode.simulatedUpdateError.contains("SUPublicEDKey"),
+            "Selecting UpdateErrorPreset should update simulatedUpdateError"
+        )
+        devMode.selectedErrorPreset = .networkTimeout
+        devMode.selectedReleaseNotesPreset = .standard
+
+        // Navigation pruning when locking
+        let nav = NavigationState()
+        nav.navigate(to: .settings)
+        nav.navigate(to: .developer(.eventsAndTaps))
+        nav.navigate(to: .developer(.hotKeysAndConfig))
+        expect(nav.selection == .developer(.hotKeysAndConfig), "NavigationState should allow .developer subsections")
+        nav.pruneDeveloperDestinations(fallback: .settings)
+        expect(nav.selection == .settings, "pruneDeveloperDestinations should navigate away from .developer destinations")
+        expect(
+            !nav.history.contains {
+                if case .developer = $0 { return true }
+                return false
+            },
+            "pruneDeveloperDestinations should remove all .developer destinations from history"
+        )
+
+        // UpdateManager simulation presets
+        let updateMgr = UpdateManager.shared
+        updateMgr.applySimulationPreset(.updateAvailable, version: "2.4.0", sizeBytes: 4_200_000)
+        expect(updateMgr.isSimulatingState, "isSimulatingState should be true during preset simulation")
+        expect(updateMgr.activeSimulationPreset == .updateAvailable, "activeSimulationPreset mismatch")
+        expect(updateMgr.pendingUpdateVersion == "2.4.0", "Simulated pendingUpdateVersion mismatch")
+        expect(updateMgr.pendingReleaseNotesHTML?.contains("Toolbox v2.4.0") == true, "Simulated release notes should reference simulated version")
+
+        updateMgr.applySimulationPreset(.checking)
+        expect(updateMgr.isChecking && updateMgr.checkProgress == 0.62, "Checking preset should hold at 62%")
+
+        updateMgr.applySimulationPreset(.checkFailed, errorMessage: "Simulated timeout")
+        expect(updateMgr.lastCheckFailed && updateMgr.lastCheckError == "Simulated timeout", "Check failed preset mismatch")
+
+        // Update dialog centering over app window and screen fallback
+        let screenVisible = NSRect(x: 0, y: 0, width: 1440, height: 875)
+        let appFrame = NSRect(x: 300, y: 120, width: 960, height: 680)
+        let centeredOnApp = ToolboxUpdateWindowController.centeredOrigin(
+            for: NSSize(width: 468, height: 344),
+            relativeTo: appFrame,
+            within: screenVisible
+        )
+        expect(
+            centeredOnApp.x == 546 && centeredOnApp.y == 288,
+            "Update dialog should center over Toolbox window, got \(centeredOnApp)"
+        )
+        let centeredOnScreen = ToolboxUpdateWindowController.centeredOrigin(
+            for: NSSize(width: 468, height: 196),
+            relativeTo: nil,
+            within: screenVisible
+        )
+        expect(
+            centeredOnScreen.x == 486 && centeredOnScreen.y == 340,
+            "Update dialog should center vertically on screen when main window is closed, got \(centeredOnScreen)"
+        )
+        let clampedOrigin = ToolboxUpdateWindowController.centeredOrigin(
+            for: NSSize(width: 468, height: 344),
+            relativeTo: NSRect(x: 1300, y: 800, width: 400, height: 300),
+            within: screenVisible
+        )
+        expect(
+            clampedOrigin.x == screenVisible.maxX - 468 && clampedOrigin.y == screenVisible.maxY - 344,
+            "Update dialog centering should clamp inside screen visibleFrame, got \(clampedOrigin)"
+        )
+
+        // PermissionsManager UI override
+        let perms = PermissionsManager.shared
+        let liveActual = perms.actualAccessibilityGranted
+        perms.setSimulatedAccessibilityGranted(!liveActual)
+        expect(perms.isAccessibilityGranted == !liveActual, "Simulated accessibility override must update UI state")
+        expect(perms.actualAccessibilityGranted == liveActual, "Simulated accessibility override must not alter actualAccessibilityGranted")
+
+        // Health checks & appcast XML parsing
+        let checks = DeveloperHealthCheckRunner.shared.runAllChecks()
+        expect(checks.count == 10, "Expected 10 preflight health checks, got \(checks.count)")
+        expect(checks.contains(where: { $0.id == "security_hardening" }), "Expected security_hardening health check")
+        expect(checks.contains(where: { $0.id == "login_app_policy" }), "Expected login_app_policy health check")
+        expect(checks.contains(where: { $0.id == "simulation_guard" && $0.severity == .warning }), "Simulation guard check should warn while overrides are active")
+
+        let sampleSpctl = "/Applications/Toolbox.app: accepted\nsource=Notarized Developer ID\norigin=Developer ID Application: Example (TEAMID)"
+        expect(
+            DeveloperHealthCheckRunner.parseGatekeeperSource(from: sampleSpctl) == "Notarized Developer ID",
+            "Gatekeeper source parser mismatch"
+        )
+
+        let sampleAppcast = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+          <channel>
+            <item>
+              <sparkle:shortVersionString>1.3.0</sparkle:shortVersionString>
+              <enclosure url="https://example.com/Toolbox.zip" sparkle:version="1.3.0" />
+            </item>
+          </channel>
+        </rss>
+        """.data(using: .utf8)!
+        let parsedVersions = DeveloperHealthCheckRunner.parseAppcastVersions(from: sampleAppcast)
+        expect(parsedVersions == ["1.3.0"], "Appcast XML version parser mismatch: \(parsedVersions)")
+
+        // Runtime diagnostics snapshot & signing report
+        let diag = RuntimeDiagnosticsSnapshot.capture()
+        let report = diag.formattedReport(healthChecks: checks)
+        let signingReport = diag.formattedSigningReport()
+        expect(!diag.signing.signingIdentifier.isEmpty, "CodeSigningInspection should populate signingIdentifier")
+        expect(!diag.architectureSummary.isEmpty && diag.pid > 0, "RuntimeDiagnosticsSnapshot should populate architecture and PID")
+        expect(!diag.version.isEmpty && report.contains("Toolbox Diagnostics Report") && report.contains("Health Checks:") && report.contains("CDHash:"), "Diagnostics report should include header, CDHash, version, and health checks")
+        expect(signingReport.contains("Toolbox Signing & Packaging Details") && signingReport.contains("Hardened Runtime:"), "Signing report should include hardened runtime and details")
+
+        // Event log ring buffer, filtering, and export
+        let eventLog = DeveloperEventLog.shared
+        eventLog.clear()
+        for idx in 0..<(DeveloperEventLog.maxEntries + 12) {
+            eventLog.record(.dock, "Event \(idx)", detail: idx % 2 == 0 ? "tag-even" : nil)
+        }
+        expect(eventLog.entries.count == DeveloperEventLog.maxEntries, "DeveloperEventLog should cap at \(DeveloperEventLog.maxEntries) entries")
+        expect(eventLog.entries.first?.message == "Event \(DeveloperEventLog.maxEntries + 11)", "DeveloperEventLog should store newest entries first")
+        let filteredEvents = eventLog.filteredEntries(category: .dock, query: "tag-even")
+        expect(!filteredEvents.isEmpty && filteredEvents.allSatisfy { $0.detail == "tag-even" }, "Event log filter mismatch")
+        expect(eventLog.formattedExport(category: .dock, query: "tag-even").contains("Toolbox Event Log"), "Event log export mismatch")
+        eventLog.clear()
+
+        // Config checkpoint, diff, and section reset
+        let checkpointStore = ConfigCheckpointStore.shared
+        var baseCfg = ToolboxConfig()
+        baseCfg.clipboard.maxItems = 50
+        var modifiedCfg = baseCfg
+        modifiedCfg.clipboard.maxItems = 99
+        let diffs = ConfigCheckpointStore.diff(from: baseCfg, to: modifiedCfg)
+        expect(
+            diffs == [ConfigDiffItem(keyPath: "clipboard.maxItems", baselineValue: "50", currentValue: "99")],
+            "Config diff mismatch: \(diffs)"
+        )
+        checkpointStore.saveCheckpoint(from: baseCfg)
+        expect(!checkpointStore.diffsAgainstCheckpoint(current: modifiedCfg).isEmpty, "Checkpoint diff should detect changes")
+        checkpointStore.clearCheckpoint()
+
+        // HotKeyManager snapshot & simulated trigger
+        let hkMgr = HotKeyManager.shared
+        var didFireSimulatedHotKey = false
+        _ = hkMgr.register(name: "dev.self_test.trigger", shortcut: ShortcutSpec.none) {}
+        expect(!hkMgr.registeredHotKeys.contains(where: { $0.name == "dev.self_test.trigger" }), "Empty shortcut should not register")
+        let regOK = hkMgr.register(name: "dev.self_test.trigger", shortcut: ShortcutSpec(key: "F19", modifiers: [.control, .option])) {
+            didFireSimulatedHotKey = true
+        }
+        expect(regOK && hkMgr.registeredHotKeys.contains(where: { $0.name == "dev.self_test.trigger" }), "Registered hotkey should appear in snapshot")
+        expect(hkMgr.simulateTrigger(name: "dev.self_test.trigger") && didFireSimulatedHotKey, "simulateTrigger should invoke registered handler")
+        hkMgr.unregister(name: "dev.self_test.trigger")
+        eventLog.clear()
+
+        // Locking cleans up all simulations
+        devMode.lock()
+        expect(!devMode.isUnlocked, "lock() must disable Developer Tools")
+        expect(!updateMgr.isSimulatingState && updateMgr.pendingUpdateVersion == nil, "lock() must clear UpdateManager simulation")
+        expect(perms.simulatedAccessibilityGranted == nil, "lock() must clear PermissionsManager simulation")
     }
 }

@@ -185,6 +185,72 @@ enum SnapshotRunner {
             to: outURL.appendingPathComponent("dashboard_paused.png")
         )
 
+        configManager.config.general.appEnabled = true
+        DeveloperModeManager.shared.unlock()
+        UpdateManager.shared.applySimulationPreset(.updateAvailable, version: "1.2.0", sizeBytes: 3_565_158)
+
+        let navDevUpdates = NavigationState()
+        navDevUpdates.selection = .developer(.updates)
+        navDevUpdates.isSidebarVisible = true
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navDevUpdates),
+            size: NSSize(width: 940, height: 960),
+            to: outURL.appendingPathComponent("developer_updates.png")
+        )
+
+        let navDevUI = NavigationState()
+        navDevUI.selection = .developer(.uiAndModules)
+        navDevUI.isSidebarVisible = true
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navDevUI),
+            size: NSSize(width: 940, height: 820),
+            to: outURL.appendingPathComponent("developer_ui_modules.png")
+        )
+
+        DeveloperEventLog.shared.clear()
+        DeveloperEventLog.shared.record(.hotkeys, "Triggered hotkey: clipboard.toggle", detail: "⌘⌥V")
+        DeveloperEventLog.shared.record(.dock, "Handled dock click on Safari", detail: "mode: hide_app · wasFrontmost: true")
+        DeveloperEventLog.shared.record(.updates, "Applied update preset: Update Available", detail: "version: 1.2.0")
+        let navDevEvents = NavigationState()
+        navDevEvents.selection = .developer(.eventsAndTaps)
+        navDevEvents.isSidebarVisible = true
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navDevEvents),
+            size: NSSize(width: 940, height: 960),
+            to: outURL.appendingPathComponent("developer_events.png")
+        )
+
+        ConfigCheckpointStore.shared.saveCheckpoint()
+        let navDevHotKeys = NavigationState()
+        navDevHotKeys.selection = .developer(.hotKeysAndConfig)
+        navDevHotKeys.isSidebarVisible = true
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navDevHotKeys),
+            size: NSSize(width: 940, height: 900),
+            to: outURL.appendingPathComponent("developer_hotkeys_config.png")
+        )
+        ConfigCheckpointStore.shared.clearCheckpoint()
+        DeveloperEventLog.shared.clear()
+
+        DeveloperHealthCheckRunner.shared.runAllChecks()
+        let navDevChecks = NavigationState()
+        navDevChecks.selection = .developer(.checksAndDiagnostics)
+        navDevChecks.isSidebarVisible = true
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navDevChecks),
+            size: NSSize(width: 940, height: 1750),
+            to: outURL.appendingPathComponent("developer_checks.png")
+        )
+
+        UpdateManager.shared.clearSimulation()
+        DeveloperModeManager.shared.lock()
+
+        saveViewSnapshot(
+            DeveloperPinPromptView(onUnlocked: {}, onCancel: {}),
+            size: NSSize(width: 360, height: 220),
+            to: outURL.appendingPathComponent("developer_pin_prompt.png")
+        )
+
         renderStatusBarPreview(to: outURL.appendingPathComponent("statusbar_icons.png"))
 
         // Clean up temp config dir created by ConfigManager isolated mode

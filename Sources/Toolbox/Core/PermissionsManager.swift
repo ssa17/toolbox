@@ -6,13 +6,21 @@ final class PermissionsManager: ObservableObject {
     static let shared = PermissionsManager()
 
     @Published private(set) var isAccessibilityGranted: Bool = false
+    @Published private(set) var simulatedAccessibilityGranted: Bool? = nil
     var onAccessibilityChanged: ((Bool) -> Void)?
 
+    private var lastActualAccessibilityGranted: Bool = false
     private var timer: Timer?
     private var activeObserver: NSObjectProtocol?
 
+    var actualAccessibilityGranted: Bool {
+        AXIsProcessTrusted()
+    }
+
     private init() {
-        isAccessibilityGranted = AXIsProcessTrusted()
+        let actual = AXIsProcessTrusted()
+        lastActualAccessibilityGranted = actual
+        isAccessibilityGranted = actual
 
         timer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
@@ -32,11 +40,25 @@ final class PermissionsManager: ObservableObject {
     }
 
     func refresh() {
-        let current = AXIsProcessTrusted()
-        if current != isAccessibilityGranted {
-            isAccessibilityGranted = current
-            onAccessibilityChanged?(current)
+        let actual = AXIsProcessTrusted()
+        let actualChanged = actual != lastActualAccessibilityGranted
+        lastActualAccessibilityGranted = actual
+
+        let effective = simulatedAccessibilityGranted ?? actual
+        if effective != isAccessibilityGranted {
+            isAccessibilityGranted = effective
         }
+
+        if actualChanged {
+            onAccessibilityChanged?(actual)
+        }
+    }
+
+    /// Overrides the UI-reported Accessibility status in-memory for Developer Tools previews.
+    /// Does not modify real macOS TCC trust or background event taps.
+    func setSimulatedAccessibilityGranted(_ simulated: Bool?) {
+        simulatedAccessibilityGranted = simulated
+        refresh()
     }
 
     /// Trigger the system Accessibility prompt ONLY when the user explicitly clicks Grant.

@@ -6,6 +6,7 @@ enum SidebarDestination: Hashable {
     case module(String)
     case jsonConfig
     case settings
+    case developer(DeveloperSection)
 
     @MainActor
     var title: String {
@@ -15,6 +16,7 @@ enum SidebarDestination: Hashable {
             return ModuleRegistry.shared.module(withID: id)?.name ?? "Module"
         case .jsonConfig: return "JSON Config"
         case .settings: return "Settings & About"
+        case .developer(let section): return section.title
         }
     }
 }
@@ -48,6 +50,16 @@ final class NavigationState: ObservableObject {
 
     func toggleSidebar() {
         isSidebarVisible.toggle()
+    }
+
+    func pruneDeveloperDestinations(fallback: SidebarDestination = .settings) {
+        history.removeAll {
+            if case .developer = $0 { return true }
+            return false
+        }
+        if case .developer = selection {
+            selection = fallback
+        }
     }
 }
 
@@ -168,6 +180,9 @@ struct MainSplitView: View {
     @ObservedObject private var configManager = ConfigManager.shared
     @ObservedObject private var permissions = PermissionsManager.shared
     @ObservedObject private var updateManager = UpdateManager.shared
+    @ObservedObject private var developerMode = DeveloperModeManager.shared
+    @ObservedObject private var healthChecks = DeveloperHealthCheckRunner.shared
+    @ObservedObject private var hotKeys = HotKeyManager.shared
 
     var body: some View {
         HStack(spacing: 0) {
@@ -206,6 +221,12 @@ struct MainSplitView: View {
                         ConfigEditorView()
                     case .settings:
                         SettingsView()
+                    case .developer(let section):
+                        if developerMode.isUnlocked {
+                            DeveloperToolsView(section: section)
+                        } else {
+                            SettingsView()
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -213,6 +234,11 @@ struct MainSplitView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .animation(.easeInOut(duration: 0.16), value: navState.isSidebarVisible)
+        .onChange(of: developerMode.isUnlocked) { _, unlocked in
+            if !unlocked {
+                navState.pruneDeveloperDestinations(fallback: .settings)
+            }
+        }
         .background {
             Button("") {
                 navState.goBack()
@@ -332,6 +358,26 @@ struct MainSplitView: View {
                     )
                 }
 
+                if developerMode.isUnlocked {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Developer")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+
+                        ForEach(DeveloperSection.allCases) { section in
+                            let badgeInfo = developerBadge(for: section)
+                            sidebarConfigItem(
+                                title: section.title,
+                                symbol: section.symbolName,
+                                destination: .developer(section),
+                                badge: badgeInfo?.text,
+                                badgeColor: badgeInfo?.color ?? .blue
+                            )
+                        }
+                    }
+                }
+
                 Spacer()
             }
             .padding(12)
@@ -343,7 +389,8 @@ struct MainSplitView: View {
         title: String,
         symbol: String,
         destination: SidebarDestination,
-        badge: String? = nil
+        badge: String? = nil,
+        badgeColor: Color = .blue
     ) -> some View {
         let isSelected = navState.selection == destination
         return Button {
@@ -362,7 +409,7 @@ struct MainSplitView: View {
                         .foregroundStyle(isSelected ? Color.accentColor : .white)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(isSelected ? Color.white : Color.blue, in: Capsule())
+                        .background(isSelected ? Color.white : badgeColor, in: Capsule())
                 }
             }
             .padding(.horizontal, 8)
@@ -379,9 +426,30 @@ struct MainSplitView: View {
         .pointerCursor()
     }
 
+    private func developerBadge(for section: DeveloperSection) -> (text: String, color: Color)? {
+        switch section {
+        case .updates:
+            return updateManager.isSimulatingState ? ("SIM", .orange) : nil
+        case .uiAndModules:
+            return permissions.simulatedAccessibilityGranted != nil ? ("SIM", .orange) : nil
+        case .eventsAndTaps:
+            return nil
+        case .hotKeysAndConfig:
+            if !hotKeys.registrationErrors.isEmpty {
+                return ("\(hotKeys.registrationErrors.count)", .red)
+            }
+            return nil
+        case .checksAndDiagnostics:
+            if healthChecks.failCount > 0 {
+                return ("\(healthChecks.failCount)", .red)
+            }
+            return nil
+        }
+    }
+
     private func updateAvailableBanner(version: String) -> some View {
         Button {
-            updateManager.checkForUpdates()
+            updateManager.openPendingUpdateOrCheck()
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "arrow.down.circle.fill")

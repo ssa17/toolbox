@@ -13,6 +13,7 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 - **Port Killer (`⌃ ⌥ ⌘ P`)** — inspect all active listening TCP ports (including root and other-user services via `netstat` + `lsof`), pin favorite dev ports, and stop or force-kill stuck servers in one click with macOS administrator authorization when needed
 - Status Bar Menu: choose which features, quick-action buttons, and quick commands appear in the menu-bar popover, and reorder features via drag-and-drop or up/down controls in Settings
 - Global toggle shortcuts for **Dock Click to Minimize** and **Scroll Direction**, plus `⌘ 1`–`⌘ 9` quick-paste in the Clipboard History popover
+- Hidden PIN-gated **Developer Tools** (unlocked from Settings & About) with sidebar pages for simulating software updates and custom release notes, testing HUD toasts and Accessibility banners, inspecting live module events and window stacking, probing global hotkeys and config checkpoints/diffs, and running preflight signing and Gatekeeper health checks
 
 ### Changed
 - Inline click-to-record shortcut controls across all modules with F-key and arrow-key support, clear/reset buttons, and one-click conflict resolution
@@ -20,6 +21,7 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 
 ### Fixed
 - **Scroll Direction**: confine the interactive scroll test pad to the sample list bounds so scrolling elsewhere on the settings page works normally
+- **Software Updates**: center the update dialog cleanly over the Toolbox window (or screen center when closed) and keep it centered across download and install transitions
 
 ## [1.0] - 2026-11-14
 

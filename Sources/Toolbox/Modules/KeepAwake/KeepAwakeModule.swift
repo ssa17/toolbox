@@ -47,7 +47,7 @@ final class KeepAwakeModule: ToolboxModule, ObservableObject {
     @Published private(set) var nextJiggleInSeconds: Int?
     @Published private(set) var jiggleCount: Int = 0
 
-    private let hotKeyName = "keep_awake.toggle"
+    let hotKeyName = "keep_awake.toggle"
     private var config = KeepAwakeConfig()
     private var assertionID: IOPMAssertionID = 0
     private var hasAssertion = false
@@ -268,6 +268,11 @@ final class KeepAwakeModule: ToolboxModule, ObservableObject {
         if status == kIOReturnSuccess {
             assertionID = id
             hasAssertion = true
+            DeveloperEventLog.shared.record(
+                .keepAwake,
+                "IOPMAssertion acquired",
+                detail: config.preventDisplaySleep ? "PreventUserIdleDisplaySleep" : "PreventUserIdleSystemSleep"
+            )
         } else {
             NSLog("Toolbox: IOPMAssertionCreateWithName failed with \(status)")
         }
@@ -278,6 +283,7 @@ final class KeepAwakeModule: ToolboxModule, ObservableObject {
             IOPMAssertionRelease(assertionID)
             hasAssertion = false
             assertionID = 0
+            DeveloperEventLog.shared.record(.keepAwake, "IOPMAssertion released")
         }
     }
 
@@ -304,6 +310,7 @@ final class KeepAwakeModule: ToolboxModule, ObservableObject {
             jiggleCount += 1
             currentIdleSeconds = 0
             nextJiggleInSeconds = thresholdSeconds
+            DeveloperEventLog.shared.record(.keepAwake, "Smart mouse jiggle triggered", detail: "count: \(jiggleCount)")
         }
     }
 

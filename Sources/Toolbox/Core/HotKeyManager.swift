@@ -2,6 +2,14 @@ import AppKit
 import Carbon
 import Foundation
 
+/// Read-only snapshot of an active registration inside `HotKeyManager`.
+struct RegisteredHotKeySnapshot: Identifiable, Sendable {
+    let id: UInt32
+    let name: String
+    let shortcut: ShortcutSpec
+    let isArmed: Bool
+}
+
 /// Centralized Carbon global hotkey manager supporting multiple named bindings across modules.
 @MainActor
 final class HotKeyManager: ObservableObject {
@@ -132,6 +140,7 @@ final class HotKeyManager: ObservableObject {
                 ? "Shortcut \(shortcut.displayString) is already in use by another app or macOS."
                 : "Failed to register \(shortcut.displayString) (OSStatus \(status))."
             registrationErrors[name] = msg
+            DeveloperEventLog.shared.record(.hotkeys, "Failed registering '\(name)'", detail: msg)
             NSLog("Toolbox: \(msg)")
             return nil
         }
@@ -149,6 +158,29 @@ final class HotKeyManager: ObservableObject {
 
     func isRegistered(name: String) -> Bool {
         registrationsByName[name] != nil
+    }
+
+    var registeredHotKeys: [RegisteredHotKeySnapshot] {
+        registrationsByID
+            .map { id, reg in
+                RegisteredHotKeySnapshot(
+                    id: id,
+                    name: reg.name,
+                    shortcut: reg.shortcut,
+                    isArmed: reg.hotKeyRef != nil
+                )
+            }
+            .sorted { $0.name < $1.name }
+    }
+
+    @discardableResult
+    func simulateTrigger(name: String) -> Bool {
+        guard let id = registrationsByName[name], let reg = registrationsByID[id] else {
+            return false
+        }
+        DeveloperEventLog.shared.record(.hotkeys, "Simulated trigger: \(reg.name)", detail: reg.shortcut.displayString)
+        reg.handler()
+        return true
     }
 
     private func installHandlerIfNeeded() {
@@ -191,7 +223,9 @@ final class HotKeyManager: ObservableObject {
     }
 
     private func dispatch(id: UInt32) {
-        registrationsByID[id]?.handler()
+        guard let reg = registrationsByID[id] else { return }
+        DeveloperEventLog.shared.record(.hotkeys, "Triggered hotkey: \(reg.name)", detail: reg.shortcut.displayString)
+        reg.handler()
     }
 
     /// Checks whether `shortcut` collides with another active shortcut in `config`.

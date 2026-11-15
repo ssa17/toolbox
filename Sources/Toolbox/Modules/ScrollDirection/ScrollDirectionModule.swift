@@ -122,6 +122,7 @@ final class ScrollDirectionModule: ToolboxModule, ObservableObject {
     /// Installs or removes the tap according to the current permission state and
     /// applies a possibly changed target. Safe to call on any config or permission change.
     private func syncTap() {
+        let wasInstalled = tap.isInstalled
         tap.setTarget(config.target)
         if AXIsProcessTrusted() {
             if !tap.isInstalled {
@@ -129,6 +130,13 @@ final class ScrollDirectionModule: ToolboxModule, ObservableObject {
             }
         } else {
             tap.uninstall()
+        }
+        if tap.isInstalled != wasInstalled {
+            DeveloperEventLog.shared.record(
+                .scroll,
+                tap.isInstalled ? "Event tap installed" : "Event tap uninstalled",
+                detail: "target: \(config.target.rawValue)"
+            )
         }
         refreshPublishedStats()
     }

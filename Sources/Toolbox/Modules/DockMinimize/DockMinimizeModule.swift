@@ -454,6 +454,12 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
 
         if handled {
             consumeNextMouseUp = true
+            let appLabel = clickedApp.localizedName ?? clickedApp.bundleIdentifier ?? "PID \(clickedApp.processIdentifier)"
+            DeveloperEventLog.shared.record(
+                .dock,
+                "Handled dock click on \(appLabel)",
+                detail: "mode: \(config.actionMode.rawValue) · wasFrontmost: \(isFrontmost)"
+            )
         }
         return handled
     }
@@ -1120,6 +1126,39 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
             pids.append(ownerPID)
         }
         return pids
+    }
+
+    struct WindowStackEntry: Identifiable, Sendable {
+        var id: pid_t { pid }
+        let pid: pid_t
+        let appName: String
+        let bundleIdentifier: String?
+        let isFrontmost: Bool
+        let isHidden: Bool
+    }
+
+    /// Returns deduplicated regular apps ordered front-to-back using the live CoreGraphics layer-0 stack.
+    func liveWindowStackSnapshot() -> [WindowStackEntry] {
+        let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        var seen = Set<pid_t>()
+        var result: [WindowStackEntry] = []
+
+        for pid in onScreenLayerZeroPIDs() {
+            guard seen.insert(pid).inserted,
+                  let app = NSRunningApplication(processIdentifier: pid),
+                  app.activationPolicy == .regular,
+                  !app.isTerminated else {
+                continue
+            }
+            result.append(WindowStackEntry(
+                pid: pid,
+                appName: app.localizedName ?? "PID \(pid)",
+                bundleIdentifier: app.bundleIdentifier,
+                isFrontmost: pid == frontPID,
+                isHidden: app.isHidden
+            ))
+        }
+        return result
     }
 
     private func hasOnScreenLayerZeroWindow(pid: pid_t) -> Bool {

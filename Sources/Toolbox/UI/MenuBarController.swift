@@ -618,7 +618,7 @@ struct MenuBarPopoverView: View {
                 if let pendingVer = updateManager.pendingUpdateVersion {
                     Button {
                         onClosePopover(true)
-                        updateManager.checkForUpdates()
+                        updateManager.openPendingUpdateOrCheck()
                     } label: {
                         Label("Update to v\(pendingVer)…", systemImage: "arrow.down.circle.fill")
                             .font(.caption.weight(.semibold))

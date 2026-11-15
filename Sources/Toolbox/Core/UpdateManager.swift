@@ -36,6 +36,8 @@ final class UpdateManager: NSObject, ObservableObject {
     @Published private(set) var lastCheckFailed = false
     @Published private(set) var lastCheckError: String?
     @Published private(set) var statusText = "Up to date"
+    @Published private(set) var isSimulatingState = false
+    @Published private(set) var activeSimulationPreset: UpdateSimulationPreset?
 
     @Published var automaticallyChecksForUpdates: Bool = true {
         didSet {
@@ -51,9 +53,16 @@ final class UpdateManager: NSObject, ObservableObject {
     private var safetyTimer: Timer?
     private var checkStartedAt: Date?
     private var pendingCompletionWork: DispatchWorkItem?
+    private var simulatedFlowWorkItems: [DispatchWorkItem] = []
     private var activeCheckCancellation: (() -> Void)?
 
-    internal lazy var updateWindowController = ToolboxUpdateWindowController()
+    internal lazy var updateWindowController: ToolboxUpdateWindowController = {
+        let controller = ToolboxUpdateWindowController()
+        controller.onWindowClosed = { [weak self] in
+            self?.cancelSimulatedDialogFlow()
+        }
+        return controller
+    }()
 
     private static let shortTimeFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -148,6 +157,9 @@ final class UpdateManager: NSObject, ObservableObject {
     /// Only opens `ToolboxUpdateWindowController` if a newer update is actually available.
     func checkForUpdates() {
         guard !isChecking else { return }
+        cancelSimulatedDialogFlow()
+        isSimulatingState = false
+        activeSimulationPreset = nil
 
         guard let updater else {
             lastCheckFailed = true
@@ -158,6 +170,16 @@ final class UpdateManager: NSObject, ObservableObject {
 
         beginCheckingState()
         updater.checkForUpdates()
+    }
+
+    /// Reviews a simulated pending update if simulation mode is active; otherwise runs a real update check.
+    func openPendingUpdateOrCheck() {
+        if isSimulatingState, let pendingUpdateVersion {
+            let size = pendingUpdateSizeBytes > 0 ? pendingUpdateSizeBytes : 3_565_158
+            presentUpdateDialogPreview(.updateAvailable, version: pendingUpdateVersion, sizeBytes: size)
+            return
+        }
+        checkForUpdates()
     }
 
     func cancelActiveCheck() {
@@ -347,6 +369,289 @@ final class UpdateManager: NSObject, ObservableObject {
             return !cleanCandidate.contains("-") && cleanCurrent.contains("-")
         }
         return baseCandidate.compare(baseCurrent, options: .numeric) == .orderedDescending
+    }
+
+    // MARK: - Developer Simulation
+
+    static func sampleReleaseNotesHTML(for version: String) -> String {
+        """
+        <p><b>What's New in Toolbox v\(version)</b></p>
+        <ul>
+          <li><b>Port Killer</b> — inspect active listening TCP ports, pin favorites, and stop stuck dev servers in one click.</li>
+          <li><b>Status Bar Menu</b> — customize which features appear in the menu-bar popover and reorder them.</li>
+          <li><b>Update Flow</b> — refined dark release-notes sheet, inline progress tracking, and clearer status badges.</li>
+        </ul>
+        <p><i>Simulated release notes preview — no real network request or installation will occur.</i></p>
+        """
+    }
+
+    func applySimulationPreset(
+        _ preset: UpdateSimulationPreset,
+        version: String = "1.2.0",
+        sizeBytes: Int64 = 3_565_158,
+        errorMessage: String = "Unable to reach GitHub Releases (simulated network timeout)."
+    ) {
+        cancelSimulatedDialogFlow()
+        resetCheckingTimers()
+        pendingCompletionWork?.cancel()
+        pendingCompletionWork = nil
+        activeCheckCancellation = nil
+
+        let cleanVersion = version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "1.2.0"
+            : version.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        isSimulatingState = true
+        activeSimulationPreset = preset
+        isSparkleAvailable = true
+        DeveloperEventLog.shared.record(.updates, "Applied update preset: \(preset.label)", detail: "version: \(cleanVersion)")
+
+        switch preset {
+        case .upToDate:
+            isChecking = false
+            checkProgress = 0
+            pendingUpdateVersion = nil
+            pendingUpdateSizeBytes = 0
+            pendingReleaseNotesHTML = nil
+            lastCheckedAt = Date()
+            lastCheckFailed = false
+            lastCheckError = nil
+            statusText = "You're on the latest version"
+
+        case .checking:
+            isChecking = true
+            checkProgress = 0.62
+            pendingUpdateVersion = nil
+            pendingUpdateSizeBytes = 0
+            pendingReleaseNotesHTML = nil
+            lastCheckFailed = false
+            lastCheckError = nil
+            statusText = "Checking for updates…"
+
+        case .updateAvailable:
+            isChecking = false
+            checkProgress = 0
+            pendingUpdateVersion = cleanVersion
+            pendingUpdateSizeBytes = max(100_000, sizeBytes)
+            pendingReleaseNotesHTML = Self.sampleReleaseNotesHTML(for: cleanVersion)
+            lastCheckedAt = Date()
+            lastCheckFailed = false
+            lastCheckError = nil
+            statusText = "Update available: v\(cleanVersion)"
+
+        case .checkFailed:
+            isChecking = false
+            checkProgress = 0
+            pendingUpdateVersion = nil
+            pendingUpdateSizeBytes = 0
+            pendingReleaseNotesHTML = nil
+            lastCheckFailed = true
+            lastCheckError = errorMessage
+            statusText = "Couldn't check for updates"
+
+        case .neverChecked:
+            isChecking = false
+            checkProgress = 0
+            pendingUpdateVersion = nil
+            pendingUpdateSizeBytes = 0
+            pendingReleaseNotesHTML = nil
+            lastCheckedAt = nil
+            lastCheckFailed = false
+            lastCheckError = nil
+            statusText = "Automatic checks enabled"
+        }
+    }
+
+    /// Runs an animated inline check progress bar before settling into the selected preset result.
+    func runAnimatedSimulatedCheck(
+        result: UpdateSimulationPreset = .updateAvailable,
+        version: String = "1.2.0",
+        sizeBytes: Int64 = 3_565_158,
+        errorMessage: String = "Unable to reach GitHub Releases (simulated network timeout)."
+    ) {
+        cancelSimulatedDialogFlow()
+        isSimulatingState = true
+        activeSimulationPreset = .checking
+        isSparkleAvailable = true
+        beginCheckingState()
+
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.isChecking else { return }
+            self.completeCheckWithMinimumDuration(checkedAt: Date()) { [weak self] in
+                guard let self else { return }
+                let target: UpdateSimulationPreset = (result == .checking) ? .upToDate : result
+                self.applySimulationPreset(
+                    target,
+                    version: version,
+                    sizeBytes: sizeBytes,
+                    errorMessage: errorMessage
+                )
+            }
+        }
+        simulatedFlowWorkItems.append(work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.95, execute: work)
+    }
+
+    /// Clears any in-memory simulation overrides and restores live Sparkle/UserDefaults state.
+    func clearSimulation() {
+        cancelSimulatedDialogFlow()
+        resetCheckingTimers()
+        pendingCompletionWork?.cancel()
+        pendingCompletionWork = nil
+        activeCheckCancellation = nil
+
+        isSimulatingState = false
+        activeSimulationPreset = nil
+        isChecking = false
+        checkProgress = 0
+        pendingUpdateVersion = nil
+        pendingUpdateSizeBytes = 0
+        pendingReleaseNotesHTML = nil
+        lastCheckFailed = false
+        lastCheckError = nil
+
+        if let updater {
+            isSparkleAvailable = true
+            if Self.isIsolatedMode {
+                lastCheckedAt = nil
+            } else {
+                lastCheckedAt = (UserDefaults.standard.object(forKey: Self.lastCheckedDefaultsKey) as? Date)
+                    ?? updater.lastUpdateCheckDate
+            }
+            statusText = lastCheckedAt != nil ? "Up to date" : "Automatic checks enabled"
+        } else {
+            isSparkleAvailable = false
+            lastCheckedAt = Self.isIsolatedMode
+                ? nil
+                : (UserDefaults.standard.object(forKey: Self.lastCheckedDefaultsKey) as? Date)
+            statusText = "Available when running from Toolbox.app"
+        }
+    }
+
+    /// Opens the custom dark `ToolboxUpdateWindowController` in the requested preview state.
+    func presentUpdateDialogPreview(
+        _ kind: UpdateDialogPreviewKind,
+        version: String = "1.2.0",
+        sizeBytes: Int64 = 3_565_158,
+        errorMessage: String = "The update package signature could not be verified (simulated error).",
+        releaseNotesHTML: String? = nil
+    ) {
+        cancelSimulatedDialogFlow()
+        let cleanVersion = version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "1.2.0"
+            : version.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveSize = max(100_000, sizeBytes)
+        let customNotes = releaseNotesHTML?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let notes = (customNotes?.isEmpty == false ? customNotes! : Self.sampleReleaseNotesHTML(for: cleanVersion))
+        DeveloperEventLog.shared.record(.updates, "Opened update dialog preview: \(kind.label)", detail: "v\(cleanVersion)")
+
+        switch kind {
+        case .updateAvailable:
+            updateWindowController.showPreviewAvailable(
+                version: cleanVersion,
+                currentVersion: currentVersion,
+                sizeBytes: effectiveSize,
+                notes: notes,
+                onInstall: { [weak self] in
+                    self?.startSimulatedDownload(totalBytes: effectiveSize, autoAdvanceToInstall: true, version: cleanVersion)
+                }
+            )
+
+        case .permissionPrompt:
+            updateWindowController.showPermission { response in
+                let choice = response.automaticUpdateChecks ? "Automatic checks enabled (simulated)" : "Automatic checks skipped (simulated)"
+                HUDToast.shared.show(title: choice, symbol: "info.circle.fill", tint: .blue)
+            }
+
+        case .downloading:
+            startSimulatedDownload(totalBytes: effectiveSize, autoAdvanceToInstall: false, version: cleanVersion)
+
+        case .extracting:
+            startSimulatedExtraction(autoAdvanceToReady: false, version: cleanVersion)
+
+        case .readyToInstall:
+            startSimulatedReadyAndInstall(version: cleanVersion)
+
+        case .installing:
+            updateWindowController.showInstalling()
+
+        case .error:
+            updateWindowController.showError(errorMessage) {}
+        }
+    }
+
+    func dismissUpdateDialog() {
+        cancelSimulatedDialogFlow()
+        updateWindowController.dismiss()
+    }
+
+    private func startSimulatedDownload(totalBytes: Int64, autoAdvanceToInstall: Bool, version: String) {
+        cancelSimulatedDialogFlow()
+        let total = UInt64(max(100_000, totalBytes))
+        updateWindowController.showDownloadStarted { [weak self] in
+            self?.cancelSimulatedDialogFlow()
+        }
+        updateWindowController.setExpectedLength(total)
+
+        let steps = autoAdvanceToInstall ? 14 : 10
+        let targetFraction = autoAdvanceToInstall ? 1.0 : 0.68
+        let chunk = UInt64((Double(total) * targetFraction) / Double(steps))
+
+        for step in 1...steps {
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.updateWindowController.addReceivedBytes(chunk)
+                if step == steps && autoAdvanceToInstall {
+                    self.startSimulatedExtraction(autoAdvanceToReady: true, version: version)
+                }
+            }
+            simulatedFlowWorkItems.append(work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(step) * 0.09, execute: work)
+        }
+    }
+
+    private func startSimulatedExtraction(autoAdvanceToReady: Bool, version: String) {
+        updateWindowController.showExtracting()
+        let steps = autoAdvanceToReady ? 8 : 6
+        let targetProgress = autoAdvanceToReady ? 1.0 : 0.65
+
+        for step in 1...steps {
+            let progress = (Double(step) / Double(steps)) * targetProgress
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.updateWindowController.setExtractionProgress(progress)
+                if step == steps && autoAdvanceToReady {
+                    self.startSimulatedReadyAndInstall(version: version)
+                }
+            }
+            simulatedFlowWorkItems.append(work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(step) * 0.08, execute: work)
+        }
+    }
+
+    private func startSimulatedReadyAndInstall(version: String) {
+        updateWindowController.showReady { [weak self] choice in
+            guard let self else { return }
+            guard choice == .install else { return }
+            self.updateWindowController.showInstalling()
+            let finish = DispatchWorkItem { [weak self] in
+                self?.updateWindowController.dismiss()
+                HUDToast.shared.show(
+                    title: "Simulated update to v\(version) complete (no changes made)",
+                    symbol: "checkmark.circle.fill",
+                    tint: .blue
+                )
+            }
+            self.simulatedFlowWorkItems.append(finish)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.9, execute: finish)
+        }
+    }
+
+    private func cancelSimulatedDialogFlow() {
+        for item in simulatedFlowWorkItems {
+            item.cancel()
+        }
+        simulatedFlowWorkItems.removeAll()
     }
 
     // MARK: - Testing & Snapshot Support
@@ -605,6 +910,7 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
     private var expectedBytes: UInt64 = 0
     private var receivedBytes: UInt64 = 0
     private var isProgrammaticClose = false
+    var onWindowClosed: (() -> Void)?
 
     internal var currentTitleForTesting: String { titleLabel.stringValue }
     internal var currentSubtitleForTesting: String { subtitleLabel.stringValue }
@@ -622,10 +928,10 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
         window.appearance = NSAppearance(named: .darkAqua)
         window.backgroundColor = panelBg
         window.isReleasedWhenClosed = false
-        window.center()
         super.init()
         window.delegate = self
         buildUI()
+        centerOverAppOrScreen()
     }
 
     private func buildUI() {
@@ -801,18 +1107,63 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
         btn.translatesAutoresizingMaskIntoConstraints = false
     }
 
+    /// Computes a window origin centered relative to `parentFrame` (or `visibleFrame` when nil),
+    /// clamped within `visibleFrame` so the window never clips off-screen.
+    static func centeredOrigin(
+        for windowSize: NSSize,
+        relativeTo parentFrame: NSRect?,
+        within visibleFrame: NSRect
+    ) -> NSPoint {
+        let anchor = parentFrame ?? visibleFrame
+        let rawX = anchor.midX - (windowSize.width / 2)
+        let rawY = anchor.midY - (windowSize.height / 2)
+
+        let minX = visibleFrame.minX
+        let maxX = max(minX, visibleFrame.maxX - windowSize.width)
+        let minY = visibleFrame.minY
+        let maxY = max(minY, visibleFrame.maxY - windowSize.height)
+
+        return NSPoint(
+            x: round(min(max(rawX, minX), maxX)),
+            y: round(min(max(rawY, minY), maxY))
+        )
+    }
+
+    private func anchorWindowForCentering() -> NSWindow? {
+        if let mainWindow = MainWindowController.shared.currentWindow,
+           mainWindow.isVisible,
+           !mainWindow.isMiniaturized {
+            return mainWindow
+        }
+        return nil
+    }
+
+    private func centerOverAppOrScreen() {
+        let anchorWindow = anchorWindowForCentering()
+        let screen = anchorWindow?.screen ?? window.screen ?? NSScreen.main ?? NSScreen.screens.first
+        let visibleFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let origin = Self.centeredOrigin(
+            for: window.frame.size,
+            relativeTo: anchorWindow?.frame,
+            within: visibleFrame
+        )
+        window.setFrameOrigin(origin)
+    }
+
     private func resize(width: CGFloat = 468, height: CGFloat) {
-        var f = window.frame
-        let dy = height - f.height
-        f.origin.y -= dy
-        f.size.width = width
-        f.size.height = height
-        window.setFrame(f, display: true, animate: false)
+        let targetSize = NSSize(width: width, height: height)
+        let screen = window.screen ?? NSScreen.main ?? NSScreen.screens.first
+        let visibleFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        // Preserve the dialog's center point across height changes rather than jumping toward top/bottom.
+        let origin = Self.centeredOrigin(for: targetSize, relativeTo: window.frame, within: visibleFrame)
+        window.setFrame(NSRect(origin: origin, size: targetSize), display: true, animate: false)
     }
 
     private func present() {
         NotificationCenter.default.post(name: .toolboxWillPresentUpdateWindow, object: nil)
-        if !window.isVisible { window.center() }
+        if !window.isVisible {
+            centerOverAppOrScreen()
+        }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -936,6 +1287,29 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
         resize(height: 344)
     }
 
+    func showPreviewAvailable(
+        version: String,
+        currentVersion: String,
+        sizeBytes: Int64,
+        notes: String,
+        onInstall: @escaping () -> Void
+    ) {
+        populatePreviewAvailable(
+            version: version,
+            currentVersion: currentVersion,
+            sizeBytes: sizeBytes,
+            notes: notes
+        )
+        updateReply = { [weak self] choice in
+            if choice == .install {
+                onInstall()
+            } else {
+                self?.dismiss()
+            }
+        }
+        present()
+    }
+
     func showReleaseNotes(_ data: SPUDownloadData) {
         setNotesHTML(data.data)
     }
@@ -985,15 +1359,19 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
     }
 
     func showExtracting() {
-        downloadCancel = nil
+        clearCallbacks()
         badgeLabel.stringValue = "Verifying"
         badgePill.isHidden = false
         titleLabel.stringValue = "Preparing Update…"
         subtitleLabel.stringValue = "Extracting archive and verifying signature"
+        notesCard.isHidden = true
+        progressWrap.isHidden = false
         progressFillWidth.constant = 0
         progressLabel.stringValue = "Extracting…"
         secondaryBtn.isHidden = true
         primaryBtn.isHidden = true
+        resize(height: 196)
+        present()
     }
 
     func setExtractionProgress(_ progress: Double) {
@@ -1028,9 +1406,15 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
         badgePill.isHidden = false
         titleLabel.stringValue = "Installing Update…"
         subtitleLabel.stringValue = "Toolbox will reopen in a moment"
+        notesCard.isHidden = true
+        progressWrap.isHidden = false
+        let trackW = max(1, progressTrack.bounds.width > 0 ? progressTrack.bounds.width : 424)
+        progressFillWidth.constant = trackW
         secondaryBtn.isHidden = true
         primaryBtn.isHidden = true
         progressLabel.stringValue = "Applying update…"
+        resize(height: 196)
+        present()
     }
 
     func showError(_ message: String, acknowledgement: @escaping () -> Void) {
@@ -1102,5 +1486,6 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
         else if let cb = readyReply { clearCallbacks(); cb(.dismiss) }
         else if let cb = permReply { clearCallbacks(); cb(SUUpdatePermissionResponse(automaticUpdateChecks: false, sendSystemProfile: false)) }
         else if let cb = errorAck { clearCallbacks(); cb() }
+        onWindowClosed?()
     }
 }
