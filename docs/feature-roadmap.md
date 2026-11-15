@@ -12,7 +12,7 @@ Features are ordered from zero-permission, self-contained utilities to modules t
 
 | # | Feature | Module ID | Category | Default Shortcut | Permissions Needed | Key macOS Frameworks | Status |
 |---|---|---|---|---|---|---|---|
-| 1 | **Localhost Port Killer** | `port_killer` | Developer Tools | `⌃ ⌥ ⌘ P` | None | `Foundation`, `Darwin` (`libproc`), `Network` (tests) | Planned |
+| 1 | **Localhost Port Killer** | `port_killer` | Developer Tools | `⌃ ⌥ ⌘ P` | None | `Foundation`, `Darwin` (`libproc`), `Network` (tests) | Done |
 | 2 | **Color Picker & Swatch History** | `color_picker` | Developer Tools | `⌃ ⌥ ⌘ C` | None | `AppKit` (`NSColorSampler`, `NSColorSpace`) | Planned |
 | 3 | **Dev Converter & Scratchpad** | `dev_tools` | Developer Tools | `⌃ ⌥ ⌘ B` | None | `Foundation`, `CryptoKit` | Planned |
 | 4 | **Screen OCR (Text Grabber)** | `screen_ocr` | Developer Tools | `⌃ ⌥ ⌘ O` | Screen Recording (OS-managed via `screencapture`) | `Vision`, `CoreGraphics`, `AppKit` | Planned |
@@ -62,7 +62,7 @@ Follow these repo invariants (see [AGENTS.md](../AGENTS.md) and [EXTENDING.md](.
 
 ---
 
-## 2. Feature 1: Localhost Port Killer (`Modules/PortKiller/`)
+## 2. Feature 1: Localhost Port Killer (`Modules/PortKiller/`) — Done
 
 ### Purpose & User Value
 Developers constantly hit `EADDRINUSE` when a dev server (`Vite`, `Next.js`, `Node`, `Python`, `Go`, `Docker`, `Postgres`, `Redis`) stays alive in the background. Instead of dropping to a terminal to run `lsof -i :3000` and `kill -9 <pid>`, **Port Killer** surfaces active listening TCP ports in a searchable floating popover (`⌃ ⌥ ⌘ P`) and settings dashboard with process name, PID, port, bind address, and working directory—and lets you stop or force-kill them in one click.
