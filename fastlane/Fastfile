@@ -124,38 +124,15 @@ lane :release do
   sh("ditto -c -k --keepParent '#{APP_BUNDLE}' '#{zip_path}'")
   UI.success "Created #{zip_path}"
 
-  # ── GitHub Release (upload DMG + zip) ───────────────────────────
-  UI.message "--- Publishing GitHub Release #{tag} ---"
-  if system("gh auth status >/dev/null 2>&1")
-    if system("gh release view '#{tag}' >/dev/null 2>&1")
-      sh("gh release upload '#{tag}' " +
-         "'#{OUTPUT_DIR}/#{APP_NAME}.dmg' " +
-         "'#{zip_path}' " +
-         "--clobber")
-      UI.success "Updated assets on #{tag}"
-    else
-      sh("gh release create '#{tag}' " +
-         "'#{OUTPUT_DIR}/#{APP_NAME}.dmg' " +
-         "'#{zip_path}' " +
-         "--title '#{APP_NAME} #{version}' " +
-         "--notes 'Download the .dmg to install, or let Sparkle auto-update.'")
-      UI.success "Published #{tag}"
-    end
-  else
-    UI.warn "⚠️  Not authenticated to GitHub (run: gh auth login)."
-    UI.warn "    Skipping the release. The DMG + zip are in build/."
-  end
-
-  # ── Generate the appcast (for Sparkle auto-updates) ─────────────
-  UI.message "--- Generating appcast ---"
+  # ── Prepare release notes from CHANGELOG.md ─────────────────────
   releases_dir = "#{PROJECT_DIR}/releases"
   Dir.mkdir(releases_dir) unless Dir.exist?(releases_dir)
-  File.delete("#{releases_dir}/appcast.xml") if File.exist?("#{releases_dir}/appcast.xml")
+  File.delete("#{releases_dir}/appcast.xml") if File.exist?( "#{releases_dir}/appcast.xml" )
   Dir.glob("#{releases_dir}/*.zip").each { |z| File.delete(z) }
   Dir.glob("#{releases_dir}/*.md").each { |m| File.delete(m) }
-  FileUtils.cp(zip_path, releases_dir)
 
-  changelog = "#{PROJECT_DIR}/CHANGELOG.md"
+  changelog  = "#{PROJECT_DIR}/CHANGELOG.md"
+  notes_file = "#{releases_dir}/#{APP_NAME}-#{version}.md"
   if File.exist?(changelog)
     lines = File.read(changelog).lines
     start = lines.index { |l| l =~ /^##\s+\[Unreleased\]/ }
@@ -167,7 +144,7 @@ lane :release do
       if body.strip.empty?
         UI.warn "No entries under [Unreleased] — the release will have no notes."
       else
-        File.write("#{releases_dir}/#{APP_NAME}-#{version}.md", body)
+        File.write(notes_file, body)
         UI.success "Release notes → #{APP_NAME}-#{version}.md"
       end
       lines[start] = "## [#{version}] - #{Time.now.utc.strftime('%Y-%m-%d')}\n"
@@ -179,6 +156,33 @@ lane :release do
   else
     UI.warn "No CHANGELOG.md — the release will have no notes."
   end
+
+  # ── GitHub Release (upload DMG + zip) ───────────────────────────
+  UI.message "--- Publishing GitHub Release #{tag} ---"
+  if system("gh auth status >/dev/null 2>&1")
+    if system("gh release view '#{tag}' >/dev/null 2>&1")
+      sh("gh release upload '#{tag}' " +
+         "'#{OUTPUT_DIR}/#{APP_NAME}.dmg' " +
+         "'#{zip_path}' " +
+         "--clobber")
+      UI.success "Updated assets on #{tag}"
+    else
+      notes_arg = File.exist?(notes_file) ? "--notes-file '#{notes_file}'" : "--notes 'Download the .dmg to install, or let Sparkle auto-update.'"
+      sh("gh release create '#{tag}' " +
+         "'#{OUTPUT_DIR}/#{APP_NAME}.dmg' " +
+         "'#{zip_path}' " +
+         "--title '#{APP_NAME} #{version}' " +
+         notes_arg)
+      UI.success "Published #{tag}"
+    end
+  else
+    UI.warn "⚠️  Not authenticated to GitHub (run: gh auth login)."
+    UI.warn "    Skipping the release. The DMG + zip are in build/."
+  end
+
+  # ── Generate the appcast (for Sparkle auto-updates) ─────────────
+  UI.message "--- Generating appcast ---"
+  FileUtils.cp(zip_path, releases_dir)
 
   base_url = "https://github.com/ssa17/toolbox/releases/download/#{tag}/"
   sh("#{PROJECT_DIR}/vendor/sparkle/bin/generate_appcast --embed-release-notes --download-url-prefix '#{base_url}' '#{releases_dir}/'")

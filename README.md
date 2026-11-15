@@ -1,6 +1,6 @@
 # Toolbox: macOS quality-of-life utilities
 
-Lightweight, native macOS utilities for Dock window toggling, clipboard history, display sleep control, independent mouse scroll direction, and global shortcuts.
+Lightweight, native macOS utilities for Dock window toggling, clipboard history, port management, call mic/video controls, clean-lock mode, display sleep control, independent mouse scroll direction, and global shortcuts.
 
 **[Download .dmg](https://github.com/ssa17/toolbox/releases/latest/download/Toolbox.dmg)** · [All releases](https://github.com/ssa17/toolbox/releases)
 
@@ -19,11 +19,14 @@ Toolbox checks for updates automatically via Sparkle and installs them in place.
 ## What you get
 
 - **Dock Click to Minimize:** click the active app's Dock icon to hide its windows cleanly (Windows taskbar style, without cluttering the Dock's minimized tray) and click again to bring them straight back. Supports send-behind, minimize-tray modes, single/double-click, and per-app exclusions.
-- **Clipboard History (`⌘ ⌥ V`):** searchable floating clipboard dropdown with keyboard navigation (`↑`/`↓`/`⏎`/`Esc`), full-text preview, pinning with custom titles, password-manager filtering, customizable history limits (`1–200`), and optional auto-paste.
+- **Clipboard History (`⌘ ⌥ V`):** searchable floating clipboard dropdown with keyboard navigation (`↑`/`↓`/`⏎`/`Esc`), `⌘ 1`–`⌘ 9` quick-paste, full-text preview, pinning with custom titles, password-manager filtering, customizable history limits (`1–200`), optional auto-paste, and optional persistence across restarts.
+- **Port Killer (`⌃ ⌥ ⌘ P`):** inspect active listening TCP ports, pin favorite dev ports, and stop or force-kill stuck servers in one click.
 - **Keep Awake (`⌘ ⌥ K`):** reads your Mac's `pmset` display sleep timeout and nudges the cursor just before sleep and/or holds an IOKit power assertion for quick timers (`15m`, `30m`, `1h`, `2h`) or indefinitely.
-- **Scroll Direction:** invert classic notched mouse wheels while leaving Apple trackpads and smooth-scroll mice on your system setting.
+- **Clean Lock:** temporarily lock your keyboard (including media, volume, and brightness keys) and mouse/trackpad input for `10s`–`3m` with a center-screen countdown and `Hold ⌃ ⌥ ⌘ Esc (3s)` emergency unlock.
 - **Custom Commands:** bind global hotkeys to shell commands, applications, URLs, or text snippets with optional toast feedback.
-- **Menu-bar item & dropdown:** pause or resume all modules at once, toggle individual features, check Clipboard count or toggle Keep Awake, and open Dashboard or Settings in one click.
+- **Scroll Direction:** invert classic notched mouse wheels while leaving Apple trackpads and smooth-scroll mice on your system setting.
+- **Call Controls (`⌃ ⌥ ⌘ M` / `⌃ ⌥ ⌘ V`):** unified global Mic and Video shortcuts that mute your system microphone and control FaceTime, Microsoft Teams, Zoom, Slack, Google Meet, Discord, or custom call apps, paired with a draggable floating Mic/Camera status pill, output device cycling, and auto-mute while typing.
+- **Menu-bar item & dropdown:** pause or resume all modules at once, toggle and reorder which features or quick actions appear in the menu bar, check Clipboard count or Ports, toggle Keep Awake, and open Dashboard or Settings in one click.
 - **Configuration as code:** all settings live in `~/.config/toolbox/config.json` with automatic hot-reload and an in-app JSON editor. Pinned clipboard entries persist in `~/.config/toolbox/pinned_clipboard.json`.
 
 <p align="center">
@@ -74,7 +77,7 @@ See [EXTENDING.md](EXTENDING.md) to add a new module, [docs/testing.md](docs/tes
 Sources/Toolbox/
 ├── ToolboxApp.swift          app entry point, CLI flags, single-instance guard
 ├── Core/                     module registry, config watcher, hotkeys, permissions, Sparkle, self-tests
-├── Modules/                  DockMinimize, Clipboard, KeepAwake, CustomCommands, ScrollDirection
+├── Modules/                  DockMinimize, Clipboard, PortKiller, KeepAwake, CleanLock, CustomCommands, ScrollDirection, CallControls
 └── UI/                       dashboard, sidebar shell, menu bar popover, settings, JSON editor
 scripts/build-app.sh          builds, signs, and notarizes build/Toolbox.app
 scripts/make-dmg-bg.mjs       generates the Retina DMG installer background
