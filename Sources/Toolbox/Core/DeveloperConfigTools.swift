@@ -15,6 +15,7 @@ enum ToolboxConfigSection: String, CaseIterable, Identifiable, Sendable {
     case clipboard
     case portKiller
     case keepAwake
+    case cleanLock
     case customCommands
     case scrollDirection
 
@@ -27,6 +28,7 @@ enum ToolboxConfigSection: String, CaseIterable, Identifiable, Sendable {
         case .clipboard: return "Clipboard History"
         case .portKiller: return "Port Killer"
         case .keepAwake: return "Keep Awake"
+        case .cleanLock: return "Clean Lock"
         case .customCommands: return "Custom Commands"
         case .scrollDirection: return "Scroll Direction"
         }
@@ -73,6 +75,8 @@ final class ConfigCheckpointStore: ObservableObject {
             next.portKiller = PortKillerConfig()
         case .keepAwake:
             next.keepAwake = KeepAwakeConfig()
+        case .cleanLock:
+            next.cleanLock = CleanLockConfig()
         case .customCommands:
             next.customCommands = CustomCommandsConfig()
         case .scrollDirection:

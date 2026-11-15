@@ -6,6 +6,7 @@ enum DeveloperEventCategory: String, CaseIterable, Identifiable, Sendable {
     case scroll = "Scroll"
     case hotkeys = "HotKeys"
     case keepAwake = "Keep Awake"
+    case cleanLock = "Clean Lock"
     case config = "Config"
     case updates = "Updates"
 

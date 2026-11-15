@@ -479,6 +479,7 @@ struct PortKillerSettingsView: View {
                             .foregroundStyle(.orange)
                     }
                 }
+                .textSelection(.enabled)
             }
 
             Spacer()

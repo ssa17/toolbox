@@ -16,7 +16,7 @@ Features are ordered from zero-permission, self-contained utilities to modules t
 | 2 | **Color Picker & Swatch History** | `color_picker` | Developer Tools | `⌃ ⌥ ⌘ C` | None | `AppKit` (`NSColorSampler`, `NSColorSpace`) | Planned |
 | 3 | **Dev Converter & Scratchpad** | `dev_tools` | Developer Tools | `⌃ ⌥ ⌘ B` | None | `Foundation`, `CryptoKit` | Planned |
 | 4 | **Screen OCR (Text Grabber)** | `screen_ocr` | Developer Tools | `⌃ ⌥ ⌘ O` | Screen Recording (OS-managed via `screencapture`) | `Vision`, `CoreGraphics`, `AppKit` | Planned |
-| 5 | **Keyboard & Trackpad Clean Lock** | `clean_lock` | System & Power | None *(Button / Menu Bar only)* | Accessibility (required) | `CoreGraphics` (`CGEventTap`), `AppKit` | Planned |
+| 5 | **Keyboard & Trackpad Clean Lock** | `clean_lock` | System & Power | None *(Button / Menu Bar only)* | Accessibility (required) | `CoreGraphics` (`CGEventTap`), `AppKit` | Done |
 | 6 | **Audio, Mic & Video Call Guard** | `audio_guard` | System & Power | User-defined Mic & Video overrides (e.g. `⌃ ⌥ ⌘ M` / `⌃ ⌥ ⌘ V`, or custom like `⌘ ⇧ Space` per toggled apps) | Accessibility (optional: Unified Call Keybind Override & Auto-Mute While Typing) | `CoreAudio`, `AudioToolbox`, `CoreGraphics`, `ApplicationServices` | Planned |
 
 ---
@@ -399,7 +399,7 @@ struct ScreenOCRConfig: Codable, Equatable, Sendable {
 
 ---
 
-## 6. Feature 5: Keyboard & Trackpad Clean Lock (`Modules/CleanLock/`)
+## 6. Feature 5: Keyboard & Trackpad Clean Lock (`Modules/CleanLock/`) — Done
 
 ### Purpose & User Value
 Wiping crumbs or dust off a MacBook keyboard or trackpad triggers random shortcuts, pauses media, clicks things behind the cloth, or types gibberish into open editors. **Clean Lock** locks **both** your keyboard (including media, volume, and brightness keys) and your mouse/trackpad clicks & scrolling for a fixed timer (**60 seconds / 1 minute** by default) while displaying **large countdown numbers in the center of the screen** (`60`, `59`, `58`…) until full control automatically resets—paired with a deliberate **press-and-hold kill switch** (`Hold ⌃ ⌥ ⌘ Esc` for `3s`) that is virtually impossible to trigger accidentally with a cleaning cloth.

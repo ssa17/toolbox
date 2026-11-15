@@ -69,21 +69,24 @@ struct ModuleDetailContainerView: View {
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                         }
+                        .textSelection(.enabled)
 
                         Spacer()
 
-                        Toggle("", isOn: Binding(
-                            get: { module.isEnabled(in: configManager.config) },
-                            set: { newVal in
-                                module.setEnabled(newVal, in: &configManager.config)
-                                if newVal && module.requiresAccessibility && !permissions.isAccessibilityGranted {
-                                    permissions.promptAndOpenSettings()
+                        if module.supportsEnableToggle {
+                            Toggle("", isOn: Binding(
+                                get: { module.isEnabled(in: configManager.config) },
+                                set: { newVal in
+                                    module.setEnabled(newVal, in: &configManager.config)
+                                    if newVal && module.requiresAccessibility && !permissions.isAccessibilityGranted {
+                                        permissions.promptAndOpenSettings()
+                                    }
                                 }
-                            }
-                        ))
-                        .labelsHidden()
-                        .toggleStyle(StatusBarSwitchToggleStyle(onColor: .green))
-                        .pointerCursor()
+                            ))
+                            .labelsHidden()
+                            .toggleStyle(StatusBarSwitchToggleStyle(onColor: .green))
+                            .pointerCursor()
+                        }
                     }
                 }
 
@@ -138,6 +141,7 @@ struct ModuleDetailContainerView: View {
                         }
                         .padding([.horizontal, .bottom], 16)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
                     }
                 }
                 .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius))
@@ -159,6 +163,7 @@ struct ModuleDetailContainerView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
+                            .textSelection(.enabled)
                             Spacer()
                             Button("Grant Permission…") {
                                 permissions.promptAndOpenSettings()

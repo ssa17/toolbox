@@ -446,13 +446,35 @@ struct PortKillerConfig: Codable, Equatable, Sendable {
     }
 }
 
+struct CleanLockConfig: Codable, Equatable, Sendable {
+    static let minDurationSeconds = 10
+    static let maxDurationSeconds = 300
+
+    var durationSeconds: Int = 60
+    var lockMouseAndTrackpad: Bool = true
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedDuration = try c.decodeIfPresent(Int.self, forKey: .durationSeconds) ?? 60
+        durationSeconds = Self.clampedDuration(decodedDuration)
+        lockMouseAndTrackpad = try c.decodeIfPresent(Bool.self, forKey: .lockMouseAndTrackpad) ?? true
+    }
+
+    static func clampedDuration(_ seconds: Int) -> Int {
+        min(max(seconds, minDurationSeconds), maxDurationSeconds)
+    }
+}
+
 struct ToolboxConfig: Codable, Equatable, Sendable {
-    var schemaVersion: Int = 4
+    var schemaVersion: Int = 5
     var general: GeneralConfig = GeneralConfig()
     var dockMinimize: DockMinimizeConfig = DockMinimizeConfig()
     var clipboard: ClipboardConfig = ClipboardConfig()
     var portKiller: PortKillerConfig = PortKillerConfig()
     var keepAwake: KeepAwakeConfig = KeepAwakeConfig()
+    var cleanLock: CleanLockConfig = CleanLockConfig()
     var customCommands: CustomCommandsConfig = CustomCommandsConfig()
     var scrollDirection: ScrollDirectionConfig = ScrollDirectionConfig()
     var extensions: [String: JSONValue] = [:]
@@ -461,12 +483,13 @@ struct ToolboxConfig: Codable, Equatable, Sendable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        schemaVersion = try c.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 4
+        schemaVersion = try c.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 5
         general = try c.decodeIfPresent(GeneralConfig.self, forKey: .general) ?? GeneralConfig()
         dockMinimize = try c.decodeIfPresent(DockMinimizeConfig.self, forKey: .dockMinimize) ?? DockMinimizeConfig()
         clipboard = try c.decodeIfPresent(ClipboardConfig.self, forKey: .clipboard) ?? ClipboardConfig()
         portKiller = try c.decodeIfPresent(PortKillerConfig.self, forKey: .portKiller) ?? PortKillerConfig()
         keepAwake = try c.decodeIfPresent(KeepAwakeConfig.self, forKey: .keepAwake) ?? KeepAwakeConfig()
+        cleanLock = try c.decodeIfPresent(CleanLockConfig.self, forKey: .cleanLock) ?? CleanLockConfig()
         customCommands = try c.decodeIfPresent(CustomCommandsConfig.self, forKey: .customCommands) ?? CustomCommandsConfig()
         scrollDirection = try c.decodeIfPresent(ScrollDirectionConfig.self, forKey: .scrollDirection) ?? ScrollDirectionConfig()
         extensions = try c.decodeIfPresent([String: JSONValue].self, forKey: .extensions) ?? [:]

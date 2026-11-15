@@ -86,6 +86,13 @@ private final class ToolboxWindow: NSWindow {
     }
 
     override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown,
+           let textView = firstResponder as? NSTextView {
+            let ptInTextView = textView.convert(event.locationInWindow, from: nil)
+            if !textView.bounds.contains(ptInTextView) {
+                makeFirstResponder(nil)
+            }
+        }
         super.sendEvent(event)
         switch event.type {
         case .mouseMoved, .mouseEntered, .mouseExited, .cursorUpdate, .leftMouseDown, .leftMouseUp, .scrollWheel:
@@ -320,7 +327,9 @@ struct MainSplitView: View {
                                             ? Color.secondary.opacity(0.35)
                                             : (!configManager.config.general.appEnabled || (module.requiresAccessibility && !permissions.isAccessibilityGranted)
                                                 ? Color.orange
-                                                : Color.green)
+                                                : (!module.supportsEnableToggle
+                                                    ? (module.isRunning ? Color.red : Color.blue)
+                                                    : Color.green))
                                     )
                                     .frame(width: 7, height: 7)
                             }

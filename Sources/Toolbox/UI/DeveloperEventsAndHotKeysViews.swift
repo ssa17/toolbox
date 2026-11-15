@@ -308,6 +308,7 @@ struct DeveloperEventsAndTapsView: View {
         case .scroll: return .pink
         case .hotkeys: return .purple
         case .keepAwake: return .orange
+        case .cleanLock: return .red
         case .config: return .teal
         case .updates: return .green
         }

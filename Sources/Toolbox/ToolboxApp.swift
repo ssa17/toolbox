@@ -68,6 +68,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateNow
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        ModuleRegistry.shared.cleanLock.stop()
+    }
+
     private func applyGeneralPreferences(_ general: GeneralConfig) {
         let policy: NSApplication.ActivationPolicy = general.showInDock ? .regular : .accessory
         if NSApp.activationPolicy() != policy {

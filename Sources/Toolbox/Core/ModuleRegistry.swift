@@ -11,6 +11,7 @@ final class ModuleRegistry: ObservableObject {
     let clipboard = ClipboardModule()
     let portKiller = PortKillerModule()
     let keepAwake = KeepAwakeModule()
+    let cleanLock = CleanLockModule()
     let customCommands = CustomCommandsModule()
     let scrollDirection = ScrollDirectionModule()
 
@@ -19,6 +20,7 @@ final class ModuleRegistry: ObservableObject {
         clipboard,
         portKiller,
         keepAwake,
+        cleanLock,
         customCommands,
         scrollDirection
     ]
@@ -32,9 +34,12 @@ final class ModuleRegistry: ObservableObject {
     }
 
     func orderedMenuBarModules(for config: ToolboxConfig) -> [any ToolboxModule] {
-        let allIDs = modules.map(\.id)
+        let eligible = modules.filter(\.supportsMenuBar)
+        let allIDs = eligible.map(\.id)
         let orderedIDs = config.general.normalizedMenuBarModuleOrder(allModuleIDs: allIDs)
-        return orderedIDs.compactMap { module(withID: $0) }
+        return orderedIDs.compactMap { id in
+            eligible.first { $0.id == id }
+        }
     }
 
     func visibleMenuBarModules(for config: ToolboxConfig) -> [any ToolboxModule] {

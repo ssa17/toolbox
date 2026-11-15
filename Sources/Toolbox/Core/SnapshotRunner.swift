@@ -79,6 +79,28 @@ enum SnapshotRunner {
             to: outURL.appendingPathComponent("module_custom_commands.png")
         )
 
+        let navCleanLock = NavigationState()
+        navCleanLock.selection = .module("clean_lock")
+        navCleanLock.isSidebarVisible = true
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navCleanLock),
+            size: NSSize(width: 940, height: 700),
+            to: outURL.appendingPathComponent("module_clean_lock.png")
+        )
+
+        let hudState = CleanLockHUDState()
+        hudState.totalSeconds = 60
+        hudState.remainingSeconds = 42
+        hudState.remainingInterval = 42
+        hudState.lockMouseAndTrackpad = true
+        hudState.blockedCount = 14
+        hudState.killSwitchProgress = 0.35
+        saveViewSnapshot(
+            CleanLockHUDCardView(state: hudState),
+            size: NSSize(width: 320, height: 340),
+            to: outURL.appendingPathComponent("clean_lock_hud.png")
+        )
+
         let navJSON = NavigationState()
         navJSON.selection = .jsonConfig
         navJSON.isSidebarVisible = true

@@ -34,9 +34,10 @@ enum SelfTestRunner {
         testPortScannerParsersAndElevatedMerge()
         testPortKillerSafetyAndLiveLoopbackListener()
         testDeveloperModeAndSimulations()
+        testCleanLockEventFilteringAndLifecycle()
 
         if failures.isEmpty {
-            print("All 22 self-test suites passed.")
+            print("All 23 self-test suites passed.")
             return 0
         } else {
             for f in failures {
@@ -378,11 +379,11 @@ enum SelfTestRunner {
         if let rootView = win.contentView?.superview ?? win.contentView {
             // 1. Blank areas on the page (e.g. header banner, bottom margin below grid) must NOT match PointerCursorNSView.
             let emptyBannerPt = NSPoint(x: 500, y: 650)
-            let emptyBottomMarginPt = NSPoint(x: 500, y: 16)
+            let emptySideMarginPt = NSPoint(x: 230, y: 300)
             expect(!PointerCursorNSView.containsPointerCursorView(in: rootView, atWindowPoint: emptyBannerPt),
                    "Blank header area on Dashboard must not trigger pointingHand cursor")
-            expect(!PointerCursorNSView.containsPointerCursorView(in: rootView, atWindowPoint: emptyBottomMarginPt),
-                   "Empty bottom margin on Dashboard must not trigger pointingHand cursor")
+            expect(!PointerCursorNSView.containsPointerCursorView(in: rootView, atWindowPoint: emptySideMarginPt),
+                   "Empty margin on Dashboard must not trigger pointingHand cursor")
 
             // 2. Clickable toolbar sidebar toggle and sidebar Dashboard item must match PointerCursorNSView.
             let toolbarBtnPt = NSPoint(x: 104, y: 734)
@@ -443,7 +444,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(cfg),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.scrollDirection == cfg.scrollDirection, "ScrollDirectionConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 4, "ToolboxConfig schemaVersion should be 4")
+            expect(decoded.schemaVersion == 5, "ToolboxConfig schemaVersion should be 5")
         } else {
             failures.append("ToolboxConfig Codable encode/decode failed")
         }
@@ -686,7 +687,7 @@ enum SelfTestRunner {
         )
         expect(
             registry.visibleMenuBarModules(for: cfg).map(\.id) == expectedDefaultOrder,
-            "All 6 modules should be visible in menu bar by default"
+            "All 6 menu-bar-eligible modules should be visible in menu bar by default"
         )
 
         cfg.general.moveModuleInMenuBar(id: "keep_awake", direction: -1)
@@ -709,10 +710,10 @@ enum SelfTestRunner {
         )
         expect(cfg.dockMinimize.enabled, "Hiding dock_minimize from status bar menu must not disable the module itself")
 
-        cfg.general.menuBarModuleOrder = ["keep_awake", "keep_awake", "unknown_id"]
+        cfg.general.menuBarModuleOrder = ["keep_awake", "clean_lock", "keep_awake", "unknown_id"]
         expect(
             registry.orderedMenuBarModules(for: cfg).map(\.id) == ["keep_awake", "dock_minimize", "clipboard", "port_killer", "custom_commands", "scroll_direction"],
-            "Partial or unknown menuBarModuleOrder must normalize with remaining registered modules and no duplicates"
+            "Partial, non-menu-bar, or unknown menuBarModuleOrder must normalize with remaining eligible modules and no duplicates"
         )
 
         cfg.general.showQuickActionsInMenuBar = false
@@ -1132,5 +1133,134 @@ enum SelfTestRunner {
         expect(!devMode.isUnlocked, "lock() must disable Developer Tools")
         expect(!updateMgr.isSimulatingState && updateMgr.pendingUpdateVersion == nil, "lock() must clear UpdateManager simulation")
         expect(perms.simulatedAccessibilityGranted == nil, "lock() must clear PermissionsManager simulation")
+    }
+
+    private static func testCleanLockEventFilteringAndLifecycle() {
+        // Config defaults & duration clamping
+        let defaultCleanLock = CleanLockConfig()
+        expect(!ModuleRegistry.shared.cleanLock.supportsEnableToggle, "CleanLock should not expose an enable/disable toggle")
+        expect(!ModuleRegistry.shared.cleanLock.supportsMenuBar, "CleanLock should not appear in the Status Bar menu")
+        expect(defaultCleanLock.durationSeconds == 60, "CleanLock default duration should be 60s")
+        expect(defaultCleanLock.lockMouseAndTrackpad, "CleanLock should lock mouse & trackpad by default")
+        expect(CleanLockConfig.clampedDuration(2) == 10, "Duration below 10s must clamp to 10s")
+        expect(CleanLockConfig.clampedDuration(999) == 300, "Duration above 300s must clamp to 300s")
+        expect(CleanLockConfig.clampedDuration(45) == 45, "In-range duration should be preserved")
+
+        // Pure event filtering & kill-switch hold tests using synthesized CGEvents
+        let tap = InputLockTap()
+        let t0: TimeInterval = 1000.0
+        tap.configureSession(lockMouseAndTrackpad: true, now: t0)
+
+        // Sticky modifier grace (< 150ms) lets flagsChanged through without incrementing blockedCount
+        if let flagsRelease = CGEvent(source: nil) {
+            flagsRelease.type = .flagsChanged
+            let decision = tap.evaluateEvent(flagsRelease, now: t0 + 0.05)
+            expect(decision == .passThrough, "flagsChanged within sticky grace period should passThrough")
+            expect(tap.currentBlockedCount == 0, "Grace period flagsChanged should not increment blockedCount")
+        } else {
+            failures.append("Failed to synthesize CGEvent for sticky modifier test")
+        }
+
+        // Keyboard keyDown ('A' = keyCode 0) after grace period should swallow & increment blockedCount
+        if let keyA = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true) {
+            let decision = tap.evaluateEvent(keyA, now: t0 + 0.5)
+            expect(decision == .swallow, "keyDown('A') should be swallowed during Clean Lock")
+            expect(tap.currentBlockedCount == 1, "Swallowed keyDown should increment blockedCount to 1")
+        } else {
+            failures.append("Failed to synthesize CGEvent for keyDown('A')")
+        }
+
+        // mouseMoved must always passThrough
+        if let moveEvent = CGEvent(
+            mouseEventSource: nil,
+            mouseType: .mouseMoved,
+            mouseCursorPosition: CGPoint(x: 100, y: 100),
+            mouseButton: .left
+        ) {
+            expect(tap.evaluateEvent(moveEvent, now: t0 + 0.6) == .passThrough, "mouseMoved must passThrough")
+        }
+
+        // Mouse click & scroll when lockMouseAndTrackpad == true -> swallow
+        if let clickEvent = CGEvent(
+            mouseEventSource: nil,
+            mouseType: .leftMouseDown,
+            mouseCursorPosition: CGPoint(x: 100, y: 100),
+            mouseButton: .left
+        ) {
+            expect(tap.evaluateEvent(clickEvent, now: t0 + 0.7) == .swallow, "leftMouseDown should swallow when lockMouseAndTrackpad is true")
+        }
+        if let scrollEvent = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .line,
+            wheelCount: 1,
+            wheel1: 3,
+            wheel2: 0,
+            wheel3: 0
+        ) {
+            expect(tap.evaluateEvent(scrollEvent, now: t0 + 0.8) == .swallow, "scrollWheel should swallow when lockMouseAndTrackpad is true")
+        }
+
+        // Mouse click & scroll when lockMouseAndTrackpad == false -> passThrough
+        tap.configureSession(lockMouseAndTrackpad: false, now: t0)
+        if let clickEvent = CGEvent(
+            mouseEventSource: nil,
+            mouseType: .leftMouseDown,
+            mouseCursorPosition: CGPoint(x: 100, y: 100),
+            mouseButton: .left
+        ) {
+            expect(tap.evaluateEvent(clickEvent, now: t0 + 0.7) == .passThrough, "leftMouseDown should passThrough when lockMouseAndTrackpad is false")
+        }
+        if let scrollEvent = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .line,
+            wheelCount: 1,
+            wheel1: 3,
+            wheel2: 0,
+            wheel3: 0
+        ) {
+            expect(tap.evaluateEvent(scrollEvent, now: t0 + 0.8) == .passThrough, "scrollWheel should passThrough when lockMouseAndTrackpad is false")
+        }
+
+        // Quick tap of Ctrl+Opt+Cmd+Esc released before 3s -> resets hold progress & stays locked
+        tap.configureSession(lockMouseAndTrackpad: true, now: t0)
+        let killFlags: CGEventFlags = [.maskControl, .maskAlternate, .maskCommand]
+        if let escDown1 = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(InputLockTap.escapeKeyCode), keyDown: true),
+           let escUp1 = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(InputLockTap.escapeKeyCode), keyDown: false),
+           let escDown2 = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(InputLockTap.escapeKeyCode), keyDown: true) {
+            escDown1.flags = killFlags
+            escUp1.flags = killFlags
+            escDown2.flags = killFlags
+
+            expect(tap.evaluateEvent(escDown1, now: t0 + 1.0) == .swallow, "Initial kill switch keyDown should swallow")
+            expect(tap.currentKillSwitchProgress(now: t0 + 2.5) > 0.4, "Kill switch progress should advance while held")
+            expect(tap.evaluateEvent(escUp1, now: t0 + 2.6) == .swallow, "Early Esc keyUp should swallow and reset")
+            expect(tap.currentKillSwitchProgress(now: t0 + 2.7) == 0.0, "Early Esc release must reset kill switch progress")
+
+            // Continuous hold >= 3s -> triggers .unlock while swallowing Esc
+            expect(tap.evaluateEvent(escDown2, now: t0 + 3.0) == .swallow, "Restarted kill switch hold should swallow at 0s")
+            expect(tap.evaluateEvent(escDown2, now: t0 + 5.9) == .swallow, "Kill switch hold at 2.9s should still swallow")
+            expect(tap.evaluateEvent(escDown2, now: t0 + 6.0) == .unlock, "Kill switch hold >= 3.0s must trigger .unlock")
+
+            // Post-unlock Esc release grace: swallow held Esc repeats/keyUp (avoiding macOS beep) while passing other keys through
+            expect(tap.evaluateEvent(escDown2, now: t0 + 6.1) == .swallow, "Held Esc repeat right after unlock should be swallowed")
+            if let keyA = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true) {
+                expect(tap.evaluateEvent(keyA, now: t0 + 6.2) == .passThrough, "Other keys must passThrough immediately after unlock")
+            }
+            expect(tap.evaluateEvent(escUp1, now: t0 + 6.3) == .swallow, "Final Esc keyUp after unlock should be swallowed")
+        } else {
+            failures.append("Failed to synthesize Esc CGEvents for kill switch test")
+        }
+
+        // Countdown timer expiration & stop() teardown
+        let module = ModuleRegistry.shared.cleanLock
+        module.beginCountdownSession(durationSeconds: 10, lockMouseAndTrackpad: true, showHUD: false)
+        expect(module.isLocked && module.remainingSeconds == 10, "Countdown session should enter locked state with 10s remaining")
+        module.tickCountdown(now: Date().addingTimeInterval(11))
+        expect(!module.isLocked && module.remainingSeconds == 0, "Timer reaching 0 must clear locked state")
+
+        module.beginCountdownSession(durationSeconds: 15, lockMouseAndTrackpad: true, showHUD: false)
+        expect(module.isLocked, "Countdown session should be locked before stop()")
+        module.stop()
+        expect(!module.isLocked, "stop() must cancel countdown and clear locked state")
     }
 }

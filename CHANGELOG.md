@@ -10,6 +10,7 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 ## [Unreleased]
 
 ### Added
+- **Clean Lock** — temporarily lock your keyboard (including media, volume, and brightness keys) and trackpad/mouse clicks & scrolling with a large center-screen countdown (`10s`–`3m`), live blocked-input counter, and a `Hold ⌃ ⌥ ⌘ Esc (3s)` emergency kill switch
 - Developer Tools (**Updates**): added a **Background Check Schedule** section with a live auto-check countdown, a one-shot 5-second scheduled check test, and a session check counter showing timestamped outcomes
 
 ## [1.1] - 2026-11-15

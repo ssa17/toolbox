@@ -25,6 +25,8 @@ protocol ToolboxModule: AnyObject {
 
     var requiresAccessibility: Bool { get }
     var accessibilityReason: String { get }
+    var supportsMenuBar: Bool { get }
+    var supportsEnableToggle: Bool { get }
 
     var isRunning: Bool { get }
 
@@ -45,6 +47,8 @@ protocol ToolboxModule: AnyObject {
 extension ToolboxModule {
     var aboutSummary: String { tagline }
     var featureTips: [String] { [] }
+    var supportsMenuBar: Bool { true }
+    var supportsEnableToggle: Bool { true }
 
     var accessibilityReason: String {
         "Required to observe system-wide events for this module."

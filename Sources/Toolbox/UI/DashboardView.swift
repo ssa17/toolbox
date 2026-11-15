@@ -7,8 +7,12 @@ struct DashboardView: View {
 
     let onSelectModule: (String) -> Void
 
+    private var toggleableModules: [any ToolboxModule] {
+        registry.modules.filter(\.supportsEnableToggle)
+    }
+
     private var activeCount: Int {
-        registry.modules.filter { $0.isEnabled(in: configManager.config) }.count
+        toggleableModules.filter { $0.isEnabled(in: configManager.config) }.count
     }
 
     private var versionText: String {
@@ -81,7 +85,7 @@ struct DashboardView: View {
                             .background(Color.primary.opacity(0.08), in: Capsule())
                         StatusBadge(
                             text: configManager.config.general.appEnabled
-                                ? "\(activeCount)/\(registry.modules.count) enabled"
+                                ? "\(activeCount)/\(toggleableModules.count) enabled"
                                 : "Paused",
                             color: configManager.config.general.appEnabled
                                 ? (activeCount > 0 ? .green : .secondary)
@@ -96,6 +100,7 @@ struct DashboardView: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
+                .textSelection(.enabled)
 
                 if !configManager.config.general.appEnabled {
                     Spacer()
@@ -187,18 +192,36 @@ struct DashboardView: View {
                 .buttonStyle(.plain)
                 .pointerCursor()
 
-                Toggle("", isOn: Binding(
-                    get: { module.isEnabled(in: configManager.config) },
-                    set: { newVal in
-                        module.setEnabled(newVal, in: &configManager.config)
-                        if newVal && module.requiresAccessibility && !permissions.isAccessibilityGranted {
-                            permissions.promptAndOpenSettings()
+                if module.supportsEnableToggle {
+                    Toggle("", isOn: Binding(
+                        get: { module.isEnabled(in: configManager.config) },
+                        set: { newVal in
+                            module.setEnabled(newVal, in: &configManager.config)
+                            if newVal && module.requiresAccessibility && !permissions.isAccessibilityGranted {
+                                permissions.promptAndOpenSettings()
+                            }
                         }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(StatusBarSwitchToggleStyle(onColor: .green))
+                    .pointerCursor()
+                } else if let cleanLock = module as? CleanLockModule {
+                    let secs = CleanLockConfig.clampedDuration(configManager.config.cleanLock.durationSeconds)
+                    let durationLabel = secs >= 60 && secs % 60 == 0 ? "\(secs / 60)m" : "\(secs)s"
+                    Button {
+                        _ = cleanLock.lock()
+                    } label: {
+                        Label(
+                            cleanLock.isLocked ? "\(cleanLock.remainingSeconds)s" : "Lock (\(durationLabel))",
+                            systemImage: cleanLock.isLocked ? "lock.fill" : "lock"
+                        )
+                        .font(.caption.weight(.semibold))
                     }
-                ))
-                .labelsHidden()
-                .toggleStyle(StatusBarSwitchToggleStyle(onColor: .green))
-                .pointerCursor()
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .tint(.red)
+                    .pointerCursor()
+                }
             }
 
             Button {

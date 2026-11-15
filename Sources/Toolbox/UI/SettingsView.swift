@@ -218,6 +218,7 @@ struct SettingsView: View {
                             Text("Extensible, lightweight macOS quality-of-life toolkit.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
                             Text("Config file: \(configManager.configURL.path)")
                                 .font(.system(.caption2, design: .monospaced))
                                 .foregroundStyle(.tertiary)

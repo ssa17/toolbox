@@ -412,6 +412,7 @@ struct FeatureSection<Content: View>: View {
                 }
             }
             .padding(.horizontal, 4)
+            .textSelection(.enabled)
 
             SectionCard {
                 content()
@@ -447,6 +448,7 @@ struct SettingRow<Trailing: View>: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            .textSelection(.enabled)
 
             Spacer(minLength: 12)
 
