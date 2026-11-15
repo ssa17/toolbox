@@ -38,6 +38,43 @@ covers what it does and what it needs.
 Installed copies of Toolbox check `SUFeedURL` hourly and offer the new
 release automatically via Sparkle.
 
+> **Keep release history:** releases accumulate on GitHub — don't delete old
+> ones. The releases page is the public history. (`releases/appcast.xml` only
+> carries the latest entry, which is all Sparkle needs — that's separate.)
+
+## What's new (release notes)
+
+The "what's new" text comes from **`CHANGELOG.md`** — add a bullet under its
+`## [Unreleased]` section whenever you ship something user-visible (see
+`.agents/skills/changelog/SKILL.md`).
+
+At release time (`fastlane release`), after condensing `[Unreleased]` into a
+concise summary:
+
+1. `fastlane/Fastfile` writes the **Unreleased** section into
+   `releases/Toolbox-<version>.md` (gitignored; `generate_appcast
+   --embed-release-notes` embeds it directly in `releases/appcast.xml`, so
+   installed copies display it in the Sparkle update dialog).
+2. It **resets** the section: the consumed entries become the dated
+   `## [<version>] - YYYY-MM-DD` entry and a fresh empty `## [Unreleased]`
+   bucket goes on top. Nothing is lost — the per-version entries stay in
+   `CHANGELOG.md` as the permanent record.
+
+So tracking is: bullet into `[Unreleased]` as you commit; summarize `[Unreleased]`
+and run `fastlane release` when shipping — the changelog resets itself.
+
+## Where things live
+
+| File | Role |
+|---|---|
+| `fastlane/Fastfile` | Release pipeline (`distrib` and `release` lanes) |
+| `scripts/build-app.sh` | Builds and signs `build/Toolbox.app` (bundles Sparkle) |
+| `vendor/fetch-sparkle.sh` | Fetches the pre-built Sparkle framework (gitignored) |
+| `CHANGELOG.md` | Release notes source — `[Unreleased]` becomes each release's "what's new" |
+| `.agents/skills/changelog/SKILL.md` | Agent workflow for logging changes at commit time and summarizing before release |
+| `releases/appcast.xml` | Sparkle update feed (committed; served via raw GitHub) |
+| `VERSION` | Single source of truth for the marketing + build version |
+
 ## Notes
 
 - The DMG has a **stable filename** (`Toolbox.dmg`) so the README's

@@ -90,6 +90,14 @@ enum DockQuitBehavior: String, Codable, CaseIterable, Sendable {
 }
 
 struct GeneralConfig: Codable, Equatable, Sendable {
+    static let defaultMenuBarModuleOrder: [String] = [
+        "dock_minimize",
+        "clipboard",
+        "keep_awake",
+        "custom_commands",
+        "scroll_direction"
+    ]
+
     var appEnabled: Bool = true
     var showInMenuBar: Bool = true
     var showInDock: Bool = true
@@ -97,6 +105,10 @@ struct GeneralConfig: Codable, Equatable, Sendable {
     var openDashboardOnDockClick: Bool = true
     var dockQuitBehavior: DockQuitBehavior = .closeWindow
     var launchAtLogin: Bool = false
+    var menuBarModuleOrder: [String] = GeneralConfig.defaultMenuBarModuleOrder
+    var menuBarHiddenModules: [String] = []
+    var showQuickActionsInMenuBar: Bool = true
+    var showQuickCommandsInMenuBar: Bool = true
 
     init() {}
 
@@ -109,6 +121,80 @@ struct GeneralConfig: Codable, Equatable, Sendable {
         openDashboardOnDockClick = try c.decodeIfPresent(Bool.self, forKey: .openDashboardOnDockClick) ?? true
         dockQuitBehavior = try c.decodeIfPresent(DockQuitBehavior.self, forKey: .dockQuitBehavior) ?? .closeWindow
         launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
+        menuBarModuleOrder = try c.decodeIfPresent([String].self, forKey: .menuBarModuleOrder) ?? Self.defaultMenuBarModuleOrder
+        menuBarHiddenModules = try c.decodeIfPresent([String].self, forKey: .menuBarHiddenModules) ?? []
+        showQuickActionsInMenuBar = try c.decodeIfPresent(Bool.self, forKey: .showQuickActionsInMenuBar) ?? true
+        showQuickCommandsInMenuBar = try c.decodeIfPresent(Bool.self, forKey: .showQuickCommandsInMenuBar) ?? true
+    }
+
+    func normalizedMenuBarModuleOrder(allModuleIDs: [String] = GeneralConfig.defaultMenuBarModuleOrder) -> [String] {
+        let validSet = Set(allModuleIDs)
+        var seen = Set<String>()
+        var result: [String] = []
+
+        for id in menuBarModuleOrder where validSet.contains(id) && !seen.contains(id) {
+            seen.insert(id)
+            result.append(id)
+        }
+        for id in allModuleIDs where !seen.contains(id) {
+            seen.insert(id)
+            result.append(id)
+        }
+        return result
+    }
+
+    func isModuleVisibleInMenuBar(_ id: String) -> Bool {
+        !menuBarHiddenModules.contains(id)
+    }
+
+    mutating func setModuleVisibleInMenuBar(_ id: String, visible: Bool) {
+        if visible {
+            menuBarHiddenModules.removeAll { $0 == id }
+        } else if !menuBarHiddenModules.contains(id) {
+            menuBarHiddenModules.append(id)
+        }
+    }
+
+    mutating func moveModuleInMenuBar(
+        id: String,
+        direction: Int,
+        allModuleIDs: [String] = GeneralConfig.defaultMenuBarModuleOrder
+    ) {
+        var order = normalizedMenuBarModuleOrder(allModuleIDs: allModuleIDs)
+        guard direction != 0,
+              let index = order.firstIndex(of: id) else { return }
+        let targetIndex = index + direction
+        guard targetIndex >= 0 && targetIndex < order.count else { return }
+        order.swapAt(index, targetIndex)
+        menuBarModuleOrder = order
+    }
+
+    mutating func moveModuleInMenuBar(
+        fromId: String,
+        toId: String,
+        allModuleIDs: [String] = GeneralConfig.defaultMenuBarModuleOrder
+    ) {
+        var order = normalizedMenuBarModuleOrder(allModuleIDs: allModuleIDs)
+        guard let fromIndex = order.firstIndex(of: fromId),
+              let toIndex = order.firstIndex(of: toId),
+              fromIndex != toIndex else { return }
+        let item = order.remove(at: fromIndex)
+        order.insert(item, at: toIndex)
+        menuBarModuleOrder = order
+    }
+
+    var hasCustomMenuBarLayout: Bool {
+        normalizedMenuBarModuleOrder() != Self.defaultMenuBarModuleOrder
+            || !menuBarHiddenModules.isEmpty
+            || !showQuickActionsInMenuBar
+            || !showQuickCommandsInMenuBar
+    }
+
+    mutating func resetMenuBarLayout() {
+        menuBarModuleOrder = Self.defaultMenuBarModuleOrder
+        menuBarHiddenModules = []
+        showQuickActionsInMenuBar = true
+        showQuickCommandsInMenuBar = true
     }
 }
 

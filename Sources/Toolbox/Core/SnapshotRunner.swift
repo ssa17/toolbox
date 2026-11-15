@@ -82,7 +82,7 @@ enum SnapshotRunner {
         )
         saveViewSnapshot(
             MainWindowController.makeRootView(navState: navSettings),
-            size: NSSize(width: 940, height: 920),
+            size: NSSize(width: 940, height: 1220),
             to: outURL.appendingPathComponent("settings_up_to_date.png")
         )
 
@@ -95,7 +95,7 @@ enum SnapshotRunner {
         )
         saveViewSnapshot(
             MainWindowController.makeRootView(navState: navSettings),
-            size: NSSize(width: 940, height: 940),
+            size: NSSize(width: 940, height: 1220),
             to: outURL.appendingPathComponent("settings_checking.png")
         )
 
@@ -109,7 +109,7 @@ enum SnapshotRunner {
         )
         saveViewSnapshot(
             MainWindowController.makeRootView(navState: navSettings),
-            size: NSSize(width: 940, height: 980),
+            size: NSSize(width: 940, height: 1220),
             to: outURL.appendingPathComponent("settings_update_available.png")
         )
 

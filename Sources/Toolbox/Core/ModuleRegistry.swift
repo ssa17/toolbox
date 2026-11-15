@@ -29,6 +29,18 @@ final class ModuleRegistry: ObservableObject {
         modules.first { $0.id == id }
     }
 
+    func orderedMenuBarModules(for config: ToolboxConfig) -> [any ToolboxModule] {
+        let allIDs = modules.map(\.id)
+        let orderedIDs = config.general.normalizedMenuBarModuleOrder(allModuleIDs: allIDs)
+        return orderedIDs.compactMap { module(withID: $0) }
+    }
+
+    func visibleMenuBarModules(for config: ToolboxConfig) -> [any ToolboxModule] {
+        orderedMenuBarModules(for: config).filter {
+            config.general.isModuleVisibleInMenuBar($0.id)
+        }
+    }
+
     func reloadAll(with config: ToolboxConfig) {
         if config.general.appEnabled {
             for module in modules {

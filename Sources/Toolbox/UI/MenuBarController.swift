@@ -191,10 +191,14 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     private func updateHostedViewSize() {
         let fitting = hostingController.sizeThatFits(in: NSSize(width: menuWidth, height: 760))
-        let targetSize = NSSize(width: menuWidth, height: max(260, fitting.height))
+        let targetSize = NSSize(width: menuWidth, height: max(140, fitting.height))
         containerView.frame = NSRect(origin: .zero, size: targetSize)
         hostingController.view.frame = containerView.bounds
         hostingController.view.layoutSubtreeIfNeeded()
+    }
+
+    internal func refreshHostedViewSizeForTesting() {
+        updateHostedViewSize()
     }
 
     private func closeMenu() {
@@ -415,123 +419,167 @@ struct MenuBarPopoverView: View {
                 .pointerCursor()
             }
 
-            Divider()
-
-            VStack(spacing: 8) {
-                ForEach(registry.modules, id: \.id) { module in
-                    moduleRow(module)
-                }
-            }
-            .opacity(configManager.config.general.appEnabled ? 1.0 : 0.62)
-
-            Divider()
-
-            HStack(spacing: 8) {
-                Button {
-                    onClosePopover(false)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                        clipboard.showPopover()
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "doc.on.clipboard")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.cyan)
-                        Text("Clipboard")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.primary)
-                        Text("\(clipboard.entries.count)")
-                            .font(.caption2.monospacedDigit().weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(Color.primary.opacity(0.08), in: Capsule())
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 7)
-                    .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.75)
-                    )
-                    .contentShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-        .focusEffectDisabled()
-                .pointerCursor()
-
-                Button {
-                    keepAwake.toggle()
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: keepAwake.isAwakeActive ? "bolt.fill" : "bolt")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(keepAwake.isAwakeActive ? .orange : .secondary)
-                        Text("Keep Awake")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.primary)
-                        if keepAwake.isAwakeActive {
-                            Text("ON")
-                                .font(.system(size: 9, weight: .bold, design: .rounded))
-                                .foregroundStyle(.orange)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 1.5)
-                                .background(Color.orange.opacity(0.2), in: Capsule())
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 7)
-                    .background(
-                        keepAwake.isAwakeActive ? Color.orange.opacity(0.14) : Color.primary.opacity(0.055),
-                        in: RoundedRectangle(cornerRadius: 8)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(
-                                keepAwake.isAwakeActive ? Color.orange.opacity(0.42) : Color.primary.opacity(0.09),
-                                lineWidth: 0.75
-                            )
-                    )
-                    .contentShape(RoundedRectangle(cornerRadius: 8))
-                }
-                .buttonStyle(.plain)
-        .focusEffectDisabled()
-                .help(keepAwake.isAwakeActive ? "Turn Keep Awake Off" : "Turn Keep Awake On")
-                .pointerCursor()
-            }
-
+            let visibleModules = registry.visibleMenuBarModules(for: configManager.config)
+            let showQuickActions = configManager.config.general.showQuickActionsInMenuBar
             let activeCommands = configManager.config.customCommands.commands.filter {
                 $0.enabled &&
                 !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
                 !$0.payload.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }
-            if configManager.config.customCommands.enabled && !activeCommands.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Quick Commands")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    ForEach(activeCommands.prefix(4)) { cmd in
+            let showQuickCommands = configManager.config.general.showQuickCommandsInMenuBar
+                && configManager.config.customCommands.enabled
+                && !activeCommands.isEmpty
+
+            if !visibleModules.isEmpty {
+                Divider()
+
+                VStack(spacing: 8) {
+                    ForEach(visibleModules, id: \.id) { module in
+                        moduleRow(module)
+                    }
+                }
+                .opacity(configManager.config.general.appEnabled ? 1.0 : 0.62)
+            }
+
+            if showQuickActions || showQuickCommands {
+                Divider()
+
+                if showQuickActions {
+                    HStack(spacing: 8) {
                         Button {
                             onClosePopover(false)
-                            registry.customCommands.runCommand(cmd)
-                        } label: {
-                            HStack {
-                                Image(systemName: "play.circle")
-                                    .foregroundStyle(.purple)
-                                Text(cmd.name)
-                                    .font(.caption)
-                                Spacer()
-                                ShortcutPill(text: cmd.shortcut.displayString)
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                                clipboard.showPopover()
                             }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 5)
-                            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "doc.on.clipboard")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.cyan)
+                                Text("Clipboard")
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(.primary)
+                                Text("\(clipboard.entries.count)")
+                                    .font(.caption2.monospacedDigit().weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1)
+                                    .background(Color.primary.opacity(0.08), in: Capsule())
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 7)
+                            .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.75)
+                            )
+                            .contentShape(RoundedRectangle(cornerRadius: 8))
                         }
                         .buttonStyle(.plain)
-        .focusEffectDisabled()
+                        .focusEffectDisabled()
+                        .pointerCursor()
+
+                        Button {
+                            keepAwake.toggle()
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: keepAwake.isAwakeActive ? "bolt.fill" : "bolt")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(keepAwake.isAwakeActive ? .orange : .secondary)
+                                Text("Keep Awake")
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(.primary)
+                                if keepAwake.isAwakeActive {
+                                    Text("ON")
+                                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                                        .foregroundStyle(.orange)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 1.5)
+                                        .background(Color.orange.opacity(0.2), in: Capsule())
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 7)
+                            .background(
+                                keepAwake.isAwakeActive ? Color.orange.opacity(0.14) : Color.primary.opacity(0.055),
+                                in: RoundedRectangle(cornerRadius: 8)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .strokeBorder(
+                                        keepAwake.isAwakeActive ? Color.orange.opacity(0.42) : Color.primary.opacity(0.09),
+                                        lineWidth: 0.75
+                                    )
+                            )
+                            .contentShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                        .buttonStyle(.plain)
+                        .focusEffectDisabled()
+                        .help(keepAwake.isAwakeActive ? "Turn Keep Awake Off" : "Turn Keep Awake On")
                         .pointerCursor()
                     }
                 }
+
+                if showQuickCommands {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Quick Commands")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        ForEach(activeCommands.prefix(4)) { cmd in
+                            Button {
+                                onClosePopover(false)
+                                registry.customCommands.runCommand(cmd)
+                            } label: {
+                                HStack {
+                                    Image(systemName: "play.circle")
+                                        .foregroundStyle(.purple)
+                                    Text(cmd.name)
+                                        .font(.caption)
+                                    Spacer()
+                                    ShortcutPill(text: cmd.shortcut.displayString)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+                            }
+                            .buttonStyle(.plain)
+                            .focusEffectDisabled()
+                            .pointerCursor()
+                        }
+                    }
+                }
+            }
+
+            if visibleModules.isEmpty && !showQuickActions && !showQuickCommands {
+                Divider()
+
+                Button {
+                    onOpenDashboard(.settings)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text("All menu sections hidden · Customize in Settings")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.75)
+                    )
+                    .contentShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .focusEffectDisabled()
+                .pointerCursor()
             }
 
             Divider()

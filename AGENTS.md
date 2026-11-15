@@ -33,6 +33,13 @@ Instructions and conventions for human contributors and AI coding agents working
 - **Live Window Stack (`Modules/DockMinimize/DockMinimizeModule.swift`)**:
   - Query live z-order via `CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)` rather than relying only on async workspace notifications, and transfer focus using `NSApp.yieldActivation(to:)` + `kAXFrontmostAttribute` + `activate()`.
 
+## Release & Changelog Rules (Invariants)
+
+1. **Keep release history:** `fastlane release` creates a GitHub release (`v<version>`); never delete old releases or tags (the GitHub Releases page is the public history). `releases/appcast.xml` carrying only the latest entry is intentional and separate.
+2. **Log user-visible changes (`.agents/skills/changelog/SKILL.md`):** Every user-visible change gets a bullet in `CHANGELOG.md` under `## [Unreleased]` at commit time (in the same commit), and pending entries are summarized before `fastlane release` so the Sparkle "what's new" dialog stays concise.
+3. **Never advertise an update that isn't strictly newer:** `UpdateManager` compares versions via `UpdateManager.isNewerVersion` before setting `pendingUpdateVersion`, and all update indicators (sidebar badge, dashboard banner, status bar menu button, Settings card) read from that guarded property.
+4. **Reference docs:** See [`docs/distribution-guide.md`](docs/distribution-guide.md) (release pipeline & release notes), [`docs/testing.md`](docs/testing.md) (test & snapshot loop), [`docs/scroll-direction.md`](docs/scroll-direction.md) (scroll event tap details), and [`.agents/skills/changelog/SKILL.md`](.agents/skills/changelog/SKILL.md) (commit/release changelog skill).
+
 ## Build, Signing, Notarization & Testing
 
 See **[`docs/testing.md`](docs/testing.md)** for the full iterative debugging, isolated configuration (`TOOLBOX_CONFIG_DIR`, `--self-test`), and visual UI snapshot (`--snapshot-ui`) workflow. Always verify changes before finishing:

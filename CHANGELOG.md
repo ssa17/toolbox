@@ -9,6 +9,9 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 
 ## [Unreleased]
 
+### Added
+- Status Bar Menu: choose which features, quick-action buttons, and quick commands appear in the menu-bar popover, and reorder features via drag-and-drop or up/down controls in Settings
+
 ## [1.0] - 2026-11-14
 
 ### Added

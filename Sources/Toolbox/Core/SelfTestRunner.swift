@@ -30,9 +30,10 @@ enum SelfTestRunner {
         testScrollDirectionModuleLifecycleAndRegistry()
         testDockMinimizeWindowsBehaviorAndPreFilter()
         testUpdateManagerAndCustomDialog()
+        testMenuBarCustomizationOrderAndVisibility()
 
         if failures.isEmpty {
-            print("All 18 self-test suites passed.")
+            print("All 19 self-test suites passed.")
             return 0
         } else {
             for f in failures {
@@ -607,5 +608,58 @@ enum SelfTestRunner {
             pendingUpdateVersion: nil,
             lastCheckedAt: nil
         )
+    }
+
+    private static func testMenuBarCustomizationOrderAndVisibility() {
+        var cfg = ToolboxConfig()
+        let registry = ModuleRegistry.shared
+        let expectedDefaultOrder = ["dock_minimize", "clipboard", "keep_awake", "custom_commands", "scroll_direction"]
+
+        expect(!cfg.general.hasCustomMenuBarLayout, "Default config should not report custom menu bar layout")
+        expect(cfg.general.showQuickActionsInMenuBar, "Quick actions should be shown in menu bar by default")
+        expect(cfg.general.showQuickCommandsInMenuBar, "Quick commands should be shown in menu bar by default")
+        expect(
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == expectedDefaultOrder,
+            "Default menu bar module order mismatch: \(registry.orderedMenuBarModules(for: cfg).map(\.id))"
+        )
+        expect(
+            registry.visibleMenuBarModules(for: cfg).map(\.id) == expectedDefaultOrder,
+            "All 5 modules should be visible in menu bar by default"
+        )
+
+        cfg.general.moveModuleInMenuBar(id: "keep_awake", direction: -1)
+        expect(
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["dock_minimize", "keep_awake", "clipboard", "custom_commands", "scroll_direction"],
+            "Moving keep_awake up by 1 should place it before clipboard"
+        )
+        expect(cfg.general.hasCustomMenuBarLayout, "Reordering should mark hasCustomMenuBarLayout = true")
+
+        cfg.general.moveModuleInMenuBar(fromId: "scroll_direction", toId: "dock_minimize")
+        expect(
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "dock_minimize", "keep_awake", "clipboard", "custom_commands"],
+            "Dragging scroll_direction to dock_minimize should place it first"
+        )
+
+        cfg.general.setModuleVisibleInMenuBar("dock_minimize", visible: false)
+        expect(
+            registry.visibleMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "keep_awake", "clipboard", "custom_commands"],
+            "Hiding dock_minimize from menu bar should omit it from visibleMenuBarModules"
+        )
+        expect(cfg.dockMinimize.enabled, "Hiding dock_minimize from status bar menu must not disable the module itself")
+
+        cfg.general.menuBarModuleOrder = ["keep_awake", "keep_awake", "unknown_id"]
+        expect(
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["keep_awake", "dock_minimize", "clipboard", "custom_commands", "scroll_direction"],
+            "Partial or unknown menuBarModuleOrder must normalize with remaining registered modules and no duplicates"
+        )
+
+        cfg.general.showQuickActionsInMenuBar = false
+        cfg.general.showQuickCommandsInMenuBar = false
+        expect(cfg.general.hasCustomMenuBarLayout, "Hiding quick actions/commands should mark custom layout")
+
+        cfg.general.resetMenuBarLayout()
+        expect(!cfg.general.hasCustomMenuBarLayout, "resetMenuBarLayout must clear custom layout state")
+        expect(registry.visibleMenuBarModules(for: cfg).map(\.id) == expectedDefaultOrder, "resetMenuBarLayout must restore default visible modules")
+        expect(cfg.general.showQuickActionsInMenuBar && cfg.general.showQuickCommandsInMenuBar, "resetMenuBarLayout must restore quick actions & quick commands")
     }
 }
