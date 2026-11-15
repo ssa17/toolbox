@@ -212,46 +212,47 @@ struct ScrollDirectionSettingsView: View {
                 }
             }
 
-            ZStack {
-                RoundedRectangle(cornerRadius: 9)
-                    .fill(Color.primary.opacity(0.04))
-
-                // Endless tiled preview rows driven directly by scroll events on the pad.
-                VStack(spacing: 0) {
-                    ForEach(-3..<10, id: \.self) { idx in
-                        let rowNumber = ((idx % 6) + 6) % 6 + 1
-                        HStack(spacing: 10) {
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill(rowNumber % 2 == 0 ? Color.pink.opacity(0.55) : Color.accentColor.opacity(0.45))
-                                .frame(width: 4, height: 14)
-                            Text("Sample Line \(rowNumber)")
-                                .font(.caption.monospaced())
-                                .foregroundStyle(.primary.opacity(0.82))
-                            Spacer()
-                            Text(rowNumber == 1 ? "Top of list" : (rowNumber == 6 ? "End of section" : "Scroll to test direction"))
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
-                        .padding(.horizontal, 12)
-                        .frame(height: 32)
-                        if idx < 9 {
-                            Divider().opacity(0.4)
+            RoundedRectangle(cornerRadius: 9)
+                .fill(Color.primary.opacity(0.04))
+                .frame(height: 112)
+                .overlay {
+                    // Endless tiled preview rows driven directly by scroll events on the pad.
+                    VStack(spacing: 0) {
+                        ForEach(-3..<10, id: \.self) { idx in
+                            let rowNumber = ((idx % 6) + 6) % 6 + 1
+                            HStack(spacing: 10) {
+                                RoundedRectangle(cornerRadius: 3)
+                                    .fill(rowNumber % 2 == 0 ? Color.pink.opacity(0.55) : Color.accentColor.opacity(0.45))
+                                    .frame(width: 4, height: 14)
+                                Text("Sample Line \(rowNumber)")
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.primary.opacity(0.82))
+                                Spacer()
+                                Text(rowNumber == 1 ? "Top of list" : (rowNumber == 6 ? "End of section" : "Scroll to test direction"))
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .padding(.horizontal, 12)
+                            .frame(height: 32)
+                            if idx < 9 {
+                                Divider().opacity(0.4)
+                            }
                         }
                     }
+                    .offset(y: previewState.offset - 48)
+                    .allowsHitTesting(false)
                 }
-                .offset(y: previewState.offset - 48)
-                .allowsHitTesting(false)
-
-                ScrollWheelCaptureRepresentable { deltaY, isContinuous in
-                    previewState.recordScroll(deltaY: deltaY, isContinuous: isContinuous)
+                .clipShape(RoundedRectangle(cornerRadius: 9))
+                .overlay {
+                    ScrollWheelCaptureRepresentable { deltaY, isContinuous in
+                        previewState.recordScroll(deltaY: deltaY, isContinuous: isContinuous)
+                    }
                 }
-            }
-            .frame(height: 112)
-            .clipShape(RoundedRectangle(cornerRadius: 9))
-            .overlay(
-                RoundedRectangle(cornerRadius: 9)
-                    .strokeBorder(Color.primary.opacity(0.11), lineWidth: 1)
-            )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9)
+                        .strokeBorder(Color.primary.opacity(0.11), lineWidth: 1)
+                        .allowsHitTesting(false)
+                )
         }
     }
 
