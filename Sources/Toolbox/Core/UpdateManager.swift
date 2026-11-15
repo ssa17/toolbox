@@ -18,6 +18,14 @@ final class UpdateManager: NSObject, ObservableObject {
     private static let lastCheckedDefaultsKey = "toolbox.lastUpdateCheckAt"
     private static let minimumCheckVisualDuration: TimeInterval = 0.55
 
+    static var defaultCheckIntervalSeconds: TimeInterval {
+        if let raw = Bundle.main.object(forInfoDictionaryKey: "SUScheduledCheckInterval") as? NSNumber,
+           raw.doubleValue > 0 {
+            return raw.doubleValue
+        }
+        return 3600
+    }
+
     private static var isIsolatedMode: Bool {
         CommandLine.arguments.contains("--self-test")
             || CommandLine.arguments.contains("--snapshot-ui")
@@ -38,6 +46,13 @@ final class UpdateManager: NSObject, ObservableObject {
     @Published private(set) var statusText = "Up to date"
     @Published private(set) var isSimulatingState = false
     @Published private(set) var activeSimulationPreset: UpdateSimulationPreset?
+    @Published private(set) var scheduledCheckIntervalSeconds: TimeInterval = UpdateManager.defaultCheckIntervalSeconds
+    @Published private(set) var isUsingCustomScheduleInterval = false
+    @Published private(set) var customScheduleNextFireDate: Date?
+    @Published private(set) var backgroundChecksCount: Int = 0
+    @Published private(set) var lastBackgroundCheckAt: Date?
+    @Published private(set) var lastBackgroundCheckOutcome: String?
+    @Published private(set) var isBackgroundCheckActive: Bool = false
 
     @Published var automaticallyChecksForUpdates: Bool = true {
         didSet {
@@ -51,6 +66,7 @@ final class UpdateManager: NSObject, ObservableObject {
     private var isSyncingAutoCheck = false
     private var progressTimer: Timer?
     private var safetyTimer: Timer?
+    private var developerScheduleTimer: Timer?
     private var checkStartedAt: Date?
     private var pendingCompletionWork: DispatchWorkItem?
     private var simulatedFlowWorkItems: [DispatchWorkItem] = []
@@ -142,6 +158,9 @@ final class UpdateManager: NSObject, ObservableObject {
             self.isSyncingAutoCheck = true
             self.automaticallyChecksForUpdates = spu.automaticallyChecksForUpdates
             self.isSyncingAutoCheck = false
+            self.scheduledCheckIntervalSeconds = spu.updateCheckInterval > 0
+                ? spu.updateCheckInterval
+                : Self.defaultCheckIntervalSeconds
             if self.lastCheckedAt == nil, !Self.isIsolatedMode {
                 self.lastCheckedAt = spu.lastUpdateCheckDate
             }
@@ -180,6 +199,90 @@ final class UpdateManager: NSObject, ObservableObject {
             return
         }
         checkForUpdates()
+    }
+
+    var nextScheduledCheckDate: Date? {
+        guard automaticallyChecksForUpdates else { return nil }
+        if isUsingCustomScheduleInterval, let customScheduleNextFireDate {
+            return customScheduleNextFireDate
+        }
+        guard let base = updater?.lastUpdateCheckDate ?? lastCheckedAt else { return nil }
+        return base.addingTimeInterval(scheduledCheckIntervalSeconds)
+    }
+
+    /// Starts a one-shot 5-second countdown in Developer Tools that triggers Sparkle's background check
+    /// and then automatically restores the default 1h schedule. Pass `nil` to cancel and restore immediately.
+    func setDeveloperScheduleInterval(_ seconds: TimeInterval?) {
+        developerScheduleTimer?.invalidate()
+        developerScheduleTimer = nil
+
+        if let seconds {
+            let target = max(1, seconds)
+            isUsingCustomScheduleInterval = true
+            scheduledCheckIntervalSeconds = target
+            customScheduleNextFireDate = Date().addingTimeInterval(target)
+
+            let timer = Timer(timeInterval: target, repeats: false) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.developerScheduleTimer = nil
+                    self.isUsingCustomScheduleInterval = false
+                    self.customScheduleNextFireDate = nil
+                    self.scheduledCheckIntervalSeconds = Self.defaultCheckIntervalSeconds
+                    self.updater?.updateCheckInterval = Self.defaultCheckIntervalSeconds
+                    if self.updater != nil, !self.isChecking {
+                        self.triggerBackgroundUpdateCheck()
+                    }
+                }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            developerScheduleTimer = timer
+
+            DeveloperEventLog.shared.record(
+                .updates,
+                "Scheduled one-shot dev background check",
+                detail: "in \(Int(target))s"
+            )
+        } else {
+            isUsingCustomScheduleInterval = false
+            customScheduleNextFireDate = nil
+            scheduledCheckIntervalSeconds = Self.defaultCheckIntervalSeconds
+            updater?.updateCheckInterval = Self.defaultCheckIntervalSeconds
+            if !Self.isIsolatedMode {
+                UserDefaults.standard.removeObject(forKey: "SUScheduledCheckInterval")
+            }
+            DeveloperEventLog.shared.record(
+                .updates,
+                "Restored default check schedule",
+                detail: "\(Int(Self.defaultCheckIntervalSeconds))s"
+            )
+        }
+    }
+
+    /// Invokes Sparkle's background update check (`SPUUpdater.checkForUpdatesInBackground()`).
+    func triggerBackgroundUpdateCheck() {
+        cancelSimulatedDialogFlow()
+        isSimulatingState = false
+        activeSimulationPreset = nil
+
+        guard let updater else {
+            lastCheckFailed = true
+            lastCheckError = "Available when running from Toolbox.app"
+            statusText = "Available in Toolbox.app"
+            return
+        }
+
+        isBackgroundCheckActive = true
+        DeveloperEventLog.shared.record(.updates, "Triggered Sparkle background check")
+        updater.checkForUpdatesInBackground()
+    }
+
+    internal func recordBackgroundCheckOutcome(_ outcome: String, at date: Date = Date()) {
+        isBackgroundCheckActive = false
+        backgroundChecksCount += 1
+        lastBackgroundCheckAt = date
+        lastBackgroundCheckOutcome = outcome
+        DeveloperEventLog.shared.record(.updates, "Background check finished", detail: outcome)
     }
 
     func cancelActiveCheck() {
@@ -238,6 +341,7 @@ final class UpdateManager: NSObject, ObservableObject {
     }
 
     fileprivate func handleCheckFoundNothing() {
+        let wasBackground = !isChecking
         let now = Date()
         pendingUpdateVersion = nil
         pendingUpdateSizeBytes = 0
@@ -249,15 +353,22 @@ final class UpdateManager: NSObject, ObservableObject {
             self.lastCheckError = nil
             self.recordLastChecked(now)
             self.statusText = "You're on the latest version"
+            if wasBackground {
+                self.recordBackgroundCheckOutcome("Up to date (v\(self.currentVersion))", at: now)
+            }
         }
     }
 
     fileprivate func handleCheckFailed(_ message: String) {
+        let wasBackground = !isChecking
         completeCheckWithMinimumDuration(checkedAt: nil) { [weak self] in
             guard let self else { return }
             self.lastCheckFailed = true
             self.lastCheckError = message
             self.statusText = "Couldn't check for updates"
+            if wasBackground {
+                self.recordBackgroundCheckOutcome("Failed: \(message)")
+            }
         }
     }
 
@@ -694,11 +805,20 @@ final class UpdateManager: NSObject, ObservableObject {
 // MARK: - SPUUpdaterDelegate
 
 extension UpdateManager: SPUUpdaterDelegate {
+    nonisolated func updater(_ updater: SPUUpdater, didFinishLoading appcast: SUAppcast) {
+        Task { @MainActor in
+            if !self.isChecking {
+                self.isBackgroundCheckActive = true
+            }
+        }
+    }
+
     nonisolated func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
         let version = item.displayVersionString
         let size = Int64(item.contentLength)
         let notes = item.itemDescription
         Task { @MainActor in
+            let wasBackground = !self.isChecking
             guard Self.isNewerVersion(version, than: self.currentVersion) else {
                 self.pendingUpdateVersion = nil
                 self.handleCheckFoundNothing()
@@ -709,8 +829,12 @@ extension UpdateManager: SPUUpdaterDelegate {
             self.pendingReleaseNotesHTML = notes
             self.lastCheckFailed = false
             self.lastCheckError = nil
-            self.recordLastChecked(Date())
+            let now = Date()
+            self.recordLastChecked(now)
             self.statusText = "Update available: v\(version)"
+            if wasBackground {
+                self.recordBackgroundCheckOutcome("Update found: v\(version)", at: now)
+            }
         }
     }
 

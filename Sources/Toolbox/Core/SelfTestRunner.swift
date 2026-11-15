@@ -990,6 +990,28 @@ enum SelfTestRunner {
         updateMgr.applySimulationPreset(.checkFailed, errorMessage: "Simulated timeout")
         expect(updateMgr.lastCheckFailed && updateMgr.lastCheckError == "Simulated timeout", "Check failed preset mismatch")
 
+        // One-shot 5s background schedule test & cancel/restore
+        updateMgr.setDeveloperScheduleInterval(5)
+        expect(
+            updateMgr.isUsingCustomScheduleInterval
+                && Int(updateMgr.scheduledCheckIntervalSeconds) == 5
+                && updateMgr.customScheduleNextFireDate != nil,
+            "5s dev schedule test should set scheduledCheckIntervalSeconds and start a live countdown"
+        )
+        updateMgr.setDeveloperScheduleInterval(nil)
+        expect(
+            !updateMgr.isUsingCustomScheduleInterval
+                && Int(updateMgr.scheduledCheckIntervalSeconds) == Int(UpdateManager.defaultCheckIntervalSeconds)
+                && updateMgr.customScheduleNextFireDate == nil,
+            "Clearing dev schedule interval should restore default and clear custom countdown"
+        )
+        let initialBgCount = updateMgr.backgroundChecksCount
+        updateMgr.recordBackgroundCheckOutcome("Up to date (v1.1)")
+        expect(
+            updateMgr.backgroundChecksCount == initialBgCount + 1 && updateMgr.lastBackgroundCheckAt != nil && updateMgr.lastBackgroundCheckOutcome == "Up to date (v1.1)",
+            "recordBackgroundCheckOutcome should increment counter and store timestamp/outcome"
+        )
+
         // Update dialog centering over app window and screen fallback
         let screenVisible = NSRect(x: 0, y: 0, width: 1440, height: 875)
         let appFrame = NSRect(x: 300, y: 120, width: 960, height: 680)

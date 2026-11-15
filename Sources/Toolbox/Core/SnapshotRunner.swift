@@ -194,7 +194,7 @@ enum SnapshotRunner {
         navDevUpdates.isSidebarVisible = true
         saveViewSnapshot(
             MainWindowController.makeRootView(navState: navDevUpdates),
-            size: NSSize(width: 940, height: 960),
+            size: NSSize(width: 940, height: 1280),
             to: outURL.appendingPathComponent("developer_updates.png")
         )
 

@@ -287,6 +287,7 @@ final class DeveloperModeManager: ObservableObject {
 
     var hasActiveSimulation: Bool {
         UpdateManager.shared.isSimulatingState
+            || UpdateManager.shared.isUsingCustomScheduleInterval
             || PermissionsManager.shared.simulatedAccessibilityGranted != nil
     }
 
@@ -427,6 +428,7 @@ final class DeveloperModeManager: ObservableObject {
 
     func resetAllSimulations() {
         UpdateManager.shared.clearSimulation()
+        UpdateManager.shared.setDeveloperScheduleInterval(nil)
         PermissionsManager.shared.setSimulatedAccessibilityGranted(nil)
         objectWillChange.send()
     }

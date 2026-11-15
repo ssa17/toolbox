@@ -9,6 +9,9 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 
 ## [Unreleased]
 
+### Added
+- Developer Tools (**Updates**): added a **Background Check Schedule** section with a live auto-check countdown, a one-shot 5-second scheduled check test, and a session check counter showing timestamped outcomes
+
 ## [1.1] - 2026-11-15
 
 ### Added

@@ -429,7 +429,9 @@ struct MainSplitView: View {
     private func developerBadge(for section: DeveloperSection) -> (text: String, color: Color)? {
         switch section {
         case .updates:
-            return updateManager.isSimulatingState ? ("SIM", .orange) : nil
+            return (updateManager.isSimulatingState || updateManager.isUsingCustomScheduleInterval)
+                ? ("SIM", .orange)
+                : nil
         case .uiAndModules:
             return permissions.simulatedAccessibilityGranted != nil ? ("SIM", .orange) : nil
         case .eventsAndTaps:

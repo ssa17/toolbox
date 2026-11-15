@@ -37,6 +37,7 @@ struct DeveloperToolsView: View {
                 case .updates:
                     updateSimulationSection
                     updateDialogSection
+                    backgroundScheduleSection
                     liveAppcastProbeSection
                 case .uiAndModules:
                     uiFeedbackSection
@@ -399,6 +400,141 @@ struct DeveloperToolsView: View {
                     .labelsHidden()
                     .frame(width: 210)
                     .pointerCursor()
+                }
+            }
+        }
+    }
+
+    private var backgroundScheduleSection: some View {
+        let interval = Int(updateManager.scheduledCheckIntervalSeconds)
+        let intervalLabel: String = {
+            if interval < 60 { return "\(interval)s" }
+            if interval % 3600 == 0 { return "\(interval / 3600)h" }
+            if interval % 60 == 0 { return "\(interval / 60)m" }
+            return "\(interval)s"
+        }()
+
+        return FeatureSection(
+            "Background Check Schedule",
+            subtitle: "Watch Sparkle's countdown live, shorten the polling interval without waiting an hour, and verify background check completions."
+        ) {
+            TimelineView(.periodic(from: .now, by: 1.0)) { context in
+                let nextText: String = {
+                    guard updateManager.automaticallyChecksForUpdates else { return "Automatic checks disabled" }
+                    guard let next = updateManager.nextScheduledCheckDate else { return "Pending first check" }
+                    let remaining = next.timeIntervalSince(context.date)
+                    if remaining <= 0 {
+                        return updateManager.isUsingCustomScheduleInterval ? "Checking…" : "Due now"
+                    }
+                    let totalSecs = Int(ceil(remaining))
+                    let mins = totalSecs / 60
+                    let secs = totalSecs % 60
+                    let countdown = mins > 0 ? "in \(mins)m \(secs)s" : "in \(secs)s"
+                    return "\(next.formatted(date: .omitted, time: .shortened)) (\(countdown))"
+                }()
+
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Sparkle Auto-Check Cycle")
+                                .font(.callout.weight(.medium))
+                            Text("Last: \(updateManager.formattedLastChecked(relativeTo: context.date)) · Next: \(nextText)")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        StatusBadge(
+                            text: updateManager.isUsingCustomScheduleInterval
+                                ? "Every \(intervalLabel) (Dev)"
+                                : "Every \(intervalLabel)",
+                            color: updateManager.isUsingCustomScheduleInterval ? .orange : (updateManager.automaticallyChecksForUpdates ? .green : .secondary)
+                        )
+                    }
+
+                    // Live activity & outcome banner for scheduled/triggered background checks
+                    HStack(spacing: 8) {
+                        if updateManager.isBackgroundCheckActive {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Running background check…")
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.blue)
+                        } else if let bgAt = updateManager.lastBackgroundCheckAt,
+                                  let outcome = updateManager.lastBackgroundCheckOutcome {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.green)
+                            Text("Last background check at \(bgAt.formatted(date: .omitted, time: .standard)): \(outcome)")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Image(systemName: "clock")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                            Text("No background check observed yet this session. Schedule in 5s or click Run Background Check.")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+
+                        Spacer(minLength: 8)
+
+                        StatusBadge(
+                            text: "\(updateManager.backgroundChecksCount) check\(updateManager.backgroundChecksCount == 1 ? "" : "s")",
+                            color: updateManager.backgroundChecksCount > 0 ? .green : .secondary
+                        )
+                    }
+                    .padding(10)
+                    .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                    )
+
+                    Divider()
+
+                    SettingRow(
+                        "Scheduled Check Test (5s)",
+                        subtitle: "Counts down 5 seconds, runs Sparkle's background check once, then returns to the 1h default."
+                    ) {
+                        if updateManager.isUsingCustomScheduleInterval {
+                            Button("Cancel") {
+                                updateManager.setDeveloperScheduleInterval(nil)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .pointerCursor()
+                        } else {
+                            Button("Schedule in 5s") {
+                                updateManager.setDeveloperScheduleInterval(5)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .pointerCursor()
+                        }
+                    }
+
+                    Divider()
+
+                    SettingRow(
+                        "Run Background Check Now",
+                        subtitle: "Calls SPUUpdater.checkForUpdatesInBackground() directly (silent unless a release is found)."
+                    ) {
+                        Button("Run Background Check") {
+                            updateManager.triggerBackgroundUpdateCheck()
+                            HUDToast.shared.show(
+                                title: updateManager.isSparkleAvailable
+                                    ? "Sparkle background check triggered"
+                                    : "Sparkle requires running from Toolbox.app",
+                                symbol: "arrow.clockwise.circle.fill",
+                                tint: updateManager.isSparkleAvailable ? .blue : .orange
+                            )
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .pointerCursor()
+                    }
                 }
             }
         }
