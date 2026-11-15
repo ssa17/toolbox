@@ -11,6 +11,11 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 
 ### Added
 - Status Bar Menu: choose which features, quick-action buttons, and quick commands appear in the menu-bar popover, and reorder features via drag-and-drop or up/down controls in Settings
+- Global toggle shortcuts for **Dock Click to Minimize** and **Scroll Direction**, plus `⌘ 1`–`⌘ 9` quick-paste in the Clipboard History popover
+
+### Changed
+- Inline click-to-record shortcut controls across all modules with F-key and arrow-key support, clear/reset buttons, and one-click conflict resolution
+- Streamlined **Custom Commands** layout with compact expandable rows, a collapsible New Command builder, top-positioned run output, and a menu-bar visibility toggle
 
 ## [1.0] - 2026-11-14
 

@@ -204,6 +204,7 @@ struct DockMinimizeConfig: Codable, Equatable, Sendable {
     var clickMode: DockClickMode = .singleClick
     var ignoreModifiedClicks: Bool = true
     var excludedBundleIDs: [String] = []
+    var shortcut: ShortcutSpec = .none
 
     init() {}
 
@@ -220,6 +221,7 @@ struct DockMinimizeConfig: Codable, Equatable, Sendable {
         clickMode = try c.decodeIfPresent(DockClickMode.self, forKey: .clickMode) ?? .singleClick
         ignoreModifiedClicks = try c.decodeIfPresent(Bool.self, forKey: .ignoreModifiedClicks) ?? true
         excludedBundleIDs = try c.decodeIfPresent([String].self, forKey: .excludedBundleIDs) ?? []
+        shortcut = try c.decodeIfPresent(ShortcutSpec.self, forKey: .shortcut) ?? .none
     }
 
     func encode(to encoder: Encoder) throws {
@@ -229,10 +231,11 @@ struct DockMinimizeConfig: Codable, Equatable, Sendable {
         try c.encode(clickMode, forKey: .clickMode)
         try c.encode(ignoreModifiedClicks, forKey: .ignoreModifiedClicks)
         try c.encode(excludedBundleIDs, forKey: .excludedBundleIDs)
+        try c.encode(shortcut, forKey: .shortcut)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, actionMode, clickMode, ignoreModifiedClicks, excludedBundleIDs
+        case enabled, actionMode, clickMode, ignoreModifiedClicks, excludedBundleIDs, shortcut
         case hideInsteadOfMinimize
     }
 }
@@ -374,6 +377,7 @@ struct CustomCommandsConfig: Codable, Equatable, Sendable {
 struct ScrollDirectionConfig: Codable, Equatable, Sendable {
     var enabled: Bool = false
     var target: ScrollTarget = .mouse
+    var shortcut: ShortcutSpec = .none
 
     init() {}
 
@@ -381,6 +385,7 @@ struct ScrollDirectionConfig: Codable, Equatable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
         target = try c.decodeIfPresent(ScrollTarget.self, forKey: .target) ?? .mouse
+        shortcut = try c.decodeIfPresent(ShortcutSpec.self, forKey: .shortcut) ?? .none
     }
 }
 

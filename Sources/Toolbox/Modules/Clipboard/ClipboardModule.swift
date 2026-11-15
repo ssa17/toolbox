@@ -87,7 +87,7 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
     }
 
     func shortcutText(in config: ToolboxConfig) -> String? {
-        config.clipboard.shortcut.displayString
+        config.clipboard.shortcut.isEmpty ? nil : config.clipboard.shortcut.displayString
     }
 
     func reload(with fullConfig: ToolboxConfig) {
@@ -412,6 +412,20 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
 
             let isEditingSearch = panel.firstResponder is NSTextView
             let hasCommand = event.modifierFlags.contains(.command)
+            let activeModifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+
+            if activeModifiers == .command {
+                let quickPasteKeyCodes: [UInt16] = [
+                    UInt16(kVK_ANSI_1), UInt16(kVK_ANSI_2), UInt16(kVK_ANSI_3),
+                    UInt16(kVK_ANSI_4), UInt16(kVK_ANSI_5), UInt16(kVK_ANSI_6),
+                    UInt16(kVK_ANSI_7), UInt16(kVK_ANSI_8), UInt16(kVK_ANSI_9)
+                ]
+                if let slotIndex = quickPasteKeyCodes.firstIndex(of: event.keyCode),
+                   slotIndex < visible.count {
+                    self.selectAndPaste(visible[slotIndex])
+                    return nil
+                }
+            }
 
             switch event.keyCode {
             case 53: // Escape

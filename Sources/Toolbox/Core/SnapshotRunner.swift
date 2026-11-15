@@ -61,6 +61,15 @@ enum SnapshotRunner {
             to: outURL.appendingPathComponent("module_clipboard.png")
         )
 
+        let navCommands = NavigationState()
+        navCommands.selection = .module("custom_commands")
+        navCommands.isSidebarVisible = true
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navCommands),
+            size: NSSize(width: 940, height: 660),
+            to: outURL.appendingPathComponent("module_custom_commands.png")
+        )
+
         let navJSON = NavigationState()
         navJSON.selection = .jsonConfig
         navJSON.isSidebarVisible = true

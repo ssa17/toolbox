@@ -125,8 +125,8 @@ struct ClipboardPopoverView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 5) {
-                            ForEach(filteredEntries) { entry in
-                                clipboardRow(entry)
+                            ForEach(Array(filteredEntries.enumerated()), id: \.element.id) { index, entry in
+                                clipboardRow(entry, index: index)
                                     .id(entry.id)
                             }
                         }
@@ -188,10 +188,10 @@ struct ClipboardPopoverView: View {
         if previewEntry != nil {
             return "← / Esc Back · ⏎ Paste · ⌘P Pin · ⌘R Rename · ⌫ Delete"
         }
-        return "↑↓ Select · ⏎ Paste · → Preview · ⌘P Pin · ⌘R Name · ⌫ Delete · Right-click Menu"
+        return "↑↓ Select · ⏎ / ⌘1–9 Paste · → Preview · ⌘P Pin · ⌘R Name · ⌫ Delete"
     }
 
-    private func clipboardRow(_ entry: ClipboardEntry) -> some View {
+    private func clipboardRow(_ entry: ClipboardEntry, index: Int) -> some View {
         let isSelected = uiState.selectedEntryID == entry.id || (uiState.selectedEntryID == nil && filteredEntries.first?.id == entry.id)
         let isRenaming = uiState.renamingEntryID == entry.id
 
@@ -279,6 +279,11 @@ struct ClipboardPopoverView: View {
                     .buttonStyle(.plain)
                     .help("Delete item (⌫)")
                     .pointerCursor()
+
+                    if index < 9 {
+                        ShortcutPill(text: "⌘ \(index + 1)")
+                            .padding(.leading, 2)
+                    }
                 }
             }
 

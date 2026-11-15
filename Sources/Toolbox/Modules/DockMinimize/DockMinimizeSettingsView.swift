@@ -70,6 +70,22 @@ struct DockMinimizeSettingsView: View {
                         .toggleStyle(.switch)
                         .pointerCursor()
                 }
+
+                Divider()
+
+                SettingRow(
+                    "Toggle shortcut",
+                    subtitle: "Optional global shortcut to turn Dock Click to Minimize on or off."
+                ) {
+                    ShortcutRecorderView(
+                        shortcut: configManager.config.dockMinimize.shortcut,
+                        defaultShortcut: ShortcutSpec.none,
+                        sourceID: "dock_minimize",
+                        registrationKey: module.hotKeyName
+                    ) { newShortcut in
+                        configManager.config.dockMinimize.shortcut = newShortcut
+                    }
+                }
             }
 
             FeatureSection("Excluded Applications", subtitle: "Apps listed here keep macOS's default Dock click behavior.") {

@@ -536,7 +536,9 @@ struct MenuBarPopoverView: View {
                                     Text(cmd.name)
                                         .font(.caption)
                                     Spacer()
-                                    ShortcutPill(text: cmd.shortcut.displayString)
+                                    if !cmd.shortcut.isEmpty {
+                                        ShortcutPill(text: cmd.shortcut.displayString)
+                                    }
                                 }
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 5)

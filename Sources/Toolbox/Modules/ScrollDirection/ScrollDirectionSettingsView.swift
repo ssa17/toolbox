@@ -58,6 +58,22 @@ struct ScrollDirectionSettingsView: View {
                     .disabled(!isEnabled)
                     .pointerCursor(isEnabled)
                 }
+
+                Divider()
+
+                SettingRow(
+                    "Toggle shortcut",
+                    subtitle: "Optional global shortcut to turn scroll inversion on or off."
+                ) {
+                    ShortcutRecorderView(
+                        shortcut: configManager.config.scrollDirection.shortcut,
+                        defaultShortcut: ShortcutSpec.none,
+                        sourceID: "scroll_direction",
+                        registrationKey: module.hotKeyName
+                    ) { newShortcut in
+                        configManager.config.scrollDirection.shortcut = newShortcut
+                    }
+                }
             }
 
             FeatureSection("Preview", subtitle: "Compare device behavior and test your mouse or trackpad right here.") {

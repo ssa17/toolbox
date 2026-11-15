@@ -302,6 +302,10 @@ struct ShortcutPill: View {
         self.tokens = shortcut.tokens
     }
 
+    init(tokens: [String]) {
+        self.tokens = tokens
+    }
+
     init(text: String) {
         self.tokens = text
             .split(separator: " ")

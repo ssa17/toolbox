@@ -61,6 +61,29 @@ enum SelfTestRunner {
         } else {
             failures.append("ShortcutSpec Codable encode/decode failed")
         }
+
+        // Unbound / empty spec
+        expect(ShortcutSpec.none.isEmpty, "ShortcutSpec.none should be empty")
+        expect(ShortcutSpec.none.tokens.isEmpty, "ShortcutSpec.none.tokens should be empty")
+        expect(ShortcutSpec.none.displayString.isEmpty, "ShortcutSpec.none.displayString should be empty")
+        expect(ShortcutSpec.none.carbonKeyCode == nil, "ShortcutSpec.none.carbonKeyCode should be nil")
+
+        // Function key, arrow key, special glyph, and modifier normalization
+        let fnKey = ShortcutSpec(key: "f5", modifiers: [])
+        expect(fnKey.isFunctionKey, "f5 should be recognized as a function key")
+        expect(fnKey.tokens == ["F5"], "Function key tokens mismatch: \(fnKey.tokens)")
+        expect(fnKey.carbonKeyCode != nil, "ShortcutSpec.carbonKeyCode should resolve 'f5'")
+
+        let arrowKey = ShortcutSpec(key: "up", modifiers: [.option, .control])
+        expect(arrowKey.tokens == ["⌃", "⌥", "↑"], "Arrow key tokens mismatch: \(arrowKey.tokens)")
+        expect(arrowKey.displayString == "⌃ ⌥ ↑", "Arrow key displayString mismatch: \(arrowKey.displayString)")
+        expect(arrowKey.carbonKeyCode != nil, "ShortcutSpec.carbonKeyCode should resolve 'up'")
+
+        let returnKey = ShortcutSpec(key: "return", modifiers: [.command])
+        expect(returnKey.tokens == ["⌘", "↩"], "Return key tokens mismatch: \(returnKey.tokens)")
+
+        let unnormalized = ShortcutSpec(key: "D", modifiers: [.command, .shift, .option, .command])
+        expect(unnormalized == shortcut, "ShortcutSpec should normalize key case, modifier order, and duplicates")
     }
 
     private static func testLegacyV1ConfigMigrationAndExtensions() {
@@ -244,6 +267,20 @@ enum SelfTestRunner {
         manager.unregister(name: "selftest.hotkey")
         expect(!manager.isRegistered(name: "selftest.hotkey"), "HotKeyManager should unregister cleanly")
 
+        let emptyRegistered = manager.register(name: "selftest.empty", shortcut: .none) {}
+        expect(emptyRegistered && !manager.isRegistered(name: "selftest.empty"), "Registering .none should cleanly leave hotkey unregistered")
+        expect(manager.registrationErrors["selftest.empty"] == nil, "Registering .none should not produce an error")
+
+        let suspendOk = manager.register(name: "selftest.suspend", shortcut: shortcut) {}
+        expect(suspendOk, "HotKeyManager failed to register suspend test shortcut")
+        manager.setSuspendedForRecording(true)
+        expect(manager.isSuspendedForRecording, "HotKeyManager should report suspended for recording")
+        expect(manager.isRegistered(name: "selftest.suspend"), "Suspended registration should remain tracked by name")
+        manager.setSuspendedForRecording(false)
+        expect(!manager.isSuspendedForRecording, "HotKeyManager should resume after recording")
+        expect(manager.isRegistered(name: "selftest.suspend"), "Resumed registration should remain active")
+        manager.unregister(name: "selftest.suspend")
+
         var cfg = ToolboxConfig()
         cfg.clipboard.enabled = true
         cfg.keepAwake.enabled = true
@@ -254,6 +291,28 @@ enum SelfTestRunner {
             in: cfg
         )
         expect(conflict != nil, "inAppConflictDescription should detect KeepAwake vs Clipboard collision")
+
+        manager.clearConflictingShortcuts(
+            matching: cfg.keepAwake.shortcut,
+            excludingSourceID: "keep_awake",
+            in: &cfg
+        )
+        expect(cfg.clipboard.shortcut.isEmpty, "clearConflictingShortcuts should unbind colliding Clipboard shortcut")
+        expect(!cfg.keepAwake.shortcut.isEmpty, "clearConflictingShortcuts must preserve excluded KeepAwake shortcut")
+        expect(
+            manager.inAppConflictDescription(for: cfg.keepAwake.shortcut, excludingSourceID: "keep_awake", in: cfg) == nil,
+            "Conflict should be cleared after clearConflictingShortcuts"
+        )
+
+        let scrollShortcut = ShortcutSpec(key: "s", modifiers: [.command, .option])
+        cfg.scrollDirection.shortcut = scrollShortcut
+        cfg.dockMinimize.shortcut = scrollShortcut
+        expect(
+            manager.inAppConflictDescription(for: scrollShortcut, excludingSourceID: "scroll_direction", in: cfg) != nil,
+            "inAppConflictDescription should detect ScrollDirection vs DockMinimize collision"
+        )
+        manager.clearConflictingShortcuts(matching: scrollShortcut, excludingSourceID: "scroll_direction", in: &cfg)
+        expect(cfg.dockMinimize.shortcut.isEmpty, "clearConflictingShortcuts should clear colliding DockMinimize shortcut")
     }
 
     private static func testCustomCommandsShellExecution() {

@@ -67,7 +67,6 @@ private final class ClipboardLimitDraftState: ObservableObject {
 
 struct ClipboardSettingsView: View {
     @ObservedObject private var configManager = ConfigManager.shared
-    @ObservedObject private var hotKeyManager = HotKeyManager.shared
     @ObservedObject private var permissions = PermissionsManager.shared
     @StateObject private var limitDraft = ClipboardLimitDraftState()
     @ObservedObject var module: ClipboardModule
@@ -80,23 +79,14 @@ struct ClipboardSettingsView: View {
         VStack(alignment: .leading, spacing: 22) {
             FeatureSection("Shortcut & Paste Behavior") {
                 SettingRow("Open Clipboard Dropdown") {
-                    ShortcutRecorderView(shortcut: configManager.config.clipboard.shortcut) { newShortcut in
+                    ShortcutRecorderView(
+                        shortcut: configManager.config.clipboard.shortcut,
+                        defaultShortcut: ShortcutSpec(key: "v", modifiers: [.command, .option]),
+                        sourceID: "clipboard",
+                        registrationKey: module.hotKeyName
+                    ) { newShortcut in
                         configManager.config.clipboard.shortcut = newShortcut
                     }
-                }
-
-                if let conflict = hotKeyManager.inAppConflictDescription(
-                    for: configManager.config.clipboard.shortcut,
-                    excludingSourceID: "clipboard",
-                    in: configManager.config
-                ) {
-                    Label(conflict, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                } else if let err = hotKeyManager.registrationErrors[module.hotKeyName] {
-                    Label(err, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
                 }
 
                 Divider()
@@ -278,6 +268,8 @@ struct ClipboardSettingsView: View {
                 shortcutRow("Navigate items", keys: ["↑ / ↓"])
                 Divider()
                 shortcutRow("Paste selected item", keys: ["⏎"])
+                Divider()
+                shortcutRow("Quick-paste item 1–9", keys: ["⌘ 1 … ⌘ 9"])
                 Divider()
                 shortcutRow("View full text", keys: ["→", "Space", "⌘ I"])
                 Divider()

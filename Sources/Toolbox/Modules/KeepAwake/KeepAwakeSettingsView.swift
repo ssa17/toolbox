@@ -7,7 +7,6 @@ private final class KeepAwakeSettingsDraft: ObservableObject {
 
 struct KeepAwakeSettingsView: View {
     @ObservedObject private var configManager = ConfigManager.shared
-    @ObservedObject private var hotKeyManager = HotKeyManager.shared
     @ObservedObject var module: KeepAwakeModule
     @StateObject private var draft = KeepAwakeSettingsDraft()
 
@@ -166,23 +165,14 @@ struct KeepAwakeSettingsView: View {
 
             FeatureSection("Shortcut & Defaults") {
                 SettingRow("Toggle shortcut") {
-                    ShortcutRecorderView(shortcut: configManager.config.keepAwake.shortcut) { newShortcut in
+                    ShortcutRecorderView(
+                        shortcut: configManager.config.keepAwake.shortcut,
+                        defaultShortcut: ShortcutSpec(key: "k", modifiers: [.command, .option]),
+                        sourceID: "keep_awake",
+                        registrationKey: "keep_awake.toggle"
+                    ) { newShortcut in
                         configManager.config.keepAwake.shortcut = newShortcut
                     }
-                }
-
-                if let conflict = hotKeyManager.inAppConflictDescription(
-                    for: configManager.config.keepAwake.shortcut,
-                    excludingSourceID: "keep_awake",
-                    in: configManager.config
-                ) {
-                    Label(conflict, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                } else if let err = hotKeyManager.registrationErrors["keep_awake.toggle"] {
-                    Label(err, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
                 }
 
                 Divider()

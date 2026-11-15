@@ -64,7 +64,7 @@ final class KeepAwakeModule: ToolboxModule, ObservableObject {
     }
 
     func shortcutText(in config: ToolboxConfig) -> String? {
-        config.keepAwake.shortcut.displayString
+        config.keepAwake.shortcut.isEmpty ? nil : config.keepAwake.shortcut.displayString
     }
 
     func statusText(in config: ToolboxConfig, accessibilityGranted: Bool) -> String {

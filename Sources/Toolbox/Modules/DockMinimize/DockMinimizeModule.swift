@@ -55,6 +55,8 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
         var hasActiveFullscreen = false
     }
 
+    let hotKeyName = "dock_minimize.toggle"
+
     private var config = DockMinimizeConfig()
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -174,13 +176,38 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
         config.dockMinimize.enabled = enabled
     }
 
+    func shortcutText(in config: ToolboxConfig) -> String? {
+        config.dockMinimize.shortcut.isEmpty ? nil : config.dockMinimize.shortcut.displayString
+    }
+
     func reload(with fullConfig: ToolboxConfig) {
         self.config = fullConfig.dockMinimize
-        if config.enabled && AXIsProcessTrusted() {
+        if fullConfig.general.appEnabled && config.enabled && AXIsProcessTrusted() {
             if !isRunning { start() }
         } else {
             if isRunning { stop() }
         }
+        syncHotKey(appEnabled: fullConfig.general.appEnabled)
+    }
+
+    private func syncHotKey(appEnabled: Bool) {
+        if appEnabled && !config.shortcut.isEmpty {
+            HotKeyManager.shared.register(name: hotKeyName, shortcut: config.shortcut) { [weak self] in
+                self?.toggleEnabledFromHotKey()
+            }
+        } else {
+            HotKeyManager.shared.unregister(name: hotKeyName)
+        }
+    }
+
+    private func toggleEnabledFromHotKey() {
+        let next = !ConfigManager.shared.config.dockMinimize.enabled
+        ConfigManager.shared.config.dockMinimize.enabled = next
+        HUDToast.shared.show(
+            title: next ? "Dock Minimize On" : "Dock Minimize Off",
+            symbol: "dock.rectangle",
+            tint: next ? .blue : .secondary
+        )
     }
 
     func start() {
@@ -248,6 +275,7 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
     }
 
     func stop() {
+        HotKeyManager.shared.unregister(name: hotKeyName)
         if let tap = eventTap {
             CGEvent.tapEnable(tap: tap, enable: false)
         }

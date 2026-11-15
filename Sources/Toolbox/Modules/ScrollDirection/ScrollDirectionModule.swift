@@ -25,6 +25,8 @@ final class ScrollDirectionModule: ToolboxModule, ObservableObject {
     @Published private(set) var lastObservedClass: ScrollTarget?
     @Published private(set) var lastInvertedClass: ScrollTarget?
 
+    let hotKeyName = "scroll_direction.toggle"
+
     private var config = ScrollDirectionConfig()
     private let tap = ScrollInversionTap()
     private var statsTimer: Timer?
@@ -35,6 +37,10 @@ final class ScrollDirectionModule: ToolboxModule, ObservableObject {
 
     func setEnabled(_ enabled: Bool, in config: inout ToolboxConfig) {
         config.scrollDirection.enabled = enabled
+    }
+
+    func shortcutText(in config: ToolboxConfig) -> String? {
+        config.scrollDirection.shortcut.isEmpty ? nil : config.scrollDirection.shortcut.displayString
     }
 
     func statusText(in config: ToolboxConfig, accessibilityGranted: Bool) -> String {
@@ -57,6 +63,7 @@ final class ScrollDirectionModule: ToolboxModule, ObservableObject {
     }
 
     func stop() {
+        HotKeyManager.shared.unregister(name: hotKeyName)
         guard isRunning else { return }
         stopStatsTimer()
         tap.uninstall()
@@ -80,6 +87,27 @@ final class ScrollDirectionModule: ToolboxModule, ObservableObject {
         } else {
             if isRunning { stop() }
         }
+        syncHotKey(appEnabled: fullConfig.general.appEnabled)
+    }
+
+    private func syncHotKey(appEnabled: Bool) {
+        if appEnabled && !config.shortcut.isEmpty {
+            HotKeyManager.shared.register(name: hotKeyName, shortcut: config.shortcut) { [weak self] in
+                self?.toggleEnabledFromHotKey()
+            }
+        } else {
+            HotKeyManager.shared.unregister(name: hotKeyName)
+        }
+    }
+
+    private func toggleEnabledFromHotKey() {
+        let next = !ConfigManager.shared.config.scrollDirection.enabled
+        ConfigManager.shared.config.scrollDirection.enabled = next
+        HUDToast.shared.show(
+            title: next ? "Scroll Direction On" : "Scroll Direction Off",
+            symbol: "arrow.up.and.down",
+            tint: next ? .pink : .secondary
+        )
     }
 
     /// Whether the event tap is currently installed (used by the settings UI).
