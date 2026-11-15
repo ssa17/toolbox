@@ -262,6 +262,18 @@ struct ClipboardSettingsView: View {
                         .toggleStyle(.switch)
                         .pointerCursor()
                 }
+
+                Divider()
+
+                SettingRow(
+                    "Keep unpinned history across restarts",
+                    subtitle: "Saves recent unpinned items locally in ~/.config/toolbox/clipboard_history.json. Turn off to keep unpinned history in memory only."
+                ) {
+                    Toggle("", isOn: $configManager.config.clipboard.persistHistory)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .pointerCursor()
+                }
             }
 
             FeatureSection("Dropdown Shortcuts", subtitle: "Keyboard and right-click shortcuts available inside the clipboard dropdown.") {

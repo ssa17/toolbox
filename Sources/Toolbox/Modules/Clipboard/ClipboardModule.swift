@@ -63,6 +63,12 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
             .appendingPathComponent("pinned_clipboard.json")
     }
 
+    private var historyStorageURL: URL {
+        ConfigManager.shared.configURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("clipboard_history.json")
+    }
+
     var isPopoverVisible: Bool {
         panel?.isVisible ?? false
     }
@@ -75,7 +81,12 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
 
     override init() {
         super.init()
+        let clipboardConfig = ConfigManager.shared.config.clipboard
+        self.config = clipboardConfig
         loadPinnedEntries()
+        if clipboardConfig.persistHistory {
+            loadUnpinnedHistory()
+        }
     }
 
     func isEnabled(in config: ToolboxConfig) -> Bool {
@@ -91,8 +102,16 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
     }
 
     func reload(with fullConfig: ToolboxConfig) {
+        let previousPersist = config.persistHistory
+        let previousMaxItems = config.maxItems
         self.config = fullConfig.clipboard
         trimHistoryIfNeeded()
+
+        if !config.persistHistory {
+            removeUnpinnedHistoryFile()
+        } else if !previousPersist || config.maxItems != previousMaxItems {
+            saveUnpinnedHistory()
+        }
 
         if config.enabled {
             if !isRunning {
@@ -130,7 +149,7 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
             entries[idx].customTitle = nil
         }
         trimHistoryIfNeeded()
-        savePinnedEntries()
+        saveAllStoredEntries()
     }
 
     func renameEntry(_ entry: ClipboardEntry, title: String) {
@@ -141,12 +160,12 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
             entries[idx].isPinned = true
         }
         trimHistoryIfNeeded()
-        savePinnedEntries()
+        saveAllStoredEntries()
     }
 
     func deleteEntry(_ entry: ClipboardEntry) {
         entries.removeAll { $0.id == entry.id }
-        savePinnedEntries()
+        saveAllStoredEntries()
     }
 
     func clearHistory(keepPinned: Bool = true) {
@@ -155,7 +174,7 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
         } else {
             entries.removeAll()
         }
-        savePinnedEntries()
+        saveAllStoredEntries()
     }
 
     func togglePopover() {
@@ -204,6 +223,7 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
         if preservedPin {
             savePinnedEntries()
         }
+        saveUnpinnedHistory()
     }
 
     private func loadPinnedEntries() {
@@ -220,10 +240,50 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
         trimHistoryIfNeeded()
     }
 
+    private func loadUnpinnedHistory() {
+        guard FileManager.default.fileExists(atPath: historyStorageURL.path),
+              let data = try? Data(contentsOf: historyStorageURL),
+              let saved = try? JSONDecoder().decode([ClipboardEntry].self, from: data) else {
+            return
+        }
+        for item in saved where !entries.contains(where: { $0.text == item.text }) {
+            var historyItem = item
+            historyItem.isPinned = false
+            historyItem.customTitle = nil
+            entries.append(historyItem)
+        }
+        trimHistoryIfNeeded()
+    }
+
+    private func saveAllStoredEntries() {
+        savePinnedEntries()
+        saveUnpinnedHistory()
+    }
+
     private func savePinnedEntries() {
         let pinned = entries.filter(\.isPinned)
         guard let data = try? JSONEncoder().encode(pinned) else { return }
         try? data.write(to: pinnedStorageURL, options: .atomic)
+    }
+
+    private func saveUnpinnedHistory() {
+        guard config.persistHistory else {
+            removeUnpinnedHistoryFile()
+            return
+        }
+        let unpinned = entries.filter { !$0.isPinned }
+        if unpinned.isEmpty {
+            removeUnpinnedHistoryFile()
+            return
+        }
+        guard let data = try? JSONEncoder().encode(unpinned) else { return }
+        try? data.write(to: historyStorageURL, options: .atomic)
+    }
+
+    private func removeUnpinnedHistoryFile() {
+        if FileManager.default.fileExists(atPath: historyStorageURL.path) {
+            try? FileManager.default.removeItem(at: historyStorageURL)
+        }
     }
 
     private func registerHotKey() {

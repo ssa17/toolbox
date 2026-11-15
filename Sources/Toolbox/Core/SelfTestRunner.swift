@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import SwiftUI
 
 /// Built-in diagnostic & regression test runner (`Toolbox --self-test`).
 /// Runs isolated checks without modifying user config or requiring XCTest.
@@ -35,9 +36,14 @@ enum SelfTestRunner {
         testPortKillerSafetyAndLiveLoopbackListener()
         testDeveloperModeAndSimulations()
         testCleanLockEventFilteringAndLifecycle()
+        testCallControlsConfigAndCoreAudioEnumeration()
+        testCallControlsShortcutRemapper()
+        testCallControlsTypingMicStateMachine()
+        testCallControlsHotKeyConflictsAndLifecycle()
+        testCallControlsDeveloperSimulation()
 
         if failures.isEmpty {
-            print("All 23 self-test suites passed.")
+            print("All 28 self-test suites passed.")
             return 0
         } else {
             for f in failures {
@@ -156,8 +162,30 @@ enum SelfTestRunner {
         expect(clipboard.entries.count == 3, "Clipboard history should respect maxItems=3")
         expect(clipboard.entries.contains(where: { $0.text == "second" && $0.isPinned && $0.customTitle == "My Snippet" }), "Pinned & renamed entry should survive trim")
 
+        // Unpinned history persistence across restarts (with persistHistory toggle)
+        let historyFileURL = ConfigManager.shared.configURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("clipboard_history.json")
+        expect(FileManager.default.fileExists(atPath: historyFileURL.path), "Unpinned clipboard history should be saved to clipboard_history.json when persistHistory is enabled")
+
+        let restoredClipboard = ClipboardModule()
+        restoredClipboard.reload(with: cfg)
+        expect(
+            restoredClipboard.entries.contains(where: { $0.text == "fourth" && !$0.isPinned }),
+            "New ClipboardModule instance should restore unpinned history when persistHistory is true (got: \(restoredClipboard.entries.map(\.text)))"
+        )
+        restoredClipboard.stop()
+
         clipboard.clearHistory(keepPinned: true)
         expect(clipboard.entries.map(\.text) == ["second"], "clearHistory(keepPinned: true) should keep pinned items")
+        expect(!FileManager.default.fileExists(atPath: historyFileURL.path), "clearHistory(keepPinned: true) should delete clipboard_history.json")
+
+        clipboard.recordText("temporary")
+        expect(FileManager.default.fileExists(atPath: historyFileURL.path), "Recording unpinned item should recreate clipboard_history.json")
+        cfg.clipboard.persistHistory = false
+        clipboard.reload(with: cfg)
+        expect(!FileManager.default.fileExists(atPath: historyFileURL.path), "Disabling persistHistory must delete clipboard_history.json")
+
         clipboard.clearHistory(keepPinned: false)
         clipboard.stop()
     }
@@ -174,6 +202,7 @@ enum SelfTestRunner {
         expect(cfg.dockMinimize.excludedBundleIDs.isEmpty, "No apps should be excluded by default")
         expect(DockActionMode.allCases.contains(.sendToBack), "DockActionMode should include sendToBack")
         expect(cfg.clipboard.maxItems == 25, "Clipboard default maxItems should be 25")
+        expect(cfg.clipboard.persistHistory, "Clipboard default persistHistory should be true")
     }
 
     private static func testNavigationHistoryAndPreservation() {
@@ -402,6 +431,7 @@ enum SelfTestRunner {
                 ("keep_awake", .module("keep_awake"), NSPoint(x: 500, y: 600)),
                 ("custom_commands", .module("custom_commands"), NSPoint(x: 500, y: 600)),
                 ("scroll_direction", .module("scroll_direction"), NSPoint(x: 500, y: 600)),
+                ("call_controls", .module("call_controls"), NSPoint(x: 500, y: 600)),
             ]
             for (label, dest, emptyPt) in destinations {
                 MainWindowController.shared.navState.navigate(to: dest)
@@ -444,7 +474,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(cfg),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.scrollDirection == cfg.scrollDirection, "ScrollDirectionConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 5, "ToolboxConfig schemaVersion should be 5")
+            expect(decoded.schemaVersion == 9, "ToolboxConfig schemaVersion should be 9")
         } else {
             failures.append("ToolboxConfig Codable encode/decode failed")
         }
@@ -676,7 +706,7 @@ enum SelfTestRunner {
     private static func testMenuBarCustomizationOrderAndVisibility() {
         var cfg = ToolboxConfig()
         let registry = ModuleRegistry.shared
-        let expectedDefaultOrder = ["dock_minimize", "clipboard", "port_killer", "keep_awake", "custom_commands", "scroll_direction"]
+        let expectedDefaultOrder = ["dock_minimize", "clipboard", "port_killer", "keep_awake", "custom_commands", "scroll_direction", "call_controls"]
 
         expect(!cfg.general.hasCustomMenuBarLayout, "Default config should not report custom menu bar layout")
         expect(cfg.general.showQuickActionsInMenuBar, "Quick actions should be shown in menu bar by default")
@@ -687,32 +717,32 @@ enum SelfTestRunner {
         )
         expect(
             registry.visibleMenuBarModules(for: cfg).map(\.id) == expectedDefaultOrder,
-            "All 6 menu-bar-eligible modules should be visible in menu bar by default"
+            "All 7 menu-bar-eligible modules should be visible in menu bar by default"
         )
 
         cfg.general.moveModuleInMenuBar(id: "keep_awake", direction: -1)
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["dock_minimize", "clipboard", "keep_awake", "port_killer", "custom_commands", "scroll_direction"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["dock_minimize", "clipboard", "keep_awake", "port_killer", "custom_commands", "scroll_direction", "call_controls"],
             "Moving keep_awake up by 1 should place it before port_killer"
         )
         expect(cfg.general.hasCustomMenuBarLayout, "Reordering should mark hasCustomMenuBarLayout = true")
 
         cfg.general.moveModuleInMenuBar(fromId: "scroll_direction", toId: "dock_minimize")
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "dock_minimize", "clipboard", "keep_awake", "port_killer", "custom_commands"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "dock_minimize", "clipboard", "keep_awake", "port_killer", "custom_commands", "call_controls"],
             "Dragging scroll_direction to dock_minimize should place it first"
         )
 
         cfg.general.setModuleVisibleInMenuBar("dock_minimize", visible: false)
         expect(
-            registry.visibleMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "clipboard", "keep_awake", "port_killer", "custom_commands"],
+            registry.visibleMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "clipboard", "keep_awake", "port_killer", "custom_commands", "call_controls"],
             "Hiding dock_minimize from menu bar should omit it from visibleMenuBarModules"
         )
         expect(cfg.dockMinimize.enabled, "Hiding dock_minimize from status bar menu must not disable the module itself")
 
         cfg.general.menuBarModuleOrder = ["keep_awake", "clean_lock", "keep_awake", "unknown_id"]
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["keep_awake", "dock_minimize", "clipboard", "port_killer", "custom_commands", "scroll_direction"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["keep_awake", "dock_minimize", "clipboard", "port_killer", "custom_commands", "scroll_direction", "call_controls"],
             "Partial, non-menu-bar, or unknown menuBarModuleOrder must normalize with remaining eligible modules and no duplicates"
         )
 
@@ -943,7 +973,7 @@ enum SelfTestRunner {
         expect(!postLockReload.isUnlocked, "Explicit lock() must require PIN on next launch")
 
         // Developer sections, presets, and release notes templates
-        expect(DeveloperSection.allCases.count == 5, "Expected 5 DeveloperSection cases")
+        expect(DeveloperSection.allCases.count == 6 && DeveloperSection.allCases.contains(.callControls), "Expected 6 DeveloperSection cases including .callControls")
         expect(
             UpdateSimulationPreset.allCases.allSatisfy { !$0.summary.isEmpty },
             "All UpdateSimulationPreset cases should have non-empty summaries"
@@ -1262,5 +1292,848 @@ enum SelfTestRunner {
         expect(module.isLocked, "Countdown session should be locked before stop()")
         module.stop()
         expect(!module.isLocked, "stop() must cancel countdown and clear locked state")
+    }
+
+    private static func testCallControlsConfigAndCoreAudioEnumeration() {
+        let cfg = ToolboxConfig()
+        expect(cfg.schemaVersion == 9, "ToolboxConfig schemaVersion should be 9")
+        expect(!cfg.callControls.enabled, "Call Controls should default to disabled")
+        expect(cfg.callControls.overrideScope == .everywhere, "Default overrideScope should be everywhere")
+        expect(cfg.callControls.typingUnmuteDelayMs == 450, "Default typingUnmuteDelayMs should be 450")
+        expect(cfg.callControls.showFloatingMicIndicator, "showFloatingMicIndicator should default to true")
+        expect(cfg.callControls.showVideoInFloatingIndicator, "showVideoInFloatingIndicator should default to true")
+        expect(cfg.callControls.showFloatingPillOnlyDuringCalls, "showFloatingPillOnlyDuringCalls should default to true")
+        expect(cfg.callControls.showToasts, "showToasts should default to true")
+
+        let presetIDs = Set(cfg.callControls.appShortcutMappings.map(\.id))
+        expect(
+            presetIDs == Set(["teams", "zoom", "slack", "google_meet", "discord", "facetime"]),
+            "Call Controls defaults should include all 6 built-in call apps: \(presetIDs)"
+        )
+
+        var customCfg = ToolboxConfig()
+        customCfg.callControls.enabled = true
+        customCfg.callControls.micShortcut = ShortcutSpec(key: "space", modifiers: [.command, .shift])
+        customCfg.callControls.videoShortcut = ShortcutSpec(key: "v", modifiers: [.control, .option, .command])
+        customCfg.callControls.typingUnmuteDelayMs = 600
+        customCfg.callControls.showVideoInFloatingIndicator = false
+        customCfg.callControls.showFloatingPillOnlyDuringCalls = false
+        customCfg.callControls.favoriteOutputUIDs = ["BuiltInSpeakerDevice"]
+
+        if let data = try? JSONEncoder().encode(customCfg),
+           let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
+            expect(decoded.callControls == customCfg.callControls, "CallControlsConfig Codable round-trip mismatch")
+        } else {
+            failures.append("CallControlsConfig Codable encode/decode failed")
+        }
+
+        // Legacy v5 config without callControls/audioGuard key must migrate cleanly
+        let legacyJSON = "{\"schemaVersion\": 5, \"general\": {\"appEnabled\": true}}"
+        if let data = legacyJSON.data(using: .utf8),
+           let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
+            expect(migrated.schemaVersion == 9, "Legacy config should upgrade to schemaVersion 9")
+            expect(!migrated.callControls.enabled, "Legacy config must migrate callControls.enabled = false")
+            expect(migrated.callControls.overrideScope == .everywhere, "Migrated default overrideScope should be everywhere")
+            expect(migrated.callControls.showFloatingPillOnlyDuringCalls, "Legacy config must migrate showFloatingPillOnlyDuringCalls = true")
+            expect(migrated.callControls.appShortcutMappings.count == 6, "Legacy config must populate 6 default call app presets")
+        } else {
+            failures.append("Failed to decode pre-CallControls JSON config")
+        }
+
+        // Legacy v6 config with active_call_app_only upgrades to everywhere
+        let v6JSON = """
+        {"schemaVersion": 6, "general": {"appEnabled": true}, "audioGuard": {"enabled": true, "overrideScope": "active_call_app_only"}}
+        """
+        if let data = v6JSON.data(using: .utf8),
+           let upgraded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
+            expect(upgraded.schemaVersion == 9, "v6 config should migrate to schemaVersion 9")
+            expect(upgraded.callControls.overrideScope == .everywhere, "v6 active_call_app_only should upgrade to everywhere")
+            expect(upgraded.callControls.showFloatingPillOnlyDuringCalls, "v6 config should upgrade showFloatingPillOnlyDuringCalls to true")
+        } else {
+            failures.append("Failed to migrate v6 audioGuard config")
+        }
+
+        // Legacy v7 config upgrades call-only pill default to true
+        let v7JSON = """
+        {"schemaVersion": 7, "general": {"appEnabled": true}, "audioGuard": {"enabled": true, "showFloatingPillOnlyDuringCalls": false}}
+        """
+        if let data = v7JSON.data(using: .utf8),
+           let upgradedV7 = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
+            expect(upgradedV7.schemaVersion == 9, "v7 config should migrate to schemaVersion 9")
+            expect(upgradedV7.callControls.showFloatingPillOnlyDuringCalls, "v7 showFloatingPillOnlyDuringCalls should upgrade to true")
+        } else {
+            failures.append("Failed to migrate v7 audioGuard config")
+        }
+
+        // Legacy v8 config using audioGuard + audio_guard menu bar IDs must migrate cleanly to callControls + call_controls
+        let v8JSON = """
+        {"schemaVersion": 8, "general": {"appEnabled": true, "menuBarModuleOrder": ["dock_minimize", "audio_guard", "clipboard"], "menuBarHiddenModules": ["audio_guard"]}, "audioGuard": {"enabled": true, "typingUnmuteDelayMs": 725}}
+        """
+        if let data = v8JSON.data(using: .utf8),
+           let upgradedV8 = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
+            expect(upgradedV8.schemaVersion == 9, "v8 config should migrate to schemaVersion 9")
+            expect(upgradedV8.callControls.enabled, "v8 audioGuard.enabled must migrate to callControls.enabled")
+            expect(upgradedV8.callControls.typingUnmuteDelayMs == 725, "v8 audioGuard fields must be preserved in callControls")
+            expect(
+                upgradedV8.general.menuBarModuleOrder.contains("call_controls") && !upgradedV8.general.menuBarModuleOrder.contains("audio_guard"),
+                "v8 menuBarModuleOrder must rewrite audio_guard to call_controls"
+            )
+            expect(
+                upgradedV8.general.menuBarHiddenModules.contains("call_controls") && !upgradedV8.general.menuBarHiddenModules.contains("audio_guard"),
+                "v8 menuBarHiddenModules must rewrite audio_guard to call_controls"
+            )
+        } else {
+            failures.append("Failed to migrate v8 audioGuard config")
+        }
+
+        // CoreAudio & CoreMediaIO enumeration must complete safely even on headless Macs
+        let devices = CoreAudioController.listDevices()
+        for dev in devices {
+            expect(dev.hasInput || dev.hasOutput, "Enumerated audio device \(dev.name) must have input or output channels")
+        }
+        _ = CoreAudioController.currentCameraStatus()
+        _ = CoreAudioController.isDefaultInputRunningSomewhere()
+    }
+
+    private static func testCallControlsShortcutRemapper() {
+        let micShortcut = ShortcutSpec(key: "space", modifiers: [.command, .shift])
+        let videoShortcut = ShortcutSpec(key: "v", modifiers: [.control, .option, .command])
+        let spaceCode = UInt16(micShortcut.carbonKeyCode ?? 49)
+        let vCode = UInt16(videoShortcut.carbonKeyCode ?? 9)
+        var mappings = CallAppShortcutMapping.defaults
+
+        // 1. Same-shortcut pass-through in Slack (Slack native mic is already Cmd+Shift+Space)
+        let slackPass = CallShortcutRemapper.resolveDecision(
+            keyCode: spaceCode,
+            modifiers: [.command, .shift],
+            eventUserData: 0,
+            micShortcut: micShortcut,
+            videoShortcut: videoShortcut,
+            overrideScope: .activeCallAppOnly,
+            mappings: mappings,
+            frontmostBundleID: "com.tinyspeck.slackmacgap",
+            frontmostPID: 101,
+            frontmostWindowTitle: "Slack",
+            runningApps: []
+        )
+        expect(slackPass == .passThrough, "Pressing Cmd+Shift+Space in Slack when micShortcut == Cmd+Shift+Space should passThrough")
+
+        // 2. Microsoft Teams active -> remaps Cmd+Shift+Space to Cmd+Shift+M
+        let teamsRemap = CallShortcutRemapper.resolveDecision(
+            keyCode: spaceCode,
+            modifiers: [.command, .shift],
+            eventUserData: 0,
+            micShortcut: micShortcut,
+            videoShortcut: videoShortcut,
+            overrideScope: .activeCallAppOnly,
+            mappings: mappings,
+            frontmostBundleID: "com.microsoft.teams2",
+            frontmostPID: 202,
+            frontmostWindowTitle: "Microsoft Teams",
+            runningApps: []
+        )
+        if case .remap(let action, let app, let pid, let targetShortcut, let focusRestore) = teamsRemap {
+            expect(action == .mic, "Teams remap action should be .mic")
+            expect(app.id == "teams", "Target app should be Teams")
+            expect(pid == 202, "Target PID should match frontmost Teams PID")
+            expect(targetShortcut == ShortcutSpec(key: "m", modifiers: [.command, .shift]), "Teams mic target shortcut mismatch")
+            expect(!focusRestore, "Frontmost Teams remap must not trigger background focus restore")
+        } else {
+            failures.append("Expected .remap for active Teams window, got \(teamsRemap)")
+        }
+
+        // 3. Toggled-off app is never matched
+        if let idx = mappings.firstIndex(where: { $0.id == "teams" }) {
+            mappings[idx].enabled = false
+        }
+        let disabledTeams = CallShortcutRemapper.resolveDecision(
+            keyCode: spaceCode,
+            modifiers: [.command, .shift],
+            eventUserData: 0,
+            micShortcut: micShortcut,
+            videoShortcut: videoShortcut,
+            overrideScope: .activeCallAppOnly,
+            mappings: mappings,
+            frontmostBundleID: "com.microsoft.teams2",
+            frontmostPID: 202,
+            frontmostWindowTitle: "Microsoft Teams",
+            runningApps: []
+        )
+        expect(disabledTeams == .passThrough, "Disabled call app mapping must passThrough")
+        if let idx = mappings.firstIndex(where: { $0.id == "teams" }) {
+            mappings[idx].enabled = true
+        }
+
+        // 4. Non-call frontmost app passes through in activeCallAppOnly, and routes in activeOrRunningBackground
+        let xcodePass = CallShortcutRemapper.resolveDecision(
+            keyCode: vCode,
+            modifiers: [.control, .option, .command],
+            eventUserData: 0,
+            micShortcut: micShortcut,
+            videoShortcut: videoShortcut,
+            overrideScope: .activeCallAppOnly,
+            mappings: mappings,
+            frontmostBundleID: "com.apple.dt.Xcode",
+            frontmostPID: 303,
+            frontmostWindowTitle: "Toolbox.swift",
+            runningApps: [RunningCallAppSnapshot(bundleIdentifier: "com.microsoft.teams2", pid: 202, windowTitles: ["Teams"])]
+        )
+        expect(xcodePass == .passThrough, "Non-call app in activeCallAppOnly must passThrough")
+
+        let backgroundTeams = CallShortcutRemapper.resolveDecision(
+            keyCode: vCode,
+            modifiers: [.control, .option, .command],
+            eventUserData: 0,
+            micShortcut: micShortcut,
+            videoShortcut: videoShortcut,
+            overrideScope: .activeOrRunningBackground,
+            mappings: mappings,
+            frontmostBundleID: "com.apple.dt.Xcode",
+            frontmostPID: 303,
+            frontmostWindowTitle: "Toolbox.swift",
+            runningApps: [RunningCallAppSnapshot(bundleIdentifier: "com.microsoft.teams2", pid: 202, windowTitles: ["Teams"])]
+        )
+        if case .remap(let action, let app, let pid, let targetShortcut, let focusRestore) = backgroundTeams {
+            expect(action == .video, "Background Teams action should be .video")
+            expect(app.id == "teams", "Background target app should be Teams")
+            expect(pid == 202, "Background target PID mismatch")
+            expect(targetShortcut == ShortcutSpec(key: "o", modifiers: [.command, .shift]), "Teams video target shortcut mismatch")
+            expect(focusRestore, "Background Teams remap should request brief focus restore")
+        } else {
+            failures.append("Expected .remap for background Teams in activeOrRunningBackground mode")
+        }
+
+        // 5. Window-title gate for Google Meet in Chrome
+        let regularChrome = CallShortcutRemapper.resolveDecision(
+            keyCode: spaceCode,
+            modifiers: [.command, .shift],
+            eventUserData: 0,
+            micShortcut: micShortcut,
+            videoShortcut: videoShortcut,
+            overrideScope: .activeCallAppOnly,
+            mappings: mappings,
+            frontmostBundleID: "com.google.Chrome",
+            frontmostPID: 404,
+            frontmostWindowTitle: "GitHub - Pull Requests",
+            runningApps: []
+        )
+        expect(regularChrome == .passThrough, "Regular Chrome tab without 'Meet' in title must passThrough")
+
+        let meetChrome = CallShortcutRemapper.resolveDecision(
+            keyCode: spaceCode,
+            modifiers: [.command, .shift],
+            eventUserData: 0,
+            micShortcut: micShortcut,
+            videoShortcut: videoShortcut,
+            overrideScope: .activeCallAppOnly,
+            mappings: mappings,
+            frontmostBundleID: "com.google.Chrome",
+            frontmostPID: 404,
+            frontmostWindowTitle: "Meet - Weekly Standup",
+            runningApps: []
+        )
+        if case .remap(let action, let app, _, let targetShortcut, _) = meetChrome {
+            expect(action == .mic && app.id == "google_meet", "Chrome window titled 'Meet - Weekly Standup' should match Google Meet")
+            expect(targetShortcut == ShortcutSpec(key: "d", modifiers: [.command]), "Google Meet mic shortcut should be Cmd+D")
+        } else {
+            failures.append("Expected .remap for Google Meet window in Chrome")
+        }
+
+        // 6. Synthetic event tag 0x544C4258 prevents infinite tap recursion
+        let taggedEvent = CallShortcutRemapper.resolveDecision(
+            keyCode: spaceCode,
+            modifiers: [.command, .shift],
+            eventUserData: CallShortcutRemapper.syntheticEventTag,
+            micShortcut: micShortcut,
+            videoShortcut: videoShortcut,
+            overrideScope: .activeCallAppOnly,
+            mappings: mappings,
+            frontmostBundleID: "com.microsoft.teams2",
+            frontmostPID: 202,
+            frontmostWindowTitle: "Microsoft Teams",
+            runningApps: []
+        )
+        expect(taggedEvent == .passThrough, "Synthetic event carrying 0x544C4258 tag must always passThrough")
+
+        // 7. Everywhere scope toggles hardware mic when no call app runs, relays to FaceTime when running, and syncs on same-key Slack
+        let everywhereNoCall = CallShortcutRemapper.resolveDecision(
+            keyCode: spaceCode,
+            modifiers: [.command, .shift],
+            eventUserData: 0,
+            micShortcut: micShortcut,
+            videoShortcut: videoShortcut,
+            overrideScope: .everywhere,
+            mappings: mappings,
+            frontmostBundleID: "com.apple.finder",
+            frontmostPID: 501,
+            frontmostWindowTitle: "Finder",
+            runningApps: []
+        )
+        expect(everywhereNoCall == .globalHardwareOnly(action: .mic), "Everywhere scope without call app must return globalHardwareOnly(.mic)")
+
+        let everywhereFaceTime = CallShortcutRemapper.resolveDecision(
+            keyCode: spaceCode,
+            modifiers: [.command, .shift],
+            eventUserData: 0,
+            micShortcut: micShortcut,
+            videoShortcut: videoShortcut,
+            overrideScope: .everywhere,
+            mappings: mappings,
+            frontmostBundleID: "com.apple.finder",
+            frontmostPID: 501,
+            frontmostWindowTitle: "Finder",
+            runningApps: [RunningCallAppSnapshot(bundleIdentifier: "com.apple.FaceTime", pid: 601, windowTitles: ["FaceTime"])]
+        )
+        if case .remap(let action, let app, let pid, let targetShortcut, let focusRestore) = everywhereFaceTime {
+            expect(action == .mic && app.id == "facetime" && pid == 601, "Everywhere scope should match running FaceTime in background")
+            expect(targetShortcut == ShortcutSpec(key: "m", modifiers: [.command, .shift]), "FaceTime mic shortcut should be Cmd+Shift+M")
+            expect(focusRestore, "FaceTime preset should allow fallback focus restore when needed")
+        } else {
+            failures.append("Expected .remap for running FaceTime in everywhere scope")
+        }
+
+        let everywhereSlackSame = CallShortcutRemapper.resolveDecision(
+            keyCode: spaceCode,
+            modifiers: [.command, .shift],
+            eventUserData: 0,
+            micShortcut: micShortcut,
+            videoShortcut: videoShortcut,
+            overrideScope: .everywhere,
+            mappings: mappings,
+            frontmostBundleID: "com.tinyspeck.slackmacgap",
+            frontmostPID: 101,
+            frontmostWindowTitle: "Slack",
+            runningApps: []
+        )
+        expect(everywhereSlackSame == .passThroughWithHardwareSync(action: .mic), "Everywhere scope with matching Slack native key must passThroughWithHardwareSync")
+
+        expect(
+            CallShortcutRemapper.axMenuModifiersMatch(1, expected: [.command, .shift]),
+            "AX menu modifier 1 must match Command+Shift"
+        )
+        expect(
+            CallShortcutRemapper.axMenuModifiersMatch(0, expected: [.command]),
+            "AX menu modifier 0 must match Command only"
+        )
+        expect(
+            !CallShortcutRemapper.axMenuModifiersMatch(8, expected: [.command]),
+            "AX menu modifier 8 (kMenuNoCommandModifier) must not match Command"
+        )
+
+        // Menu control extraction & classification used by Add Call App auto-scan
+        let parsedMic = CallShortcutRemapper.shortcutFromMenuItem(cmdChar: "M", virtualKey: nil, axMods: 1)
+        expect(parsedMic == ShortcutSpec(key: "m", modifiers: [.command, .shift]), "AX menu item 'M' + mods 1 must parse to Cmd+Shift+M")
+
+        let parsedVirtualSpace = CallShortcutRemapper.shortcutFromMenuItem(cmdChar: nil, virtualKey: 49, axMods: 1)
+        expect(parsedVirtualSpace == ShortcutSpec(key: "space", modifiers: [.command, .shift]), "AX menu item virtualKey 49 + mods 1 must parse to Cmd+Shift+Space")
+
+        expect(
+            CallShortcutRemapper.classifyControlKind(title: "Mute Audio", menuPath: "Meeting > Mute Audio")?.kind == .mic,
+            "'Mute Audio' should classify as .mic"
+        )
+        expect(
+            CallShortcutRemapper.classifyControlKind(title: "Start Video", menuPath: "Meeting > Start Video")?.kind == .video,
+            "'Start Video' should classify as .video"
+        )
+        expect(
+            CallShortcutRemapper.classifyControlKind(title: "Quit App", menuPath: "File > Quit App") == nil,
+            "Unrelated menu item 'Quit App' should not classify as mic or video"
+        )
+
+        // Verify PointerCursorNSView separates .cursorUpdate from .activeAlways (illegal AppKit combination)
+        let pointerView = PointerCursorNSView()
+        pointerView.frame = NSRect(x: 0, y: 0, width: 80, height: 28)
+        pointerView.updateTrackingAreas()
+        expect(pointerView.trackingAreas.count == 2, "PointerCursorNSView should install 2 distinct tracking areas (found \(pointerView.trackingAreas.count))")
+        for area in pointerView.trackingAreas {
+            let hasIllegalCombo = area.options.contains(.cursorUpdate) && area.options.contains(.activeAlways)
+            expect(!hasIllegalCombo, "PointerCursorNSView must never combine .cursorUpdate with .activeAlways")
+        }
+    }
+
+    private static func testCallControlsTypingMicStateMachine() {
+        var sm = TypingMicStateMachine(isManuallyMuted: false, isTypingMuted: false, unmuteDelayMs: 450)
+        expect(sm.unmuteDelaySeconds == 0.45, "Typing unmute delay should convert 450ms to 0.45s")
+
+        // 1. Typing starts -> mute & schedule unmute; subsequent keys reschedule
+        expect(sm.handleFilteredKeystroke() == .muteAndScheduleUnmute, "First keystroke should mute and schedule unmute")
+        expect(sm.isTypingMuted, "isTypingMuted should become true")
+        expect(sm.handleFilteredKeystroke() == .rescheduleUnmute, "Second keystroke should reschedule unmute")
+        expect(sm.handleUnmuteTimerFired(), "Unmute timer firing should unmute when not manually muted")
+        expect(!sm.isTypingMuted, "isTypingMuted should clear after unmute timer fires")
+
+        // 2. Manual mute precedence: typing must NEVER unmute a manually muted mic
+        _ = sm.setManualMute(true)
+        expect(sm.isManuallyMuted && !sm.isTypingMuted, "setManualMute(true) must mark manual mute and clear typing mute")
+        expect(sm.handleFilteredKeystroke() == .none, "Keystrokes while manually muted must return .none")
+        expect(!sm.handleUnmuteTimerFired(), "Timer firing while manually muted must never unmute")
+
+        // 3. Manual unmute clears manual mute cleanly
+        _ = sm.setManualMute(false)
+        expect(!sm.isManuallyMuted && !sm.isTypingMuted, "setManualMute(false) should clear manual mute")
+
+        // 4. forceStopAndRestore forces unmute if typing-muted
+        expect(sm.handleFilteredKeystroke() == .muteAndScheduleUnmute, "Keystroke after unmute should engage typing mute")
+        expect(sm.forceStopAndRestore(), "forceStopAndRestore must return true while typing-muted")
+        expect(!sm.isTypingMuted, "forceStopAndRestore must clear isTypingMuted")
+
+        // 5. Keystroke filtering: Command/Control chords, call shortcuts, and synthetic tag are ignored
+        let micShortcut = ShortcutSpec(key: "m", modifiers: [.option, .shift])
+        let mCode = UInt16(micShortcut.carbonKeyCode ?? 46)
+        expect(
+            TypingMicStateMachine.shouldIgnoreKeystroke(keyCode: 0, flags: .maskCommand, eventUserData: 0, ignoredShortcuts: [micShortcut]),
+            "Command chord must be ignored by typing detector"
+        )
+        expect(
+            TypingMicStateMachine.shouldIgnoreKeystroke(keyCode: 0, flags: .maskControl, eventUserData: 0, ignoredShortcuts: [micShortcut]),
+            "Control chord must be ignored by typing detector"
+        )
+        expect(
+            TypingMicStateMachine.shouldIgnoreKeystroke(keyCode: 0, flags: [], eventUserData: CallShortcutRemapper.syntheticEventTag, ignoredShortcuts: []),
+            "Synthetic 0x544C4258 event must be ignored by typing detector"
+        )
+        expect(
+            TypingMicStateMachine.shouldIgnoreKeystroke(keyCode: mCode, flags: [.maskAlternate, .maskShift], eventUserData: 0, ignoredShortcuts: [micShortcut]),
+            "Configured call shortcut must be ignored by typing detector"
+        )
+        expect(
+            !TypingMicStateMachine.shouldIgnoreKeystroke(keyCode: 0, flags: [], eventUserData: 0, ignoredShortcuts: [micShortcut]),
+            "Plain typing keystroke 'A' must not be ignored"
+        )
+    }
+
+    private static func testCallControlsHotKeyConflictsAndLifecycle() {
+        let manager = HotKeyManager.shared
+        var cfg = ToolboxConfig()
+        cfg.callControls.enabled = true
+        cfg.clipboard.enabled = true
+        cfg.callControls.osMuteShortcut = cfg.clipboard.shortcut
+
+        let conflict = manager.inAppConflictDescription(
+            for: cfg.callControls.osMuteShortcut,
+            excludingSourceID: "call_controls.os_mute",
+            in: cfg
+        )
+        expect(conflict != nil, "HotKeyManager should detect collision between call_controls.os_mute and Clipboard")
+
+        manager.clearConflictingShortcuts(
+            matching: cfg.callControls.osMuteShortcut,
+            excludingSourceID: "call_controls.os_mute",
+            in: &cfg
+        )
+        expect(cfg.clipboard.shortcut.isEmpty, "clearConflictingShortcuts should clear colliding Clipboard shortcut")
+        expect(!cfg.callControls.osMuteShortcut.isEmpty, "clearConflictingShortcuts must preserve excluded call_controls.os_mute")
+
+        // Slack's Cmd+Shift+Space should not be falsely flagged via internal macOS hotkey slot 232
+        let slackStyle = ShortcutSpec(key: "space", modifiers: [.command, .shift])
+        let sysConflictOnSlack = manager.systemOrMenuConflictDescription(for: slackStyle)
+        expect(
+            sysConflictOnSlack == nil,
+            "Cmd+Shift+Space should not trigger a false-positive macOS system shortcut conflict unless explicitly configured by user (got: \(sysConflictOnSlack ?? "nil"))"
+        )
+
+        // Call Controls mic vs video collision check
+        let shared = ShortcutSpec(key: "v", modifiers: [.command, .shift])
+        cfg.callControls.micShortcut = shared
+        cfg.callControls.videoShortcut = shared
+        expect(
+            manager.inAppConflictDescription(for: shared, excludingSourceID: "call_controls.video", in: cfg) != nil,
+            "HotKeyManager should detect call_controls.mic vs call_controls.video collision"
+        )
+        manager.clearConflictingShortcuts(matching: shared, excludingSourceID: "call_controls.video", in: &cfg)
+        expect(cfg.callControls.micShortcut.isEmpty, "clearConflictingShortcuts should clear colliding call_controls.mic shortcut")
+
+        // Module lifecycle & deterministic statusText
+        let callModule = ModuleRegistry.shared.callControls
+        expect(ModuleRegistry.shared.module(withID: "call_controls") === callModule, "Registry must resolve call_controls")
+
+        var statusCfg = ToolboxConfig()
+        expect(callModule.statusText(in: statusCfg, accessibilityGranted: true) == "Disabled", "Disabled statusText mismatch")
+        statusCfg.callControls.enabled = true
+        statusCfg.general.appEnabled = false
+        expect(callModule.statusText(in: statusCfg, accessibilityGranted: true) == "Paused", "Paused statusText mismatch")
+
+        statusCfg.general.appEnabled = true
+        statusCfg.callControls.micShortcut = ShortcutSpec(key: "space", modifiers: [.command, .shift])
+        expect(
+            callModule.statusText(in: statusCfg, accessibilityGranted: false) == "Needs Accessibility",
+            "Should report Needs Accessibility when unified keybind is set without permission"
+        )
+
+        let defaultCC = CallControlsConfig()
+        expect(
+            defaultCC.micShortcut == ShortcutSpec(key: "m", modifiers: [.control, .option, .command]),
+            "Default CallControls micShortcut should be Ctrl+Option+Cmd+M"
+        )
+        expect(
+            defaultCC.videoShortcut == ShortcutSpec(key: "v", modifiers: [.control, .option, .command]),
+            "Default CallControls videoShortcut should be Ctrl+Option+Cmd+V"
+        )
+
+        let videoCapableSummary = CallControlsModule.videoCapableAppsSummary(from: CallAppShortcutMapping.defaults)
+        expect(
+            videoCapableSummary == "Teams, Zoom, or Meet",
+            "Default video-capable summary should list Teams, Zoom, or Meet (got: \(videoCapableSummary))"
+        )
+        expect(
+            CallControlsModule.videoUnavailableMessage(
+                frontUnsupportedAppName: "FaceTime",
+                anyUnsupportedAppName: "FaceTime",
+                backgroundCapableAppName: nil,
+                overrideScope: .everywhere,
+                videoCapableSummary: videoCapableSummary
+            ) == "FaceTime doesn't allow video shortcuts (macOS has no OS camera mute)",
+            "Frontmost FaceTime video-unavailable toast should explain FaceTime doesn't allow video shortcuts"
+        )
+        expect(
+            CallControlsModule.videoUnavailableMessage(
+                frontUnsupportedAppName: nil,
+                anyUnsupportedAppName: nil,
+                backgroundCapableAppName: "Zoom",
+                overrideScope: .activeCallAppOnly,
+                videoCapableSummary: videoCapableSummary
+            ) == "Focus Zoom or switch scope to Everywhere to toggle camera",
+            "Active-app-only scope with background Zoom should prompt user to focus Zoom or change scope"
+        )
+        expect(
+            CallControlsModule.videoUnavailableMessage(
+                frontUnsupportedAppName: nil,
+                anyUnsupportedAppName: nil,
+                backgroundCapableAppName: nil,
+                overrideScope: .everywhere,
+                videoCapableSummary: videoCapableSummary
+            ) == "Open Teams, Zoom, or Meet to toggle camera (macOS has no OS camera mute)",
+            "Idle video-unavailable toast should accurately reflect enabled video-capable presets"
+        )
+
+        statusCfg.callControls.micShortcut = .none
+        statusCfg.callControls.autoMuteWhileTyping = false
+        callModule.reload(with: statusCfg)
+        expect(callModule.isRunning, "CallControlsModule should start when enabled without requiring Accessibility for CoreAudio controls")
+        callModule.stop()
+        expect(!callModule.isRunning, "CallControlsModule.stop() must clear isRunning")
+        expect(!callModule.isRemapperTapInstalled && !callModule.isTypingTapInstalled, "CallControlsModule.stop() must uninstall event taps")
+    }
+
+    private static func testCallControlsDeveloperSimulation() {
+        let callModule = ModuleRegistry.shared.callControls
+        let devManager = DeveloperModeManager.shared
+
+        callModule.clearDeveloperSimulation()
+        expect(!devManager.hasActiveSimulation, "hasActiveSimulation should be false initially")
+
+        // 1. Zoom frontmost call preset + dry-run + interactive action simulation
+        callModule.applyDeveloperSimulationPreset(.zoomCall)
+        expect(callModule.developerSimulation != nil, "applyDeveloperSimulationPreset(.zoomCall) must populate developerSimulation")
+        expect(devManager.hasActiveSimulation, "DeveloperModeManager.hasActiveSimulation must reflect active Call Controls simulation")
+
+        var simConfig = CallControlsConfig()
+        simConfig.enabled = true
+        simConfig.overrideScope = .everywhere
+        let micDecision = callModule.simulatedRoutingDecision(for: .mic, using: simConfig)
+        if case .remap(let action, let targetApp, _, _, _) = micDecision {
+            expect(action == .mic && targetApp.id == "zoom", "Simulated Zoom mic decision should remap to zoom")
+        } else {
+            failures.append("Simulated Zoom mic decision should return .remap (got: \(micDecision))")
+        }
+        let videoDecision = callModule.simulatedRoutingDecision(for: .video, using: simConfig)
+        if case .remap(let action, let targetApp, _, _, _) = videoDecision {
+            expect(action == .video && targetApp.id == "zoom", "Simulated Zoom video decision should remap to zoom")
+        } else {
+            failures.append("Simulated Zoom video decision should return .remap (got: \(videoDecision))")
+        }
+
+        let floatingState = FloatingMicIndicatorState()
+        callModule.populateFloatingState(floatingState)
+        expect(floatingState.hasInputDevice && !floatingState.isMuted, "Zoom preset should report live unmuted mic in FloatingMicIndicatorState")
+        expect(floatingState.isCameraActive && floatingState.canToggleVideo, "Zoom preset should report live toggleable camera in FloatingMicIndicatorState")
+
+        callModule.triggerSimulatedAction(.mic)
+        expect(callModule.developerSimulation?.isMuted == true, "triggerSimulatedAction(.mic) should toggle simulated isMuted to true")
+        callModule.triggerSimulatedAction(.video)
+        expect(callModule.developerSimulation?.isCameraActive == false, "triggerSimulatedAction(.video) should toggle simulated isCameraActive to false")
+
+        // 1b. Simulation dry-run parity: unbound keybind returns .passThrough unless fallback is requested, and respects Accessibility simulation & disabled apps
+        var unboundConfig = simConfig
+        unboundConfig.micShortcut = .none
+        expect(
+            callModule.simulatedRoutingDecision(for: .mic, using: unboundConfig, fallbackToDefaultIfUnbound: false) == .passThrough,
+            "Unbound mic shortcut must report .passThrough in routing dry-run"
+        )
+        if case .remap(let action, let app, _, _, _) = callModule.simulatedRoutingDecision(for: .mic, using: unboundConfig, fallbackToDefaultIfUnbound: true) {
+            expect(action == .mic && app.id == "zoom", "Fallback-enabled mic test should resolve to zoom")
+        } else {
+            failures.append("Fallback-enabled mic test should return .remap")
+        }
+
+        var disabledZoomCfg = simConfig
+        if let idx = disabledZoomCfg.appShortcutMappings.firstIndex(where: { $0.id == "zoom" }) {
+            disabledZoomCfg.appShortcutMappings[idx].enabled = false
+        }
+        expect(
+            callModule.simulatedRoutingDecision(for: .video, using: disabledZoomCfg) == .globalHardwareOnly(action: .video),
+            "Disabling Zoom mapping should surface Video Blocked in simulation dry-run"
+        )
+
+        if let sim = callModule.developerSimulation {
+            let ctx = CallControlsModule.buildSimulatedContext(sim: sim, config: simConfig)
+            let micCode = UInt16(simConfig.micShortcut.carbonKeyCode ?? 46)
+            let tapDecision = CallShortcutRemapper.resolveDecision(
+                keyCode: micCode,
+                modifiers: simConfig.micShortcut.modifiers,
+                eventUserData: 0,
+                micShortcut: simConfig.micShortcut,
+                videoShortcut: simConfig.videoShortcut,
+                overrideScope: simConfig.overrideScope,
+                mappings: simConfig.appShortcutMappings,
+                frontmostBundleID: ctx.frontmostBundleID,
+                frontmostPID: ctx.frontmostPID,
+                frontmostWindowTitle: ctx.frontmostWindowTitle,
+                runningApps: ctx.runningApps
+            )
+            expect(
+                tapDecision == callModule.simulatedRoutingDecision(for: .mic, using: simConfig),
+                "Simulated tap context resolution must match simulatedRoutingDecision identically"
+            )
+        }
+
+        // Simulated Accessibility = false blocks keybind actions, while pill mic click still toggles hardware mic
+        callModule.developerSimulation?.isMuted = false
+        callModule.developerSimulation?.simulateAccessibilityGranted = false
+        callModule.triggerSimulatedAction(.mic, fallbackToDefaultIfUnbound: true, respectSimulatedAccessibility: true)
+        expect(
+            callModule.developerSimulation?.isMuted == false,
+            "Keybind simulation must be blocked when simulateAccessibilityGranted == false"
+        )
+        callModule.toggleSimulatedMicFromPill()
+        expect(
+            callModule.developerSimulation?.isMuted == true,
+            "Pill mic click must still toggle mic even when simulateAccessibilityGranted == false"
+        )
+
+        // reload(with: disabled) must preserve active developer simulation
+        var disabledModuleCfg = ToolboxConfig()
+        disabledModuleCfg.callControls.enabled = false
+        callModule.reload(with: disabledModuleCfg)
+        expect(callModule.developerSimulation != nil, "reload(with: disabled) must preserve active developerSimulation")
+
+        // 2. FaceTime call preset must report video unavailable rather than toggling video
+        callModule.applyDeveloperSimulationPreset(.faceTimeCall)
+        let ftVideoDecision = callModule.simulatedRoutingDecision(for: .video, using: simConfig)
+        expect(ftVideoDecision == .globalHardwareOnly(action: .video), "Simulated FaceTime video decision must fall back to .globalHardwareOnly(action: .video) (got: \(ftVideoDecision))")
+        callModule.triggerSimulatedAction(.video)
+        expect(
+            callModule.lastSimulationOutcome?.contains("FaceTime") == true,
+            "Simulated FaceTime video action outcome should mention FaceTime (got: \(callModule.lastSimulationOutcome ?? "nil"))"
+        )
+
+        // 3. HUDToast height consistency across different SF Symbols
+        let toastSymbols: [(String, Color)] = [
+            ("mic.fill", .green),
+            ("mic.slash.fill", .red),
+            ("video.fill", .blue),
+            ("video.slash", .orange),
+            ("keyboard", .orange),
+            ("exclamationmark.triangle.fill", .orange),
+            ("arrow.uturn.right.circle", .secondary)
+        ]
+        let toastHeights = toastSymbols.map { HUDToast.measuredSize(title: "Sample Toast Title", symbol: $0.0, tint: $0.1).height }
+        expect(
+            toastHeights.allSatisfy { abs($0 - HUDToast.fixedHeight) < 0.5 },
+            "HUDToast height must remain constant (\(HUDToast.fixedHeight)pt) across all icons (got: \(toastHeights))"
+        )
+        let longToastWidth = HUDToast.measuredSize(
+            title: "Focus Zoom or switch scope to Everywhere to toggle camera",
+            symbol: "video.slash",
+            tint: .orange
+        ).width
+        expect(longToastWidth > 320, "Long HUDToast must measure full natural width instead of clamping (got: \(longToastWidth))")
+
+        // 4. Floating pill top-right frame stability when toggling Mic / Camera
+        let testScreenFrame = NSRect(x: 0, y: 0, width: 1512, height: 950)
+        for deviceName in ["AirPods", "MacBook Pro Microphone"] {
+            let pillState = FloatingMicIndicatorState()
+            pillState.inputDeviceName = deviceName
+            pillState.showVideoStatus = true
+            pillState.hasCameraDevice = true
+            pillState.canToggleVideo = true
+            pillState.videoTargetAppName = "Zoom"
+            pillState.cameraDeviceName = "FaceTime HD"
+            pillState.isCameraActive = true
+            pillState.isMuted = false
+            pillState.isTypingMuted = false
+
+            let liveSize = FloatingMicIndicatorPanel.measuredPillSize(for: pillState)
+            expect(liveSize.width > 280 && liveSize.height == 44, "Dual Mic+Video pill should measure full natural width & 44pt height (got: \(liveSize))")
+            let liveFrame = FloatingMicIndicatorPanel.defaultTopRightFrame(for: liveSize, inVisibleFrame: testScreenFrame)
+
+            pillState.isMuted = true
+            let mutedSize = FloatingMicIndicatorPanel.measuredPillSize(for: pillState)
+            let mutedFrame = FloatingMicIndicatorPanel.defaultTopRightFrame(for: mutedSize, inVisibleFrame: testScreenFrame)
+
+            pillState.isTypingMuted = true
+            let typingSize = FloatingMicIndicatorPanel.measuredPillSize(for: pillState)
+            let typingFrame = FloatingMicIndicatorPanel.defaultTopRightFrame(for: typingSize, inVisibleFrame: testScreenFrame)
+
+            expect(
+                liveFrame == mutedFrame && liveFrame == typingFrame,
+                "Top-right floating pill must not move or resize when toggling mute for '\(deviceName)' (live: \(liveFrame), muted: \(mutedFrame), typing: \(typingFrame))"
+            )
+
+            pillState.isTypingMuted = false
+            pillState.isMuted = false
+            pillState.isCameraActive = false
+            pillState.videoTargetAppName = "Microsoft Teams"
+            let camOffSize = FloatingMicIndicatorPanel.measuredPillSize(for: pillState)
+            let camOffFrame = FloatingMicIndicatorPanel.defaultTopRightFrame(for: camOffSize, inVisibleFrame: testScreenFrame)
+            expect(
+                liveFrame == camOffFrame,
+                "Top-right floating pill must not move or resize when toggling camera for '\(deviceName)' even with long app name (live: \(liveFrame), camOff: \(camOffFrame))"
+            )
+
+            pillState.showVideoStatus = false
+            let micOnlySize = FloatingMicIndicatorPanel.measuredPillSize(for: pillState)
+            expect(micOnlySize.width > 160 && micOnlySize.width < liveSize.width - 60, "Mic-only pill should shrink cleanly when video is hidden (got: \(micOnlySize))")
+        }
+
+        // 4b. Real FloatingMicIndicatorPanel: initial position == resetToDefaultPosition() and zero shift at very-most top-right
+        if let screen = NSScreen.main ?? NSScreen.screens.first {
+            let panel = FloatingMicIndicatorPanel(userDefaults: nil)
+            panel.update(
+                isMuted: false,
+                isTypingMuted: false,
+                inputDeviceName: "MacBook Pro Microphone",
+                hasInputDevice: true,
+                showVideoStatus: true,
+                isCameraActive: true,
+                cameraDeviceName: "FaceTime HD",
+                hasCameraDevice: true,
+                canToggleVideo: true,
+                videoTargetAppName: "Microsoft Teams"
+            )
+            panel.show()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            let initialFrame = panel.currentFrame
+
+            let customDraggedOrigin = NSPoint(x: screen.visibleFrame.minX + 120, y: screen.visibleFrame.minY + 120)
+            if let f = initialFrame {
+                panel.recordDraggedFrameForTesting(NSRect(origin: customDraggedOrigin, size: f.size))
+                panel.resetToDefaultPosition()
+                RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+                expect(
+                    panel.currentFrame == initialFrame,
+                    "Floating pill resetToDefaultPosition() must match initial position identically (initial: \(String(describing: initialFrame)), reset: \(String(describing: panel.currentFrame)))"
+                )
+
+                // Move to very-most top-right (screenPadding = 6pt) and toggle Mic & Video
+                let pad = FloatingMicIndicatorPanel.screenPadding
+                let cornerFrame = NSRect(
+                    x: round(screen.visibleFrame.maxX - f.size.width - pad),
+                    y: round(screen.visibleFrame.maxY - f.size.height - pad),
+                    width: f.size.width,
+                    height: f.size.height
+                )
+                panel.recordDraggedFrameForTesting(cornerFrame)
+                panel.update(
+                    isMuted: true,
+                    isTypingMuted: false,
+                    inputDeviceName: "MacBook Pro Microphone",
+                    hasInputDevice: true,
+                    showVideoStatus: true,
+                    isCameraActive: false,
+                    cameraDeviceName: "FaceTime HD",
+                    hasCameraDevice: true,
+                    canToggleVideo: true,
+                    videoTargetAppName: "Microsoft Teams"
+                )
+                RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+                expect(
+                    panel.currentFrame == cornerFrame,
+                    "Pill dragged to very-most top-right must not shift when toggling Mic/Video (expected: \(cornerFrame), got: \(String(describing: panel.currentFrame)))"
+                )
+            } else {
+                failures.append("FloatingMicIndicatorPanel.show() did not produce a valid frame")
+            }
+            panel.hide()
+
+            // Regression test: clicking/hiding the pill while PointerCursorNSView deferred cursor sync
+            // timers (RunLoop.main.perform, 0.04s, 0.2s) are pending must not crash on closed NSPanel.
+            var hideCallbackInvoked = false
+            panel.onHidePill = {
+                hideCallbackInvoked = true
+                panel.hide()
+            }
+            panel.show()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+            if let f = panel.currentFrame {
+                let center = NSPoint(x: f.width - 12, y: f.height / 2)
+                let downEvent = NSEvent.mouseEvent(
+                    with: .leftMouseDown,
+                    location: center,
+                    modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: 0,
+                    context: nil,
+                    eventNumber: 1,
+                    clickCount: 1,
+                    pressure: 1.0
+                )
+                let upEvent = NSEvent.mouseEvent(
+                    with: .leftMouseUp,
+                    location: center,
+                    modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: 0,
+                    context: nil,
+                    eventNumber: 1,
+                    clickCount: 1,
+                    pressure: 0.0
+                )
+                if let downEvent { NSApp.postEvent(downEvent, atStart: false) }
+                if let upEvent { NSApp.postEvent(upEvent, atStart: false) }
+            }
+            panel.onHidePill?()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.25))
+            expect(hideCallbackInvoked, "Floating pill onHidePill callback must execute cleanly")
+            expect(panel.currentFrame == nil, "Floating pill currentFrame must be nil after onHidePill -> hide()")
+        }
+
+        // 4c. New simulation presets, simulated scope override, device profile, and pill hide override
+        callModule.applyDeveloperSimulationPreset(.teamsBackground)
+        callModule.developerSimulation?.simulatedScopeOverride = .activeCallAppOnly
+        expect(
+            callModule.simulatedRoutingDecision(for: .mic, using: simConfig) == .passThrough,
+            "simulatedScopeOverride = .activeCallAppOnly must override saved .everywhere scope for background Teams"
+        )
+        callModule.applyDeveloperSimulationPreset(.discordCall)
+        expect(callModule.developerSimulation?.targetAppID == "discord", "Discord preset should target discord")
+        callModule.applyDeveloperSimulationPreset(.noCallApp)
+        expect(callModule.developerSimulation?.targetAppID == "none", "No Call App preset should target none")
+        callModule.developerSimulation?.deviceProfile = .noHardware
+        callModule.toggleSimulatedMicFromPill()
+        expect(
+            callModule.lastSimulationOutcome?.contains("No input microphone") == true,
+            "No-hardware profile pill toggle must report missing microphone"
+        )
+        callModule.developerSimulation?.pillVisibilityMode = .forceHide
+        expect(!callModule.isFloatingPillVisible, "pillVisibilityMode = .forceHide must hide desktop pill even if streams were active")
+
+        // 5. DeveloperModeManager.resetAllSimulations() clears Call Controls simulation cleanly
+        devManager.resetAllSimulations()
+        expect(callModule.developerSimulation == nil, "resetAllSimulations() must clear CallControlsModule.developerSimulation")
+        expect(!callModule.isRemapperTapInstalled, "resetAllSimulations() must uninstall simulation event tap when module is off")
+        expect(!devManager.hasActiveSimulation, "hasActiveSimulation must be false after resetAllSimulations()")
+
+        // 6. ToolboxConfigSection.callControls & pure ConfigCheckpointStore diff detection
+        expect(ToolboxConfigSection.allCases.contains(.callControls), "ToolboxConfigSection must include .callControls")
+        let checkpointCfg = ToolboxConfig()
+        var modifiedCfg = checkpointCfg
+        modifiedCfg.callControls.typingUnmuteDelayMs = 900
+        let diffs = ConfigCheckpointStore.diff(from: checkpointCfg, to: modifiedCfg)
+        expect(
+            diffs == [ConfigDiffItem(keyPath: "callControls.typingUnmuteDelayMs", baselineValue: "450", currentValue: "900")],
+            "ConfigCheckpointStore.diff should detect callControls changes cleanly (got: \(diffs))"
+        )
+        DeveloperEventLog.shared.clear()
     }
 }

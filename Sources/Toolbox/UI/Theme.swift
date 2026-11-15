@@ -29,8 +29,14 @@ private struct PointerCursorOverlay: NSViewRepresentable {
     }
 }
 
+@MainActor
+protocol HoverCursorProviderView: NSView {
+    var customHoverCursor: NSCursor { get }
+}
+
 final class PointerCursorNSView: NSView {
-    private var trackingArea: NSTrackingArea?
+    private var hoverTrackingArea: NSTrackingArea?
+    private var cursorTrackingArea: NSTrackingArea?
     private var isHovered = false
     private static var localEventMonitor: Any?
 
@@ -72,16 +78,45 @@ final class PointerCursorNSView: NSView {
         return false
     }
 
+    static func customHoverCursor(in view: NSView, atWindowPoint ptInWindow: NSPoint) -> NSCursor? {
+        guard !view.isHidden, view.alphaValue > 0.01 else { return nil }
+        if let provider = view as? HoverCursorProviderView, isPoint(ptInWindow, inside: provider) {
+            return provider.customHoverCursor
+        }
+        for subview in view.subviews {
+            if let cursor = customHoverCursor(in: subview, atWindowPoint: ptInWindow) {
+                return cursor
+            }
+        }
+        return nil
+    }
+
     static func syncCursor(in window: NSWindow) {
         // NSMenu popups manage their own 40ms cursor sync loop via MenuBarController.
+        guard window.isVisible else {
+            if NSCursor.currentSystem?.hotSpot == NSCursor.pointingHand.hotSpot {
+                NSCursor.arrow.set()
+            }
+            return
+        }
         guard window.level.rawValue < NSWindow.Level.popUpMenu.rawValue,
               let rootView = window.contentView?.superview ?? window.contentView else { return }
         let ptInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
         guard rootView.bounds.contains(ptInWindow) else { return }
         if containsPointerCursorView(in: rootView, atWindowPoint: ptInWindow) {
             forcePointingHandCursor()
+        } else if let custom = customHoverCursor(in: rootView, atWindowPoint: ptInWindow) {
+            custom.set()
         } else if NSCursor.currentSystem?.hotSpot == NSCursor.pointingHand.hotSpot {
             // Reset only if we're leaving a pointing-hand region so IBeam/resize cursors remain untouched.
+            NSCursor.arrow.set()
+        }
+    }
+
+    private static func syncCursorOrReset(_ window: NSWindow?) {
+        if let window, window.isVisible {
+            syncCursor(in: window)
+        } else if NSCursor.currentSystem?.hotSpot == NSCursor.pointingHand.hotSpot {
             NSCursor.arrow.set()
         }
     }
@@ -100,19 +135,19 @@ final class PointerCursorNSView: NSView {
                 // AppKit controls (NSButton, NSSwitch, NSPopUpButton, toolbar SwiftUIAppKitButton)
                 // swallow .leftMouseUp inside trackMouse, so scheduling on .common from both down & up
                 // ensures cursor sync runs immediately after tracking completes and again after layout.
-                RunLoop.main.perform(inModes: [.common]) {
+                RunLoop.main.perform(inModes: [.common]) { [weak window] in
                     MainActor.assumeIsolated {
-                        syncCursor(in: window)
+                        syncCursorOrReset(window)
                     }
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { [weak window] in
                     MainActor.assumeIsolated {
-                        syncCursor(in: window)
+                        syncCursorOrReset(window)
                     }
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak window] in
                     MainActor.assumeIsolated {
-                        syncCursor(in: window)
+                        syncCursorOrReset(window)
                     }
                 }
                 return event
@@ -141,9 +176,9 @@ final class PointerCursorNSView: NSView {
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow == nil, let oldWindow = window, isHovered {
             isHovered = false
-            RunLoop.main.perform(inModes: [.common]) {
+            RunLoop.main.perform(inModes: [.common]) { [weak oldWindow] in
                 MainActor.assumeIsolated {
-                    Self.syncCursor(in: oldWindow)
+                    Self.syncCursorOrReset(oldWindow)
                 }
             }
         }
@@ -157,7 +192,22 @@ final class PointerCursorNSView: NSView {
                 window.acceptsMouseMovedEvents = true
             }
             Self.ensureLocalEventMonitor()
+            window.invalidateCursorRects(for: self)
         }
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = bounds.size != newSize
+        super.setFrameSize(newSize)
+        if changed {
+            window?.invalidateCursorRects(for: self)
+        }
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard !isHidden, alphaValue > 0.01, !bounds.isEmpty else { return }
+        addCursorRect(bounds, cursor: .pointingHand)
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -166,17 +216,34 @@ final class PointerCursorNSView: NSView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let trackingArea {
-            removeTrackingArea(trackingArea)
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
         }
-        let area = NSTrackingArea(
+        if let cursorTrackingArea {
+            removeTrackingArea(cursorTrackingArea)
+        }
+        // Per AppKit NSTrackingArea.h, .activeAlways cannot be paired with .cursorUpdate;
+        // split hover tracking (.activeAlways) from active-app cursor updates (.cursorUpdate).
+        let hoverArea = NSTrackingArea(
             rect: bounds,
-            options: [.mouseEnteredAndExited, .cursorUpdate, .activeAlways, .inVisibleRect],
+            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
             owner: self,
             userInfo: nil
         )
-        addTrackingArea(area)
-        self.trackingArea = area
+        let cursorArea = NSTrackingArea(
+            rect: bounds,
+            options: [.cursorUpdate, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(hoverArea)
+        addTrackingArea(cursorArea)
+        self.hoverTrackingArea = hoverArea
+        self.cursorTrackingArea = cursorArea
+        reapplyCursorIfHovered()
+    }
+
+    override func mouseMoved(with event: NSEvent) {
         reapplyCursorIfHovered()
     }
 
@@ -266,6 +333,11 @@ final class PointerCursorHostingView<Content: View>: NSHostingView<Content> {
                 PointerCursorNSView.forcePointingHandCursor()
                 return
             }
+            if let rootView = window.contentView?.superview ?? window.contentView,
+               let custom = PointerCursorNSView.customHoverCursor(in: rootView, atWindowPoint: pt) {
+                custom.set()
+                return
+            }
         }
         super.cursorUpdate(with: event)
     }
@@ -273,6 +345,7 @@ final class PointerCursorHostingView<Content: View>: NSHostingView<Content> {
     override func layout() {
         super.layout()
         if let window, window.isVisible {
+            window.invalidateCursorRects(for: self)
             PointerCursorNSView.syncCursor(in: window)
         }
     }

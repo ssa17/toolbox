@@ -10,8 +10,17 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 ## [Unreleased]
 
 ### Added
+- **Call Controls** — set one unified Mic (`⌃ ⌥ ⌘ M` default) & Video (`⌃ ⌥ ⌘ V` default) keybind that works anywhere (`Everywhere` scope by default) to mute your macOS microphone system-wide and override FaceTime (mic), Microsoft Teams, Zoom, Slack, Google Meet, and Discord (including silent Accessibility menu-item triggering without focus loss for FaceTime), monitor live Mic and Camera status on a top-right draggable floating pill (`[≡] | Mic | Video | ✕`, shown automatically during active calls by default with an inline **Pill** toggle on the Call Controls status bar row and proper hover cursors over any app), add custom call apps via an app selector that scans menu bar controls automatically, cycle favorite outputs, and auto-mute while typing
 - **Clean Lock** — temporarily lock your keyboard (including media, volume, and brightness keys) and trackpad/mouse clicks & scrolling with a large center-screen countdown (`10s`–`3m`), live blocked-input counter, and a `Hold ⌃ ⌥ ⌘ Esc (3s)` emergency kill switch
-- Developer Tools (**Updates**): added a **Background Check Schedule** section with a live auto-check countdown, a one-shot 5-second scheduled check test, and a session check counter showing timestamped outcomes
+- **Clipboard History** — persist recent unpinned clipboard history across restarts by default, with a **Keep unpinned history across restarts** toggle in Privacy & Cleanup
+- Developer Tools (**Updates** & **Call Controls**): added a **Background Check Schedule** section with a live auto-check countdown, a one-shot 5-second scheduled check test, and session check outcomes, plus a **Call Controls** workspace with simulated call scenarios (Zoom, FaceTime, Slack, Teams, Meet, Discord, no-app, typing auto-mute), an interactive floating pill preview stage, keybind routing dry-run & toast tester, Accessibility menu bar control probe, and live CoreAudio/CoreMediaIO telemetry
+
+### Changed
+- **Dashboard** — expand the module grid up to 3 columns on wider windows
+- **HUD Toast** — keep toast height consistent across all status icons
+
+### Fixed
+- Stabilized the Call Controls floating pill's top-right position when toggling Mic or Camera, and fixed a crash when closing the pill with `✕`
 
 ## [1.1] - 2026-11-15
 

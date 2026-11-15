@@ -96,7 +96,8 @@ struct GeneralConfig: Codable, Equatable, Sendable {
         "port_killer",
         "keep_awake",
         "custom_commands",
-        "scroll_direction"
+        "scroll_direction",
+        "call_controls"
     ]
 
     var appEnabled: Bool = true
@@ -122,8 +123,10 @@ struct GeneralConfig: Codable, Equatable, Sendable {
         openDashboardOnDockClick = try c.decodeIfPresent(Bool.self, forKey: .openDashboardOnDockClick) ?? true
         dockQuitBehavior = try c.decodeIfPresent(DockQuitBehavior.self, forKey: .dockQuitBehavior) ?? .closeWindow
         launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
-        menuBarModuleOrder = try c.decodeIfPresent([String].self, forKey: .menuBarModuleOrder) ?? Self.defaultMenuBarModuleOrder
-        menuBarHiddenModules = try c.decodeIfPresent([String].self, forKey: .menuBarHiddenModules) ?? []
+        let decodedOrder = try c.decodeIfPresent([String].self, forKey: .menuBarModuleOrder) ?? Self.defaultMenuBarModuleOrder
+        menuBarModuleOrder = decodedOrder.map { $0 == "audio_guard" ? "call_controls" : $0 }
+        let decodedHidden = try c.decodeIfPresent([String].self, forKey: .menuBarHiddenModules) ?? []
+        menuBarHiddenModules = decodedHidden.map { $0 == "audio_guard" ? "call_controls" : $0 }
         showQuickActionsInMenuBar = try c.decodeIfPresent(Bool.self, forKey: .showQuickActionsInMenuBar) ?? true
         showQuickCommandsInMenuBar = try c.decodeIfPresent(Bool.self, forKey: .showQuickCommandsInMenuBar) ?? true
     }
@@ -249,6 +252,7 @@ struct ClipboardConfig: Codable, Equatable, Sendable {
     var pasteAutomatically: Bool = true
     var deduplicate: Bool = true
     var ignoreConcealedTypes: Bool = true
+    var persistHistory: Bool = true
     var popoverWidth: Int = 420
     var popoverHeight: Int = 460
 
@@ -264,6 +268,7 @@ struct ClipboardConfig: Codable, Equatable, Sendable {
         pasteAutomatically = try c.decodeIfPresent(Bool.self, forKey: .pasteAutomatically) ?? true
         deduplicate = try c.decodeIfPresent(Bool.self, forKey: .deduplicate) ?? true
         ignoreConcealedTypes = try c.decodeIfPresent(Bool.self, forKey: .ignoreConcealedTypes) ?? true
+        persistHistory = try c.decodeIfPresent(Bool.self, forKey: .persistHistory) ?? true
         popoverWidth = try c.decodeIfPresent(Int.self, forKey: .popoverWidth) ?? 420
         popoverHeight = try c.decodeIfPresent(Int.self, forKey: .popoverHeight) ?? 460
     }
@@ -467,8 +472,214 @@ struct CleanLockConfig: Codable, Equatable, Sendable {
     }
 }
 
+enum CallOverrideScope: String, Codable, CaseIterable, Sendable {
+    case everywhere = "everywhere"
+    case activeOrRunningBackground = "active_or_running_background"
+    case activeCallAppOnly = "active_call_app_only"
+
+    var label: String {
+        switch self {
+        case .everywhere:
+            return "Everywhere (any app + macOS mic)"
+        case .activeOrRunningBackground:
+            return "Active or background call apps"
+        case .activeCallAppOnly:
+            return "Active call app only"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .everywhere:
+            return "Use My Mic Keybind in whichever app you are in: toggles your macOS microphone globally and also relays to any active or running call app."
+        case .activeOrRunningBackground:
+            return "Intercepts only while an enabled call app is active or running in the background; passes through in other apps when idle."
+        case .activeCallAppOnly:
+            return "Zero interference: intercepts only when an enabled call app is the active frontmost window."
+        }
+    }
+}
+
+struct CallAppShortcutMapping: Codable, Equatable, Identifiable, Sendable {
+    var id: String
+    var appName: String
+    var bundleIdentifier: String
+    var enabled: Bool = true
+    var micShortcut: ShortcutSpec = .none
+    var videoShortcut: ShortcutSpec = .none
+    var requiredWindowTitleSubstring: String? = nil
+    var allowBriefFocusRestore: Bool = false
+
+    init(
+        id: String = UUID().uuidString,
+        appName: String,
+        bundleIdentifier: String,
+        enabled: Bool = true,
+        micShortcut: ShortcutSpec = .none,
+        videoShortcut: ShortcutSpec = .none,
+        requiredWindowTitleSubstring: String? = nil,
+        allowBriefFocusRestore: Bool = false
+    ) {
+        self.id = id
+        self.appName = appName
+        self.bundleIdentifier = bundleIdentifier
+        self.enabled = enabled
+        self.micShortcut = micShortcut
+        self.videoShortcut = videoShortcut
+        self.requiredWindowTitleSubstring = requiredWindowTitleSubstring
+        self.allowBriefFocusRestore = allowBriefFocusRestore
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        appName = try c.decodeIfPresent(String.self, forKey: .appName) ?? "Custom App"
+        bundleIdentifier = try c.decodeIfPresent(String.self, forKey: .bundleIdentifier) ?? ""
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        micShortcut = try c.decodeIfPresent(ShortcutSpec.self, forKey: .micShortcut) ?? .none
+        videoShortcut = try c.decodeIfPresent(ShortcutSpec.self, forKey: .videoShortcut) ?? .none
+        requiredWindowTitleSubstring = try c.decodeIfPresent(String.self, forKey: .requiredWindowTitleSubstring)
+        allowBriefFocusRestore = try c.decodeIfPresent(Bool.self, forKey: .allowBriefFocusRestore) ?? false
+    }
+
+    var bundleIdentifiers: [String] {
+        bundleIdentifier
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    func matches(bundleID: String?) -> Bool {
+        guard let bundleID = bundleID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !bundleID.isEmpty else {
+            return false
+        }
+        return bundleIdentifiers.contains { $0.caseInsensitiveCompare(bundleID) == .orderedSame }
+    }
+
+    static var defaults: [CallAppShortcutMapping] {
+        [
+            CallAppShortcutMapping(
+                id: "teams",
+                appName: "Microsoft Teams",
+                bundleIdentifier: "com.microsoft.teams2,com.microsoft.teams",
+                enabled: true,
+                micShortcut: ShortcutSpec(key: "m", modifiers: [.command, .shift]),
+                videoShortcut: ShortcutSpec(key: "o", modifiers: [.command, .shift]),
+                requiredWindowTitleSubstring: nil,
+                allowBriefFocusRestore: true
+            ),
+            CallAppShortcutMapping(
+                id: "zoom",
+                appName: "Zoom",
+                bundleIdentifier: "us.zoom.xos",
+                enabled: true,
+                micShortcut: ShortcutSpec(key: "a", modifiers: [.command, .shift]),
+                videoShortcut: ShortcutSpec(key: "v", modifiers: [.command, .shift]),
+                requiredWindowTitleSubstring: nil,
+                allowBriefFocusRestore: true
+            ),
+            CallAppShortcutMapping(
+                id: "slack",
+                appName: "Slack",
+                bundleIdentifier: "com.tinyspeck.slackmacgap",
+                enabled: true,
+                micShortcut: ShortcutSpec(key: "space", modifiers: [.command, .shift]),
+                videoShortcut: .none,
+                requiredWindowTitleSubstring: nil,
+                allowBriefFocusRestore: true
+            ),
+            CallAppShortcutMapping(
+                id: "google_meet",
+                appName: "Google Meet (Browsers)",
+                bundleIdentifier: "com.google.Chrome,company.thebrowser.Browser,com.apple.Safari,com.brave.Browser",
+                enabled: true,
+                micShortcut: ShortcutSpec(key: "d", modifiers: [.command]),
+                videoShortcut: ShortcutSpec(key: "e", modifiers: [.command]),
+                requiredWindowTitleSubstring: "Meet",
+                allowBriefFocusRestore: true
+            ),
+            CallAppShortcutMapping(
+                id: "discord",
+                appName: "Discord",
+                bundleIdentifier: "com.hnc.Discord",
+                enabled: true,
+                micShortcut: ShortcutSpec(key: "m", modifiers: [.command, .shift]),
+                videoShortcut: .none,
+                requiredWindowTitleSubstring: nil,
+                allowBriefFocusRestore: true
+            ),
+            CallAppShortcutMapping(
+                id: "facetime",
+                appName: "FaceTime",
+                bundleIdentifier: "com.apple.FaceTime",
+                enabled: true,
+                micShortcut: ShortcutSpec(key: "m", modifiers: [.command, .shift]),
+                videoShortcut: .none,
+                requiredWindowTitleSubstring: nil,
+                allowBriefFocusRestore: true
+            )
+        ]
+    }
+}
+
+struct CallControlsConfig: Codable, Equatable, Sendable {
+    static let minTypingDelayMs = 150
+    static let maxTypingDelayMs = 2000
+    static let defaultMicShortcut = ShortcutSpec(key: "m", modifiers: [.control, .option, .command])
+    static let defaultVideoShortcut = ShortcutSpec(key: "v", modifiers: [.control, .option, .command])
+
+    var enabled: Bool = false
+    var micShortcut: ShortcutSpec = CallControlsConfig.defaultMicShortcut
+    var videoShortcut: ShortcutSpec = CallControlsConfig.defaultVideoShortcut
+    var osMuteShortcut: ShortcutSpec = .none
+    var cycleOutputShortcut: ShortcutSpec = .none
+    var overrideScope: CallOverrideScope = .everywhere
+    var syncHardwareMuteWithAppMicToggle: Bool = false
+    var autoMuteWhileTyping: Bool = false
+    var typingUnmuteDelayMs: Int = 450
+    var showFloatingMicIndicator: Bool = true
+    var showVideoInFloatingIndicator: Bool = true
+    var showFloatingPillOnlyDuringCalls: Bool = true
+    var showToasts: Bool = true
+    var favoriteOutputUIDs: [String] = []
+    var favoriteInputUIDs: [String] = []
+    var appShortcutMappings: [CallAppShortcutMapping] = CallAppShortcutMapping.defaults
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        micShortcut = try c.decodeIfPresent(ShortcutSpec.self, forKey: .micShortcut) ?? Self.defaultMicShortcut
+        videoShortcut = try c.decodeIfPresent(ShortcutSpec.self, forKey: .videoShortcut) ?? Self.defaultVideoShortcut
+        osMuteShortcut = try c.decodeIfPresent(ShortcutSpec.self, forKey: .osMuteShortcut) ?? .none
+        cycleOutputShortcut = try c.decodeIfPresent(ShortcutSpec.self, forKey: .cycleOutputShortcut) ?? .none
+        overrideScope = try c.decodeIfPresent(CallOverrideScope.self, forKey: .overrideScope) ?? .everywhere
+        syncHardwareMuteWithAppMicToggle = try c.decodeIfPresent(Bool.self, forKey: .syncHardwareMuteWithAppMicToggle) ?? false
+        autoMuteWhileTyping = try c.decodeIfPresent(Bool.self, forKey: .autoMuteWhileTyping) ?? false
+        let decodedDelay = try c.decodeIfPresent(Int.self, forKey: .typingUnmuteDelayMs) ?? 450
+        typingUnmuteDelayMs = Self.clampedTypingDelayMs(decodedDelay)
+        showFloatingMicIndicator = try c.decodeIfPresent(Bool.self, forKey: .showFloatingMicIndicator) ?? true
+        showVideoInFloatingIndicator = try c.decodeIfPresent(Bool.self, forKey: .showVideoInFloatingIndicator) ?? true
+        showFloatingPillOnlyDuringCalls = try c.decodeIfPresent(Bool.self, forKey: .showFloatingPillOnlyDuringCalls) ?? true
+        showToasts = try c.decodeIfPresent(Bool.self, forKey: .showToasts) ?? true
+        favoriteOutputUIDs = try c.decodeIfPresent([String].self, forKey: .favoriteOutputUIDs) ?? []
+        favoriteInputUIDs = try c.decodeIfPresent([String].self, forKey: .favoriteInputUIDs) ?? []
+        appShortcutMappings = try c.decodeIfPresent([CallAppShortcutMapping].self, forKey: .appShortcutMappings) ?? CallAppShortcutMapping.defaults
+    }
+
+    static func clampedTypingDelayMs(_ ms: Int) -> Int {
+        min(max(ms, minTypingDelayMs), maxTypingDelayMs)
+    }
+}
+
 struct ToolboxConfig: Codable, Equatable, Sendable {
-    var schemaVersion: Int = 5
+    private enum LegacyCodingKeys: String, CodingKey {
+        case audioGuard
+    }
+
+    var schemaVersion: Int = 9
     var general: GeneralConfig = GeneralConfig()
     var dockMinimize: DockMinimizeConfig = DockMinimizeConfig()
     var clipboard: ClipboardConfig = ClipboardConfig()
@@ -477,13 +688,14 @@ struct ToolboxConfig: Codable, Equatable, Sendable {
     var cleanLock: CleanLockConfig = CleanLockConfig()
     var customCommands: CustomCommandsConfig = CustomCommandsConfig()
     var scrollDirection: ScrollDirectionConfig = ScrollDirectionConfig()
+    var callControls: CallControlsConfig = CallControlsConfig()
     var extensions: [String: JSONValue] = [:]
 
     init() {}
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        schemaVersion = try c.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 5
+        let decodedSchema = try c.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 6
         general = try c.decodeIfPresent(GeneralConfig.self, forKey: .general) ?? GeneralConfig()
         dockMinimize = try c.decodeIfPresent(DockMinimizeConfig.self, forKey: .dockMinimize) ?? DockMinimizeConfig()
         clipboard = try c.decodeIfPresent(ClipboardConfig.self, forKey: .clipboard) ?? ClipboardConfig()
@@ -492,6 +704,24 @@ struct ToolboxConfig: Codable, Equatable, Sendable {
         cleanLock = try c.decodeIfPresent(CleanLockConfig.self, forKey: .cleanLock) ?? CleanLockConfig()
         customCommands = try c.decodeIfPresent(CustomCommandsConfig.self, forKey: .customCommands) ?? CustomCommandsConfig()
         scrollDirection = try c.decodeIfPresent(ScrollDirectionConfig.self, forKey: .scrollDirection) ?? ScrollDirectionConfig()
+
+        let legacyContainer = try decoder.container(keyedBy: LegacyCodingKeys.self)
+        var decodedCallControls = try c.decodeIfPresent(CallControlsConfig.self, forKey: .callControls)
+            ?? legacyContainer.decodeIfPresent(CallControlsConfig.self, forKey: .audioGuard)
+            ?? CallControlsConfig()
+        if decodedSchema < 7 {
+            if decodedCallControls.overrideScope == .activeCallAppOnly {
+                decodedCallControls.overrideScope = .everywhere
+            }
+            for idx in decodedCallControls.appShortcutMappings.indices where decodedCallControls.appShortcutMappings[idx].id == "facetime" {
+                decodedCallControls.appShortcutMappings[idx].allowBriefFocusRestore = true
+            }
+        }
+        if decodedSchema < 8 {
+            decodedCallControls.showFloatingPillOnlyDuringCalls = true
+        }
+        schemaVersion = max(decodedSchema, 9)
+        callControls = decodedCallControls
         extensions = try c.decodeIfPresent([String: JSONValue].self, forKey: .extensions) ?? [:]
     }
 }
@@ -561,10 +791,14 @@ final class ConfigManager: ObservableObject {
 
         do {
             let data = try Data(contentsOf: configURL)
+            let rawSchemaVersion = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["schemaVersion"] as? Int ?? 0
             let decoded = try JSONDecoder().decode(ToolboxConfig.self, from: data)
             isReloadingFromDisk = true
             self.config = decoded
             isReloadingFromDisk = false
+            if rawSchemaVersion < decoded.schemaVersion {
+                saveToDisk()
+            }
             lastConfigError = nil
             lastReloadedAt = Date()
             DeveloperEventLog.shared.record(.config, "Reloaded config.json from disk")

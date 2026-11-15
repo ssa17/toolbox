@@ -104,6 +104,9 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         PermissionsManager.shared.refresh()
+        if ConfigManager.shared.config.callControls.enabled {
+            ModuleRegistry.shared.callControls.refreshAudioDevices()
+        }
         updateHostedViewSize()
 
         keepAppActiveOnClose = false
@@ -265,6 +268,7 @@ struct MenuBarPopoverView: View {
     @ObservedObject private var keepAwake = ModuleRegistry.shared.keepAwake
     @ObservedObject private var clipboard = ModuleRegistry.shared.clipboard
     @ObservedObject private var portKiller = ModuleRegistry.shared.portKiller
+    @ObservedObject private var callControls = ModuleRegistry.shared.callControls
     @ObservedObject private var updateManager = UpdateManager.shared
     @StateObject private var headerHover = MenuBarHeaderHoverState()
 
@@ -546,6 +550,69 @@ struct MenuBarPopoverView: View {
                         .help(keepAwake.isAwakeActive ? "Turn Keep Awake Off" : "Turn Keep Awake On")
                         .pointerCursor()
                     }
+
+                    if configManager.config.callControls.enabled && configManager.config.general.appEnabled {
+                        HStack(spacing: 8) {
+                            Button {
+                                callControls.toggleHardwareMicMute()
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: callControls.isInputMuted ? "mic.slash.fill" : "mic.fill")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(callControls.isInputMuted ? .red : .green)
+                                    Text(callControls.isInputMuted ? "Mic Muted" : "Mic Live")
+                                        .font(.caption.weight(.medium))
+                                        .foregroundStyle(.primary)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 7)
+                                .background(
+                                    (callControls.isInputMuted ? Color.red : Color.green).opacity(0.12),
+                                    in: RoundedRectangle(cornerRadius: 8)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .strokeBorder(
+                                            (callControls.isInputMuted ? Color.red : Color.green).opacity(0.35),
+                                            lineWidth: 0.75
+                                        )
+                                )
+                                .contentShape(RoundedRectangle(cornerRadius: 8))
+                            }
+                            .buttonStyle(.plain)
+                            .focusEffectDisabled()
+                            .help(callControls.isInputMuted ? "Unmute default microphone" : "Mute default microphone")
+                            .pointerCursor()
+
+                            Button {
+                                callControls.cycleOutputDevice()
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: callControls.defaultOutputDevice?.transport.symbolName(isInput: false) ?? "speaker.wave.2")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.blue)
+                                    Text(callControls.defaultOutputDevice?.name ?? "Cycle Output")
+                                        .font(.caption.weight(.medium))
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 7)
+                                .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.75)
+                                )
+                                .contentShape(RoundedRectangle(cornerRadius: 8))
+                            }
+                            .buttonStyle(.plain)
+                            .focusEffectDisabled()
+                            .help("Cycle favorite output audio devices")
+                            .pointerCursor()
+                        }
+                    }
                 }
 
                 if showQuickCommands {
@@ -735,7 +802,41 @@ struct MenuBarPopoverView: View {
         .focusEffectDisabled()
             .pointerCursor()
 
-            if let shortcut = module.shortcutText(in: configManager.config) {
+            if module.id == "call_controls" {
+                if isEnabled {
+                    let pillOn = configManager.config.callControls.showFloatingMicIndicator
+                    Button {
+                        callControls.toggleFloatingPillVisibility()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: pillOn ? "capsule.inset.filled" : "capsule")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(pillOn ? .green : .secondary)
+                            Text("Pill")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(pillOn ? .primary : .secondary)
+                        }
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(
+                            pillOn ? Color.green.opacity(0.14) : Color.primary.opacity(0.06),
+                            in: RoundedRectangle(cornerRadius: 6)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(
+                                    pillOn ? Color.green.opacity(0.32) : Color.primary.opacity(0.10),
+                                    lineWidth: 0.75
+                                )
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 6))
+                    }
+                    .buttonStyle(.plain)
+                    .focusEffectDisabled()
+                    .help(pillOn ? "Hide floating status pill" : "Show floating status pill")
+                    .pointerCursor()
+                }
+            } else if let shortcut = module.shortcutText(in: configManager.config) {
                 ShortcutPill(text: shortcut)
                     .opacity(isEnabled ? 1.0 : 0.6)
             }

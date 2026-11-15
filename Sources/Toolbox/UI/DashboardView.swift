@@ -21,33 +21,33 @@ struct DashboardView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                headerBanner
+        GeometryReader { proxy in
+            let availableGridWidth = max(0, proxy.size.width - 44)
+            let columnCount = availableGridWidth >= 660 ? 3 : 2
+            let columns = Array(repeating: GridItem(.flexible(), spacing: 14), count: columnCount)
 
-                if !permissions.isAccessibilityGranted {
-                    accessibilityBanner
-                }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    headerBanner
 
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Modules")
-                        .font(.headline)
-                        .foregroundStyle(.secondary)
+                    if !permissions.isAccessibilityGranted {
+                        accessibilityBanner
+                    }
 
-                    LazyVGrid(
-                        columns: [
-                            GridItem(.flexible(), spacing: 14),
-                            GridItem(.flexible(), spacing: 14)
-                        ],
-                        spacing: 14
-                    ) {
-                        ForEach(registry.modules, id: \.id) { module in
-                            moduleCard(module)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Modules")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+
+                        LazyVGrid(columns: columns, spacing: 14) {
+                            ForEach(registry.modules, id: \.id) { module in
+                                moduleCard(module)
+                            }
                         }
                     }
                 }
+                .padding(22)
             }
-            .padding(22)
         }
         .onAppear {
             permissions.refresh()

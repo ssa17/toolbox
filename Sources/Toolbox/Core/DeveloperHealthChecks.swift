@@ -835,6 +835,20 @@ final class DeveloperHealthCheckRunner: ObservableObject {
         if !cfg.scrollDirection.shortcut.isEmpty {
             candidates.append(("scroll_direction", "Scroll Direction", cfg.scrollDirection.shortcut))
         }
+        if cfg.callControls.enabled {
+            if !cfg.callControls.micShortcut.isEmpty {
+                candidates.append(("call_controls.mic", "Call Controls (Mic)", cfg.callControls.micShortcut))
+            }
+            if !cfg.callControls.videoShortcut.isEmpty {
+                candidates.append(("call_controls.video", "Call Controls (Video)", cfg.callControls.videoShortcut))
+            }
+            if !cfg.callControls.osMuteShortcut.isEmpty {
+                candidates.append(("call_controls.os_mute", "Call Controls (OS Mute)", cfg.callControls.osMuteShortcut))
+            }
+            if !cfg.callControls.cycleOutputShortcut.isEmpty {
+                candidates.append(("call_controls.cycle_output", "Call Controls (Cycle Output)", cfg.callControls.cycleOutputShortcut))
+            }
+        }
         if cfg.customCommands.enabled {
             for cmd in cfg.customCommands.commands where cmd.enabled && !cmd.shortcut.isEmpty {
                 candidates.append(("custom_command.\(cmd.id)", "Command '\(cmd.name)'", cmd.shortcut))
@@ -904,6 +918,10 @@ final class DeveloperHealthCheckRunner: ObservableObject {
         if cfg.portKiller.enabled && !cfg.portKiller.shortcut.isEmpty { expectedNames.append(ModuleRegistry.shared.portKiller.hotKeyName) }
         if cfg.keepAwake.enabled && !cfg.keepAwake.shortcut.isEmpty { expectedNames.append(ModuleRegistry.shared.keepAwake.hotKeyName) }
         if !cfg.scrollDirection.shortcut.isEmpty { expectedNames.append(ModuleRegistry.shared.scrollDirection.hotKeyName) }
+        if cfg.callControls.enabled {
+            if !cfg.callControls.osMuteShortcut.isEmpty { expectedNames.append(ModuleRegistry.shared.callControls.osMuteHotKeyName) }
+            if !cfg.callControls.cycleOutputShortcut.isEmpty { expectedNames.append(ModuleRegistry.shared.callControls.cycleOutputHotKeyName) }
+        }
         if cfg.customCommands.enabled {
             for cmd in cfg.customCommands.commands where cmd.enabled && !cmd.shortcut.isEmpty {
                 expectedNames.append("custom_command.\(cmd.id)")

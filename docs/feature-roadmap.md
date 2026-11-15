@@ -17,7 +17,7 @@ Features are ordered from zero-permission, self-contained utilities to modules t
 | 3 | **Dev Converter & Scratchpad** | `dev_tools` | Developer Tools | `⌃ ⌥ ⌘ B` | None | `Foundation`, `CryptoKit` | Planned |
 | 4 | **Screen OCR (Text Grabber)** | `screen_ocr` | Developer Tools | `⌃ ⌥ ⌘ O` | Screen Recording (OS-managed via `screencapture`) | `Vision`, `CoreGraphics`, `AppKit` | Planned |
 | 5 | **Keyboard & Trackpad Clean Lock** | `clean_lock` | System & Power | None *(Button / Menu Bar only)* | Accessibility (required) | `CoreGraphics` (`CGEventTap`), `AppKit` | Done |
-| 6 | **Audio, Mic & Video Call Guard** | `audio_guard` | System & Power | User-defined Mic & Video overrides (e.g. `⌃ ⌥ ⌘ M` / `⌃ ⌥ ⌘ V`, or custom like `⌘ ⇧ Space` per toggled apps) | Accessibility (optional: Unified Call Keybind Override & Auto-Mute While Typing) | `CoreAudio`, `AudioToolbox`, `CoreGraphics`, `ApplicationServices` | Planned |
+| 6 | **Call Controls** | `call_controls` | System & Power | `⌃ ⌥ ⌘ M` (Mic) & `⌃ ⌥ ⌘ V` (Video), customizable per user | Accessibility (optional: Unified Call Keybind Override & Auto-Mute While Typing) | `CoreAudio`, `AudioToolbox`, `CoreMediaIO`, `CoreGraphics`, `ApplicationServices` | Done |
 
 ---
 
@@ -489,17 +489,17 @@ struct CleanLockConfig: Codable, Equatable, Sendable {
 
 ---
 
-## 7. Feature 6: Audio, Mic & Video Call Guard (`Modules/AudioGuard/`)
+## 7. Feature 6: Call Controls (`Modules/CallControls/`) — Done
 
 ### Purpose & User Value
-Every video call app uses a different shortcut for Mic Mute (`⌘ ⇧ A` in Zoom, `⌘ ⇧ Space` in Slack, `⌘ ⇧ M` in Teams/Discord/Webex, `⌘ D` in Google Meet) and Video Off/On (`⌘ ⇧ V` in Zoom/Slack/Discord, `⌘ ⇧ O` in Teams, `⌘ E` in Google Meet). Worse, macOS isolates camera feeds per app so there is no OS-level video kill switch.
+Every video call app uses a different shortcut for Mic Mute (`⌘ ⇧ A` in Zoom, `⌘ ⇧ Space` in Slack, `⌘ ⇧ M` in Teams/Discord, `⌘ D` in Google Meet) and Video Off/On (`⌘ ⇧ V` in Zoom/Slack/Discord, `⌘ ⇧ O` in Teams, `⌘ E` in Google Meet). Worse, macOS isolates camera feeds per app so there is no OS-level video kill switch.
 
-**Audio, Mic & Video Call Guard** solves both with a **Unified Call Keybind Override** plus CoreAudio power-user tools:
-1. **Your One Mic Keybind & One Video Keybind:** Pick one Mic shortcut (e.g., `⌘ ⇧ Space`) and one Video shortcut (e.g., `⌘ ⇧ V` or `⌃ ⌥ ⌘ V`), then simply toggle **ON/OFF** which common call apps (`Microsoft Teams`, `Zoom`, `Slack`, `Google Meet`, `Discord`, `Webex`, `FaceTime`) Toolbox should handle.
+**Call Controls** solves both with a **Unified Call Keybind Override** plus CoreAudio power-user tools:
+1. **Your One Mic Keybind & One Video Keybind:** Pick one Mic shortcut (default `⌃ ⌥ ⌘ M`) and one Video shortcut (default `⌃ ⌥ ⌘ V`), then simply toggle **ON/OFF** which common call apps (`Microsoft Teams`, `Zoom`, `Slack`, `Google Meet`, `Discord`, `FaceTime`) Toolbox should handle.
    - When you're in an enabled app (say **Microsoft Teams** with native Video `⌘ ⇧ O`) and press your custom keybind, Toolbox automatically translates and fires `⌘ ⇧ O` into Teams—without hijacking your shortcut in unrelated apps like VS Code or Finder!
-   - Optionally enable background call fallback so pressing your keybind even while coding in an editor routes to your running call app.
+   - Defaults to **Everywhere** scope so pressing your keybind even while coding in an editor routes to your running call app.
 2. **Global OS Hardware Mic Mute (`CoreAudio`):** Instant hardware-level mute across all apps (with volume-zero fallback) and quick Menu Bar / hotkey control.
-3. **Quick Device Switching & Auto-Mute While Typing:** Instant 1-click switching or cycling (`Cycle Output`) between favorite speakers/headphones/mics, plus optional *Unclack*-style **Auto-Mute Mic While Typing**.
+3. **Floating Call Pill & Developer Simulator:** Draggable top-right pill (`[≡] | Mic | Video`, shown automatically during calls by default) plus quick device switching, optional *Unclack*-style **Auto-Mute Mic While Typing**, and built-in `Developer → Call Controls` simulation & AX probing tools.
 
 ### User Flows & UX
 - **Unified Mic & Video Keybind Override:**
@@ -510,14 +510,13 @@ Every video call app uses a different shortcut for Mic Mute (`⌘ ⇧ A` in Zoom
     - **Slack** — Mic `⌘ ⇧ Space`, Video `⌘ ⇧ V`
     - **Google Meet (Chrome / Arc / Safari / Brave)** — Mic `⌘ D`, Video `⌘ E`
     - **Discord** — Mic `⌘ ⇧ M`, Video `⌘ ⇧ V`
-    - **Webex** — Mic `⌘ ⇧ M`, Video `⌘ ⇧ V`
-    - **FaceTime** — Mic `⌘ ⇧ M`, Video *(none)*
-  - Each app row has a simple **ON/OFF toggle** (`isEnabled`) so the user chooses exactly which apps Toolbox overrides, plus an optional expandable disclosure if they ever customized an app's native shortcut inside that app.
+    - **FaceTime** — Mic `⌘ ⇧ M`, Video *(none — OS/app doesn't expose a camera shortcut)*
+  - Each app row has a simple **ON/OFF toggle** (`isEnabled`) so the user chooses exactly which apps Toolbox handles.
   - **Context-Aware Routing (`overrideScope`):**
-    - **Active App Only (Default, Zero Interference):** Only intercepts your Mic/Video keybinds when a toggled-on call app is the frontmost active window. In every other app (Xcode, VS Code, Finder, terminal), `⌘ ⇧ Space` or `⌘ ⇧ V` passes straight through untouched!
-    - **Also When Call App Is Running in Background:** If enabled, also intercepts when a toggled-on call app is running behind your editor and routes the mapped shortcut to the most recently active call app.
+    - **Everywhere (Default):** Routes from any frontmost app to an enabled active/running call app, falling back cleanly or muting the OS mic when idle.
+    - **Active Call App Only:** Only intercepts your Mic/Video keybinds when a toggled-on call app is the frontmost active window.
 - **OS Hardware Mic Mute (`osMuteShortcut`, optional):**
-  - Optional global Carbon shortcut (`⌃ ⌥ ⌘ M` or `.none`) + Menu Bar quick toggle that mutes the macOS default input device at the CoreAudio HAL level (`kAudioDevicePropertyMute`) regardless of which app is open, and updates `FloatingMicIndicator` + `HUDToast`.
+  - Optional global Carbon shortcut (`osMuteShortcut`) + Menu Bar quick toggle that mutes the macOS default input device at the CoreAudio HAL level (`kAudioDevicePropertyMute`) regardless of which app is open, and updates `FloatingMicIndicatorPanel` + `HUDToast`.
   - Users can also pair CoreAudio hardware mute when their Unified Mic Keybind fires (`syncHardwareMuteWithAppMicToggle`).
 - **Quick Device Switching (`Cycle Output` shortcut or Menu Bar / Settings):**
   - Lists all available CoreAudio input & output devices with transport icon (`Built-in`, `Bluetooth`, `USB`, `DisplayPort/HDMI`, `Aggregate/Virtual`).
@@ -526,28 +525,31 @@ Every video call app uses a different shortcut for Mic Mute (`⌘ ⇧ A` in Zoom
   - When enabled (and Accessibility is granted), listens passively to keystrokes (`CGEventTap` `.listenOnly`).
   - The instant typing starts, mutes the OS mic via CoreAudio if it was live, and restores unmuted state after `typingUnmuteDelayMs` (default `450 ms`) of keyboard silence.
   - **Precedence rule:** If the user *manually* muted the mic, typing never unmutes it!
-- **Settings View (`AudioGuardSettingsView.swift`):**
-  - **Unified Call Keybinds** section: `My Mic Keybind` (`ShortcutRecorderView`), `My Video Keybind` (`ShortcutRecorderView`), `Override Scope` picker (`Only when enabled call app is active` vs `Also when call app is running in background`), `Also mute macOS hardware mic` toggle, and inline Accessibility warning if enabled without Accessibility permission.
-  - **Call Apps to Override** section: pre-populated list of common call apps (`Teams`, `Zoom`, `Slack`, `Google Meet`, `Discord`, `Webex`, `FaceTime`) with an instant **On/Off Toggle** per row, subtle pill badges showing each app's native Mic & Video shortcuts, expandable edit controls if a user wants to override an app's native binding, and an **"Add Custom App…"** button.
-  - **OS Hardware Mic & Typing Guard** section: live hardware mute toggle button, optional `Global OS Mic Mute` shortcut (`ShortcutRecorderView`), `Floating mic status pill` toggle, `Auto-Mute Mic While Typing` toggle, and restore delay slider (`250 ms` – `1000 ms`).
+- **Settings View (`CallControlsSettingsView.swift`):**
+  - **Unified Call Keybinds** section: `My Mic Keybind` (`ShortcutRecorderView`), `My Video Keybind` (`ShortcutRecorderView`), `Override Scope` picker, `Also mute macOS hardware mic` toggle, and inline Accessibility warning if enabled without Accessibility permission.
+  - **Floating Call Pill** section: toggle visibility, call-only auto-show mode, show/hide video button, and reset top-right position.
+  - **Supported Call Apps** section: pre-populated list (`Teams`, `Zoom`, `Slack`, `Google Meet`, `Discord`, `FaceTime`) with an **On/Off Toggle** per row and an **"Add App…"** picker that scans the selected app's macOS Accessibility menu bar (`AXMenuBar`) for native mic/video controls.
+  - **OS Hardware Mic & Typing Guard** section: live hardware mute toggle button, optional `Global OS Mic Mute` shortcut (`ShortcutRecorderView`), `Auto-Mute Mic While Typing` toggle, and restore delay slider (`250 ms` – `1000 ms`).
   - **Audio Devices** section: live Input and Output device lists with active checkmark, favorite star toggle (for `Cycle Output` shortcut), and volume/mute indicator.
 
-### Files to Create
-- `Sources/Toolbox/Modules/AudioGuard/AudioGuardModule.swift`
-- `Sources/Toolbox/Modules/AudioGuard/CoreAudioController.swift`
-- `Sources/Toolbox/Modules/AudioGuard/CallShortcutRemapper.swift`
-- `Sources/Toolbox/Modules/AudioGuard/TypingMicGuard.swift`
-- `Sources/Toolbox/Modules/AudioGuard/AudioGuardSettingsView.swift`
-- **Build link update:** Add `.linkedFramework("CoreAudio")` and `.linkedFramework("AudioToolbox")` to `Package.swift` (`ApplicationServices` is already linked).
+### Files Created
+- `Sources/Toolbox/Modules/CallControls/CallControlsModule.swift`
+- `Sources/Toolbox/Modules/CallControls/CoreAudioController.swift`
+- `Sources/Toolbox/Modules/CallControls/CallShortcutRemapper.swift`
+- `Sources/Toolbox/Modules/CallControls/TypingMicGuard.swift`
+- `Sources/Toolbox/Modules/CallControls/FloatingMicIndicatorPanel.swift`
+- `Sources/Toolbox/Modules/CallControls/CallControlsSettingsView.swift`
+- `Sources/Toolbox/UI/DeveloperCallControlsView.swift`
+- **Build link update:** `.linkedFramework("CoreAudio")`, `.linkedFramework("AudioToolbox")`, and `.linkedFramework("CoreMediaIO")` in `Package.swift`.
 
 ### Module Metadata
-- `id`: `"audio_guard"`
-- `name`: `"Audio & Call Guard"`
-- `tagline`: `"Use one custom mic and video shortcut across Teams, Zoom, Slack & Meet, switch audio devices, and auto-mute while typing."`
+- `id`: `"call_controls"`
+- `name`: `"Call Controls"`
+- `tagline`: `"One shortcut for Mic & Video across FaceTime, Teams, Zoom, Slack & Meet, live call pill, and device switching."`
 - `symbolName`: `"mic.slash"`
 - `accentColor`: `Color.green`
 - `category`: `.system`
-- `requiresAccessibility`: `false` *(Optional: core CoreAudio mic mute and device switching require zero permissions; Accessibility is required for **Unified Call Keybind Override** and **Auto-Mute While Typing**. Mirror `ClipboardModule` and `CustomCommandsModule` by showing an inline Accessibility banner inside `AudioGuardSettingsView` whenever an Accessibility-dependent subfeature is enabled and `!permissions.isAccessibilityGranted`.)*
+- `requiresAccessibility`: `false` *(Optional: core CoreAudio mic mute and device switching require zero permissions; Accessibility is required for **Unified Call Keybind Override** and **Auto-Mute While Typing**. `CallControlsSettingsView` shows an inline Accessibility banner whenever an Accessibility-dependent subfeature is enabled and `!permissions.isAccessibilityGranted`.)*
 
 ### Technical Design & macOS APIs
 1. **Context-Aware Call Shortcut Remapper (`CallShortcutRemapper`):**
@@ -557,8 +559,7 @@ Every video call app uses a different shortcut for Mic Mute (`⌘ ⇧ A` in Zoom
      - **Slack** (`com.tinyspeck.slackmacgap`): Mic `⌘ ⇧ Space`, Video `⌘ ⇧ V`
      - **Google Meet (Chrome / Arc / Safari / Brave)** (`com.google.Chrome`, `company.thebrowser.Browser`, `com.apple.Safari`, `com.brave.Browser`, with `requiredWindowTitleSubstring = "Meet"`): Mic `⌘ D`, Video `⌘ E`
      - **Discord** (`com.hnc.Discord`): Mic `⌘ ⇧ M`, Video `⌘ ⇧ V`
-     - **Webex** (`Cisco-Systems.Spark`): Mic `⌘ ⇧ M`, Video `⌘ ⇧ V`
-     - **FaceTime** (`com.apple.FaceTime`): Mic `⌘ ⇧ M`, Video `.none`
+     - **FaceTime** (`com.apple.FaceTime`): Mic `⌘ ⇧ M`, Video `.none` (silent `AXMenuBar` trigger supported)
    - **Why `CallShortcutRemapper` uses a context-aware `CGEventTap` instead of always-on Carbon hotkeys (when `overrideScope == .activeCallAppOnly`):**
      - Carbon `RegisterEventHotKey` intercepts a key combination **everywhere** on macOS—even if the user set `My Mic Keybind` to `⌘ ⇧ Space` (which they still want to work normally in other apps).
      - Using a lightweight background `CGEventTap` (`.cgSessionEventTap`, `.headInsertEventTap`, `.defaultTap`, listening to `keyDown` only and ignoring synthetic events tagged with Toolbox's own `eventSourceUserData` magic marker `0x544C4258`):
@@ -586,7 +587,7 @@ Every video call app uses a different shortcut for Mic Mute (`⌘ ⇧ A` in Zoom
      - **Live Property Listeners:** Register `AudioObjectAddPropertyListenerBlock` on `kAudioObjectSystemObject` for `kAudioHardwarePropertyDevices`, `kAudioHardwarePropertyDefaultInputDevice`, `kAudioHardwarePropertyDefaultOutputDevice`, and on the active input device for `kAudioDevicePropertyMute` — hopping updates back to `@MainActor`.
 3. **State Safety Invariant (Never Leave Mic Stuck Muted):**
    - Track whether Toolbox initiated a transient typing mute (and any fallback `savedVolumeBeforeFallbackMute`).
-   - Whenever `AudioGuardModule.stop()`, `autoMuteWhileTyping = false`, default input device changes, or `AppDelegate.applicationWillTerminate(_:)` runs, immediately cancel any pending unmute timer and restore any active typing mute (or fallback saved volume) before releasing listeners.
+   - Whenever `CallControlsModule.stop()`, `autoMuteWhileTyping = false`, default input device changes, or `AppDelegate.applicationWillTerminate(_:)` runs, immediately cancel any pending unmute timer and restore any active typing mute (or fallback saved volume) before releasing listeners.
 4. **Typing Mic Guard (`TypingMicGuard`):**
    - Passive **listen-only** `CGEvent.tapCreate(..., options: .listenOnly, eventsOfInterest: mask(keyDown), ...)` on a dedicated background `Thread` + `CFRunLoopRun()` (`app.toolbox.typing-mic-guard`), active **only** when `config.enabled && appEnabled && config.autoMuteWhileTyping && AXIsProcessTrusted()`.
    - Because `.listenOnly` does not modify or delay events, it introduces zero typing lag.
@@ -601,7 +602,7 @@ Every video call app uses a different shortcut for Mic Mute (`⌘ ⇧ A` in Zoom
      - When `unmuteWorkItem` fires:
        - If `isTypingMuted && !isManuallyMuted`, unmute mic and set `isTypingMuted = false`.
 
-### Configuration (`AudioGuardConfig`)
+### Configuration (`CallControlsConfig`)
 ```swift
 enum CallOverrideScope: String, Codable, CaseIterable, Sendable {
     case activeCallAppOnly = "active_call_app_only"
@@ -619,40 +620,35 @@ struct CallAppShortcutMapping: Codable, Equatable, Identifiable, Sendable {
     var allowBriefFocusRestore: Bool = false
 }
 
-struct AudioGuardConfig: Codable, Equatable, Sendable {
+struct CallControlsConfig: Codable, Equatable, Sendable {
     var enabled: Bool = false
-    var micShortcut: ShortcutSpec = .none           // User's unified Mic keybind (e.g. ⌘ ⇧ Space)
-    var videoShortcut: ShortcutSpec = .none         // User's unified Video keybind (e.g. ⌘ ⇧ V)
-    var osMuteShortcut: ShortcutSpec = .none        // Optional always-on CoreAudio OS mic mute hotkey
+    var micShortcut: ShortcutSpec = ShortcutSpec(key: "m", modifiers: [.control, .option, .command])
+    var videoShortcut: ShortcutSpec = ShortcutSpec(key: "v", modifiers: [.control, .option, .command])
+    var osMuteShortcut: ShortcutSpec = .none
     var cycleOutputShortcut: ShortcutSpec = .none
-    var overrideScope: CallOverrideScope = .activeCallAppOnly
+    var overrideScope: CallOverrideScope = .everywhere
     var syncHardwareMuteWithAppMicToggle: Bool = false
     var autoMuteWhileTyping: Bool = false
     var typingUnmuteDelayMs: Int = 450
     var showFloatingMicIndicator: Bool = true
+    var showVideoInFloatingIndicator: Bool = true
+    var showFloatingPillOnlyDuringCalls: Bool = true
+    var showToasts: Bool = true
     var favoriteOutputUIDs: [String] = []
     var favoriteInputUIDs: [String] = []
     var appShortcutMappings: [CallAppShortcutMapping] = CallAppShortcutMapping.defaults
 }
 ```
-- `ToolboxConfig`: add `var audioGuard: AudioGuardConfig = AudioGuardConfig()`.
+- `ToolboxConfig`: `var callControls: CallControlsConfig = CallControlsConfig()` (migrates legacy `audioGuard` JSON key seamlessly).
 
 ### Verification & Self-Tests
 - **CoreAudio enumeration resilience (`SelfTestRunner`):** Invoke `CoreAudioController.listDevices()` and verify it completes without crashing even on headless/CI Macs with zero virtual/physical audio devices, properly separating input vs output channel counts.
 - **CallShortcutRemapper & preset resolution tests (`SelfTestRunner`):**
-  1. Codable round-trip and default preset coverage (`Microsoft Teams`, `Zoom`, `Slack`, `Google Meet`, `Discord`, `Webex`, `FaceTime`).
+  1. Codable round-trip, legacy `audioGuard` migration, and default preset coverage (`Microsoft Teams`, `Zoom`, `Slack`, `Google Meet`, `Discord`, `FaceTime`).
   2. Toggled-off apps are never matched; toggled-on apps resolve accurately.
-  3. Non-call frontmost app passes through untouched when `overrideScope == .activeCallAppOnly`, and routes to background call app when `overrideScope == .activeOrRunningBackground`.
-  4. Same-shortcut pass-through: pressing `⌘ ⇧ Space` in Slack when `micShortcut == ⌘ ⇧ Space` returns `.passThrough` instead of re-synthesizing, whereas pressing `⌘ ⇧ Space` in Teams returns `.remap(to: ⌘ ⇧ M)`.
-  5. Window-title gate (`requiredWindowTitleSubstring = "Meet"`): matches Chrome only when a `"Meet"` window is active/present, ignoring normal Chrome tabs.
-  6. Synthetic `CGEvent` tag `0x544C4258` prevents infinite tap self-recursion.
-- **TypingMicGuard state machine tests (`SelfTestRunner`):** Test a pure mockable `TypingMicStateMachine`:
-  1. Keystroke triggers transient mute when unmuted, then schedules unmute after `typingUnmuteDelayMs`.
-  2. When `isManuallyMuted == true`, keystrokes do **not** unmute the mic after timeout.
-  3. Manual toggle clears `isTypingMuted` cleanly.
-  4. `⌘` / `⌃` command chords and `0x544C4258`-tagged synthetic events are ignored by the typing detector.
-  5. Stopping/disabling while `isTypingMuted == true` forces immediate restore.
-- **Visual Snapshot (`SnapshotRunner`):** Render `module_audio_guard.png`.
+  3. `Everywhere` vs `Active Call App Only` routing, same-shortcut pass-through, window-title `"Meet"` gate, and `0x544C4258` recursion guard.
+- **TypingMicGuard state machine tests (`SelfTestRunner`):** Verify pure `TypingMicStateMachine` transitions, manual-mute precedence, and `forceStopAndRestore()`.
+- **Developer Simulation & Visual Snapshots (`SelfTestRunner`, `SnapshotRunner`):** Verify `CallControlsModule` developer presets, routing dry-run, simulated mic/video actions, and render `module_call_controls.png`, `call_controls_floating_pill.png`, and `developer_call_controls.png`.
 
 ### Edge Cases & Pitfalls
 - **Infinite event-tap recursion:** Always tag synthetic remapped `CGEvent`s via `event.setIntegerValueField(.eventSourceUserData, value: 0x544C4258)` and immediately pass through any event carrying that tag in both `CallShortcutRemapper` and `TypingMicGuard`. (Especially critical when user's custom shortcut shares keys with another app's native shortcut!)

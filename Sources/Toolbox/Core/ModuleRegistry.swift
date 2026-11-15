@@ -14,6 +14,7 @@ final class ModuleRegistry: ObservableObject {
     let cleanLock = CleanLockModule()
     let customCommands = CustomCommandsModule()
     let scrollDirection = ScrollDirectionModule()
+    let callControls = CallControlsModule()
 
     lazy var modules: [any ToolboxModule] = [
         dockMinimize,
@@ -22,7 +23,8 @@ final class ModuleRegistry: ObservableObject {
         keepAwake,
         cleanLock,
         customCommands,
-        scrollDirection
+        scrollDirection,
+        callControls
     ]
 
     @Published private(set) var revision: Int = 0

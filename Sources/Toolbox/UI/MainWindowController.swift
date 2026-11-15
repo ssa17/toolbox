@@ -190,6 +190,7 @@ struct MainSplitView: View {
     @ObservedObject private var developerMode = DeveloperModeManager.shared
     @ObservedObject private var healthChecks = DeveloperHealthCheckRunner.shared
     @ObservedObject private var hotKeys = HotKeyManager.shared
+    @ObservedObject private var callControls = ModuleRegistry.shared.callControls
 
     var body: some View {
         HStack(spacing: 0) {
@@ -443,6 +444,8 @@ struct MainSplitView: View {
                 : nil
         case .uiAndModules:
             return permissions.simulatedAccessibilityGranted != nil ? ("SIM", .orange) : nil
+        case .callControls:
+            return callControls.developerSimulation != nil ? ("SIM", .orange) : nil
         case .eventsAndTaps:
             return nil
         case .hotKeysAndConfig:

@@ -101,6 +101,40 @@ enum SnapshotRunner {
             to: outURL.appendingPathComponent("clean_lock_hud.png")
         )
 
+        let prevCallMicShortcut = configManager.config.callControls.micShortcut
+        let prevCallVideoShortcut = configManager.config.callControls.videoShortcut
+        configManager.config.callControls.micShortcut = ShortcutSpec(key: "m", modifiers: [.control, .option, .command])
+        configManager.config.callControls.videoShortcut = ShortcutSpec(key: "v", modifiers: [.control, .option, .command])
+
+        let navCallControls = NavigationState()
+        navCallControls.selection = .module("call_controls")
+        navCallControls.isSidebarVisible = true
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navCallControls),
+            size: NSSize(width: 940, height: 1420),
+            to: outURL.appendingPathComponent("module_call_controls.png")
+        )
+        configManager.config.callControls.micShortcut = prevCallMicShortcut
+        configManager.config.callControls.videoShortcut = prevCallVideoShortcut
+
+        let micPillState = FloatingMicIndicatorState()
+        micPillState.isMuted = true
+        micPillState.isTypingMuted = false
+        micPillState.inputDeviceName = "MacBook Pro Microphone"
+        micPillState.hasInputDevice = true
+        micPillState.showVideoStatus = true
+        micPillState.isCameraActive = true
+        micPillState.cameraDeviceName = "FaceTime HD"
+        micPillState.hasCameraDevice = true
+        micPillState.canToggleVideo = false
+        micPillState.videoUnavailableAppName = "FaceTime"
+        saveViewSnapshot(
+            FloatingMicIndicatorView(state: micPillState)
+                .padding(8),
+            size: NSSize(width: 420, height: 68),
+            to: outURL.appendingPathComponent("call_controls_floating_pill.png")
+        )
+
         let navJSON = NavigationState()
         navJSON.selection = .jsonConfig
         navJSON.isSidebarVisible = true
@@ -228,6 +262,17 @@ enum SnapshotRunner {
             size: NSSize(width: 940, height: 820),
             to: outURL.appendingPathComponent("developer_ui_modules.png")
         )
+
+        registry.callControls.applyDeveloperSimulationPreset(.zoomCall)
+        let navDevCallControls = NavigationState()
+        navDevCallControls.selection = .developer(.callControls)
+        navDevCallControls.isSidebarVisible = true
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navDevCallControls),
+            size: NSSize(width: 940, height: 1320),
+            to: outURL.appendingPathComponent("developer_call_controls.png")
+        )
+        registry.callControls.clearDeveloperSimulation()
 
         DeveloperEventLog.shared.clear()
         DeveloperEventLog.shared.record(.hotkeys, "Triggered hotkey: clipboard.toggle", detail: "⌘⌥V")

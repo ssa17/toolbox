@@ -18,6 +18,7 @@ enum ToolboxConfigSection: String, CaseIterable, Identifiable, Sendable {
     case cleanLock
     case customCommands
     case scrollDirection
+    case callControls
 
     var id: String { rawValue }
 
@@ -31,6 +32,7 @@ enum ToolboxConfigSection: String, CaseIterable, Identifiable, Sendable {
         case .cleanLock: return "Clean Lock"
         case .customCommands: return "Custom Commands"
         case .scrollDirection: return "Scroll Direction"
+        case .callControls: return "Call Controls"
         }
     }
 }
@@ -81,6 +83,8 @@ final class ConfigCheckpointStore: ObservableObject {
             next.customCommands = CustomCommandsConfig()
         case .scrollDirection:
             next.scrollDirection = ScrollDirectionConfig()
+        case .callControls:
+            next.callControls = CallControlsConfig()
         }
         ConfigManager.shared.config = next
     }

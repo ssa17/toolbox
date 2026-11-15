@@ -5,6 +5,7 @@ import Foundation
 enum DeveloperSection: String, CaseIterable, Hashable, Identifiable, Sendable {
     case updates
     case uiAndModules
+    case callControls
     case eventsAndTaps
     case hotKeysAndConfig
     case checksAndDiagnostics
@@ -15,6 +16,7 @@ enum DeveloperSection: String, CaseIterable, Hashable, Identifiable, Sendable {
         switch self {
         case .updates: return "Updates"
         case .uiAndModules: return "UI & Modules"
+        case .callControls: return "Call Controls"
         case .eventsAndTaps: return "Events & Taps"
         case .hotKeysAndConfig: return "HotKeys & Config"
         case .checksAndDiagnostics: return "Checks & Diagnostics"
@@ -27,6 +29,8 @@ enum DeveloperSection: String, CaseIterable, Hashable, Identifiable, Sendable {
             return "Simulate app-wide update states, customize release notes, preview dark Sparkle dialogs, and probe the live appcast feed."
         case .uiAndModules:
             return "Override Accessibility UI banners, trigger HUD toasts, launch floating popovers, and inspect or reload modules."
+        case .callControls:
+            return "Simulate Zoom, FaceTime, Slack, or Teams calls, preview and interact with the floating status pill, test keybind routing, and inspect menu bar controls."
         case .eventsAndTaps:
             return "Stream internal module events live, inspect the Scroll Direction CGEventTap, and watch the Dock window Z-order stack."
         case .hotKeysAndConfig:
@@ -40,6 +44,7 @@ enum DeveloperSection: String, CaseIterable, Hashable, Identifiable, Sendable {
         switch self {
         case .updates: return "arrow.down.circle"
         case .uiAndModules: return "square.stack.3d.up"
+        case .callControls: return "mic.and.signal.meter"
         case .eventsAndTaps: return "waveform.path.ecg"
         case .hotKeysAndConfig: return "keyboard"
         case .checksAndDiagnostics: return "checkmark.shield"
@@ -289,6 +294,7 @@ final class DeveloperModeManager: ObservableObject {
         UpdateManager.shared.isSimulatingState
             || UpdateManager.shared.isUsingCustomScheduleInterval
             || PermissionsManager.shared.simulatedAccessibilityGranted != nil
+            || ModuleRegistry.shared.callControls.developerSimulation != nil
     }
 
     var simulatedUpdateSizeBytes: Int64 {
@@ -430,6 +436,7 @@ final class DeveloperModeManager: ObservableObject {
         UpdateManager.shared.clearSimulation()
         UpdateManager.shared.setDeveloperScheduleInterval(nil)
         PermissionsManager.shared.setSimulatedAccessibilityGranted(nil)
+        ModuleRegistry.shared.callControls.clearDeveloperSimulation()
         objectWillChange.send()
     }
 }

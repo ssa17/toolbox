@@ -266,6 +266,17 @@ final class HotKeyManager: ObservableObject {
            config.dockMinimize.shortcut == shortcut {
             matches.append("Dock Click to Minimize")
         }
+        if config.callControls.enabled || (excludingSourceID?.hasPrefix("call_controls.") == true) {
+            let callControlShortcuts: [(String, String, ShortcutSpec)] = [
+                ("call_controls.mic", "Call Controls (Mic Keybind)", config.callControls.micShortcut),
+                ("call_controls.video", "Call Controls (Video Keybind)", config.callControls.videoShortcut),
+                ("call_controls.os_mute", "Call Controls (OS Mic Mute)", config.callControls.osMuteShortcut),
+                ("call_controls.cycle_output", "Call Controls (Cycle Output)", config.callControls.cycleOutputShortcut)
+            ]
+            for (sourceID, label, spec) in callControlShortcuts where sourceID != excludingSourceID && !spec.isEmpty && spec == shortcut {
+                matches.append(label)
+            }
+        }
         if config.customCommands.enabled {
             for cmd in config.customCommands.commands where cmd.enabled && !cmd.shortcut.isEmpty {
                 let sourceID = "custom_command.\(cmd.id)"
@@ -308,6 +319,20 @@ final class HotKeyManager: ObservableObject {
            config.dockMinimize.shortcut == shortcut {
             config.dockMinimize.shortcut = .none
         }
+        if config.callControls.enabled || (excludingSourceID?.hasPrefix("call_controls.") == true) {
+            if excludingSourceID != "call_controls.mic", config.callControls.micShortcut == shortcut {
+                config.callControls.micShortcut = .none
+            }
+            if excludingSourceID != "call_controls.video", config.callControls.videoShortcut == shortcut {
+                config.callControls.videoShortcut = .none
+            }
+            if excludingSourceID != "call_controls.os_mute", config.callControls.osMuteShortcut == shortcut {
+                config.callControls.osMuteShortcut = .none
+            }
+            if excludingSourceID != "call_controls.cycle_output", config.callControls.cycleOutputShortcut == shortcut {
+                config.callControls.cycleOutputShortcut = .none
+            }
+        }
         if config.customCommands.enabled {
             for idx in config.customCommands.commands.indices {
                 let cmd = config.customCommands.commands[idx]
@@ -343,6 +368,11 @@ final class HotKeyManager: ObservableObject {
     }
 
     private static let symbolicModifierMask = UInt32(cmdKey | optionKey | shiftKey | controlKey)
+    private static let cocoaSymbolicModifierMask: UInt =
+        NSEvent.ModifierFlags.command.rawValue
+        | NSEvent.ModifierFlags.option.rawValue
+        | NSEvent.ModifierFlags.shift.rawValue
+        | NSEvent.ModifierFlags.control.rawValue
 
     private static let wellKnownSystemShortcuts: [ShortcutSpec: String] = [
         ShortcutSpec(key: "space", modifiers: [.command]): "Spotlight Search",
@@ -384,6 +414,18 @@ final class HotKeyManager: ObservableObject {
 
     private func isEnabledSymbolicHotKey(_ shortcut: ShortcutSpec) -> Bool {
         guard let targetCode = shortcut.carbonKeyCode else { return false }
+
+        // Check user-configured symbolic hotkeys in com.apple.symbolichotkeys first.
+        if isExplicitlyEnabledInUserSymbolicHotKeys(targetCode: targetCode, shortcut: shortcut) {
+            return true
+        }
+
+        // Only consult Apple's full CopySymbolicHotKeys table for known system shortcuts so
+        // undocumented/unassigned internal slots (e.g. slot 232 Cmd+Shift+Space) do not cause false warnings.
+        guard Self.wellKnownSystemShortcuts[shortcut] != nil else {
+            return false
+        }
+
         var rawArray: Unmanaged<CFArray>?
         let status = CopySymbolicHotKeys(&rawArray)
         guard status == noErr,
@@ -399,6 +441,37 @@ final class HotKeyManager: ObservableObject {
                 continue
             }
             if code == targetCode && (mods & Self.symbolicModifierMask) == targetMods {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func isExplicitlyEnabledInUserSymbolicHotKeys(targetCode: UInt32, shortcut: ShortcutSpec) -> Bool {
+        guard let domain = UserDefaults(suiteName: "com.apple.symbolichotkeys"),
+              let table = domain.dictionary(forKey: "AppleSymbolicHotKeys") else {
+            return false
+        }
+        var expectedCocoaMods: UInt = 0
+        for mod in shortcut.modifiers {
+            switch mod {
+            case .command: expectedCocoaMods |= NSEvent.ModifierFlags.command.rawValue
+            case .option: expectedCocoaMods |= NSEvent.ModifierFlags.option.rawValue
+            case .control: expectedCocoaMods |= NSEvent.ModifierFlags.control.rawValue
+            case .shift: expectedCocoaMods |= NSEvent.ModifierFlags.shift.rawValue
+            }
+        }
+        for rawEntry in table.values {
+            guard let entry = rawEntry as? [String: Any],
+                  let enabled = (entry["enabled"] as? NSNumber)?.boolValue, enabled,
+                  let value = entry["value"] as? [String: Any],
+                  let params = value["parameters"] as? [NSNumber],
+                  params.count >= 3 else {
+                continue
+            }
+            let keyCode = params[1].uint32Value
+            let mods = params[2].uintValue & Self.cocoaSymbolicModifierMask
+            if keyCode == targetCode && mods == expectedCocoaMods {
                 return true
             }
         }

@@ -4,34 +4,55 @@ import SwiftUI
 @MainActor
 final class HUDToast {
     static let shared = HUDToast()
+    static let fixedHeight: CGFloat = 36
 
     private var panel: NSPanel?
     private var dismissTask: DispatchWorkItem?
 
     private init() {}
 
-    func show(title: String, symbol: String = "checkmark.circle.fill", tint: Color = .green) {
-        dismissTask?.cancel()
-
-        let view = HStack(spacing: 8) {
+    static func makeToastView(title: String, symbol: String, tint: Color) -> some View {
+        HStack(spacing: 8) {
             Image(systemName: symbol)
+                .font(.system(size: 13.5, weight: .semibold))
+                .frame(width: 18, height: 18)
                 .foregroundStyle(tint)
             Text(title)
                 .font(.callout.weight(.medium))
                 .lineLimit(1)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+        .frame(minWidth: 180)
+        .frame(height: fixedHeight)
         .background(.ultraThickMaterial, in: Capsule())
         .overlay(
             Capsule()
                 .strokeBorder(Color.primary.opacity(0.14), lineWidth: 1)
         )
+        .fixedSize()
+    }
 
-        let hosting = NSHostingView(rootView: view)
+    static func measuredSize(title: String, symbol: String, tint: Color = .green) -> NSSize {
+        let hosting = NSHostingView(rootView: makeToastView(title: title, symbol: symbol, tint: tint))
+        hosting.sizingOptions = [.intrinsicContentSize]
+        hosting.layoutSubtreeIfNeeded()
         let fitting = hosting.fittingSize
-        let width = max(180, fitting.width + 8)
-        let height = max(36, fitting.height + 4)
+        return NSSize(
+            width: ceil(max(180, fitting.width)),
+            height: fixedHeight
+        )
+    }
+
+    func show(title: String, symbol: String = "checkmark.circle.fill", tint: Color = .green) {
+        dismissTask?.cancel()
+
+        let view = Self.makeToastView(title: title, symbol: symbol, tint: tint)
+        let hosting = NSHostingView(rootView: view)
+        hosting.sizingOptions = [.intrinsicContentSize]
+        hosting.layoutSubtreeIfNeeded()
+        let fitting = hosting.fittingSize
+        let width = ceil(max(180, fitting.width))
+        let height = Self.fixedHeight
 
         let toastPanel: NSPanel
         if let existing = panel {

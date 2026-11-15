@@ -24,7 +24,10 @@ let package = Package(
                 .linkedFramework("AppKit"),
                 .linkedFramework("SwiftUI"),
                 .linkedFramework("ApplicationServices"),
+                .linkedFramework("AudioToolbox"),
                 .linkedFramework("Carbon"),
+                .linkedFramework("CoreAudio"),
+                .linkedFramework("CoreMediaIO"),
                 .linkedFramework("IOKit"),
                 .linkedFramework("ServiceManagement"),
                 .unsafeFlags([

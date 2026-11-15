@@ -309,6 +309,7 @@ struct DeveloperEventsAndTapsView: View {
         case .hotkeys: return .purple
         case .keepAwake: return .orange
         case .cleanLock: return .red
+        case .callControls: return .mint
         case .config: return .teal
         case .updates: return .green
         }

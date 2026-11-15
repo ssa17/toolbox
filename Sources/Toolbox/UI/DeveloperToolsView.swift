@@ -42,6 +42,8 @@ struct DeveloperToolsView: View {
                 case .uiAndModules:
                     uiFeedbackSection
                     moduleInspectorSection
+                case .callControls:
+                    DeveloperCallControlsView()
                 case .eventsAndTaps:
                     DeveloperEventsAndTapsView()
                 case .hotKeysAndConfig:
@@ -676,7 +678,7 @@ struct DeveloperToolsView: View {
 
                 SettingRow(
                     "Quick Surface Triggers",
-                    subtitle: "Open floating popovers or toggle master pause state."
+                    subtitle: "Open floating popovers, preview the floating call pill, or toggle master pause state."
                 ) {
                     HStack(spacing: 8) {
                         Button("Clipboard") {
@@ -688,6 +690,17 @@ struct DeveloperToolsView: View {
 
                         Button("Port Killer") {
                             registry.portKiller.showPopover()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .pointerCursor()
+
+                        Button(registry.callControls.isFloatingPillVisible ? "Hide Pill" : "Call Pill") {
+                            if registry.callControls.developerSimulation != nil {
+                                registry.callControls.clearDeveloperSimulation()
+                            } else {
+                                registry.callControls.applyDeveloperSimulationPreset(.zoomCall)
+                            }
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
