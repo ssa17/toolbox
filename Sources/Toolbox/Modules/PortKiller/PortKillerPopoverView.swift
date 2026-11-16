@@ -31,6 +31,11 @@ struct PortKillerPopoverView: View {
         .onAppear {
             isSearchFocused = true
         }
+        .onChange(of: uiState.openSequence) { _, _ in
+            DispatchQueue.main.async {
+                isSearchFocused = true
+            }
+        }
     }
 
     private func searchHeader(items: [ListeningPort]) -> some View {

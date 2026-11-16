@@ -436,6 +436,7 @@ final class DeveloperModeManager: ObservableObject {
         UpdateManager.shared.clearSimulation()
         UpdateManager.shared.setDeveloperScheduleInterval(nil)
         PermissionsManager.shared.setSimulatedAccessibilityGranted(nil)
+        PermissionsManager.shared.isPresentingOnboardingModal = false
         ModuleRegistry.shared.callControls.clearDeveloperSimulation()
         objectWillChange.send()
     }

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 @MainActor
@@ -9,6 +10,7 @@ final class ClipboardPopoverUIState: ObservableObject {
     @Published var renameDraft = ""
     @Published var pendingDeleteEntry: ClipboardEntry?
     @Published var pendingClearAll = false
+    @Published var openSequence = 0
 
     func resetForOpen(entries: [ClipboardEntry]) {
         query = ""
@@ -18,6 +20,7 @@ final class ClipboardPopoverUIState: ObservableObject {
         pendingDeleteEntry = nil
         pendingClearAll = false
         selectedEntryID = entries.first?.id
+        openSequence &+= 1
     }
 
     func selectedEntry(in list: [ClipboardEntry]) -> ClipboardEntry? {
@@ -108,39 +111,40 @@ struct ClipboardPopoverView: View {
 
             Divider()
 
-            if let entry = previewEntry {
-                fullRowPreview(entry)
-            } else if filteredEntries.isEmpty {
-                VStack(spacing: 8) {
-                    Spacer()
-                    Image(systemName: "doc.on.clipboard")
-                        .font(.title2)
-                        .foregroundStyle(.secondary)
-                    Text(module.entries.isEmpty ? "Copy something to start building history" : "No matching items")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                    Spacer()
+            ZStack {
+                Group {
+                    if filteredEntries.isEmpty {
+                        VStack(spacing: 8) {
+                            Spacer()
+                            Image(systemName: "doc.on.clipboard")
+                                .font(.title2)
+                                .foregroundStyle(.secondary)
+                            Text(module.entries.isEmpty ? "Copy something to start building history" : "No matching items")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                    } else {
+                        ScrollView {
+                            VStack(spacing: 5) {
+                                ForEach(Array(filteredEntries.enumerated()), id: \.element.id) { index, entry in
+                                    clipboardRow(entry, index: index)
+                                }
+                            }
+                            .padding(8)
+                        }
+                    }
                 }
-            } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 5) {
-                            ForEach(Array(filteredEntries.enumerated()), id: \.element.id) { index, entry in
-                                clipboardRow(entry, index: index)
-                                    .id(entry.id)
-                            }
-                        }
-                        .padding(8)
-                    }
-                    .onChange(of: uiState.selectedEntryID, initial: false) { _, newID in
-                        if let newID {
-                            withAnimation(.easeOut(duration: 0.1)) {
-                                proxy.scrollTo(newID)
-                            }
-                        }
-                    }
+                .opacity(previewEntry == nil ? 1 : 0)
+                .allowsHitTesting(previewEntry == nil)
+
+                if let entry = previewEntry {
+                    fullRowPreview(entry)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(.ultraThickMaterial)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             Divider()
 
@@ -151,7 +155,7 @@ struct ClipboardPopoverView: View {
                 Spacer(minLength: 8)
                 Text(footerShortcutsText)
                     .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
             }
@@ -230,10 +234,12 @@ struct ClipboardPopoverView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .focusEffectDisabled()
                 .pointerCursor()
 
                 HStack(spacing: 6) {
                     Button {
+                        uiState.selectedEntryID = entry.id
                         uiState.previewEntryID = entry.id
                     } label: {
                         Image(systemName: "eye")
@@ -241,11 +247,13 @@ struct ClipboardPopoverView: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
+                    .focusEffectDisabled()
                     .help("View full text")
                     .pointerCursor()
 
                     if entry.isPinned {
                         Button {
+                            uiState.selectedEntryID = entry.id
                             uiState.renameDraft = entry.customTitle ?? ""
                             uiState.renamingEntryID = isRenaming ? nil : entry.id
                         } label: {
@@ -254,11 +262,13 @@ struct ClipboardPopoverView: View {
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
+                        .focusEffectDisabled()
                         .help("Rename pinned item (⌘R)")
                         .pointerCursor()
                     }
 
                     Button {
+                        uiState.selectedEntryID = entry.id
                         module.togglePin(entry)
                     } label: {
                         Image(systemName: entry.isPinned ? "pin.fill" : "pin")
@@ -266,10 +276,12 @@ struct ClipboardPopoverView: View {
                             .foregroundStyle(entry.isPinned ? .teal : .secondary)
                     }
                     .buttonStyle(.plain)
+                    .focusEffectDisabled()
                     .help(entry.isPinned ? "Unpin (⌘P)" : "Pin item (⌘P)")
                     .pointerCursor()
 
                     Button {
+                        uiState.selectedEntryID = entry.id
                         uiState.pendingDeleteEntry = entry
                     } label: {
                         Image(systemName: "trash")
@@ -277,6 +289,7 @@ struct ClipboardPopoverView: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
+                    .focusEffectDisabled()
                     .help("Delete item (⌫)")
                     .pointerCursor()
 
@@ -297,12 +310,19 @@ struct ClipboardPopoverView: View {
                             module.renameEntry(entry, title: uiState.renameDraft)
                             uiState.renamingEntryID = nil
                         }
-                    Button("Save") {
+                    Button {
                         module.renameEntry(entry, title: uiState.renameDraft)
                         uiState.renamingEntryID = nil
+                    } label: {
+                        Text("Save")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6))
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+                    .buttonStyle(.plain)
+                    .focusEffectDisabled()
                     .pointerCursor()
                 }
             }
@@ -317,11 +337,14 @@ struct ClipboardPopoverView: View {
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(isSelected ? Color.accentColor.opacity(0.45) : Color.clear, lineWidth: 1)
         )
-        .onHover { hovering in
-            if hovering {
-                uiState.selectedEntryID = entry.id
-            }
-        }
+        .overlay(
+            ClipboardRowVisibilityScrollView(
+                isSelected: isSelected,
+                openSequence: uiState.openSequence,
+                isPreviewOpen: previewEntry != nil
+            )
+            .allowsHitTesting(false)
+        )
         .contextMenu {
             entryContextMenu(for: entry, inPreview: false)
         }
@@ -331,13 +354,22 @@ struct ClipboardPopoverView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Button {
+                    uiState.selectedEntryID = entry.id
                     uiState.previewEntryID = nil
                 } label: {
                     Label("Back", systemImage: "chevron.left")
                         .font(.caption.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(Color.primary.opacity(0.14), lineWidth: 0.75)
+                        )
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(.plain)
+                .focusEffectDisabled()
                 .pointerCursor()
 
                 if let title = entry.customTitle, !title.isEmpty {
@@ -362,13 +394,29 @@ struct ClipboardPopoverView: View {
             }
             .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
 
-            HStack {
+            HStack(spacing: 8) {
                 Button {
                     module.togglePin(entry)
                 } label: {
                     Label(entry.isPinned ? "Unpin" : "Pin", systemImage: entry.isPinned ? "pin.fill" : "pin")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(entry.isPinned ? .teal : .primary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(
+                            entry.isPinned ? Color.teal.opacity(0.15) : Color.primary.opacity(0.08),
+                            in: RoundedRectangle(cornerRadius: 6)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(
+                                    entry.isPinned ? Color.teal.opacity(0.35) : Color.primary.opacity(0.14),
+                                    lineWidth: 0.75
+                                )
+                        )
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
+                .focusEffectDisabled()
                 .help(entry.isPinned ? "Unpin (⌘P)" : "Pin item (⌘P)")
                 .pointerCursor()
 
@@ -379,25 +427,53 @@ struct ClipboardPopoverView: View {
                     uiState.renamingEntryID = entry.id
                 } label: {
                     Label(entry.customTitle?.isEmpty == false ? "Rename" : "Name", systemImage: "pencil")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(Color.primary.opacity(0.14), lineWidth: 0.75)
+                        )
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
+                .focusEffectDisabled()
                 .help("Name or rename item (⌘R)")
                 .pointerCursor()
 
-                Button(role: .destructive) {
+                Button {
                     uiState.pendingDeleteEntry = entry
                 } label: {
                     Label("Delete", systemImage: "trash")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.red)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.red.opacity(0.14), in: RoundedRectangle(cornerRadius: 6))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(Color.red.opacity(0.32), lineWidth: 0.75)
+                        )
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
+                .focusEffectDisabled()
                 .pointerCursor()
 
                 Spacer()
 
-                Button("Paste This Item") {
+                Button {
                     onSelect(entry)
+                } label: {
+                    Text("Paste This Item")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6))
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.plain)
+                .focusEffectDisabled()
                 .pointerCursor()
             }
         }
@@ -494,17 +570,36 @@ struct ClipboardPopoverView: View {
 
                 HStack(spacing: 8) {
                     Spacer()
-                    Button("Cancel") {
+                    Button {
                         uiState.pendingDeleteEntry = nil
+                    } label: {
+                        Text("Cancel")
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 7)
+                                    .strokeBorder(Color.primary.opacity(0.14), lineWidth: 0.75)
+                            )
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.plain)
+                    .focusEffectDisabled()
                     .pointerCursor()
 
-                    Button("Delete") {
+                    Button {
                         confirmDelete(entry)
+                    } label: {
+                        Text("Delete")
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 6)
+                            .background(Color.red, in: RoundedRectangle(cornerRadius: 7))
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.red)
+                    .buttonStyle(.plain)
+                    .focusEffectDisabled()
                     .pointerCursor()
                 }
             }
@@ -546,20 +641,39 @@ struct ClipboardPopoverView: View {
 
                 HStack(spacing: 8) {
                     Spacer()
-                    Button("Cancel") {
+                    Button {
                         uiState.pendingClearAll = false
+                    } label: {
+                        Text("Cancel")
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 7)
+                                    .strokeBorder(Color.primary.opacity(0.14), lineWidth: 0.75)
+                            )
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.plain)
+                    .focusEffectDisabled()
                     .pointerCursor()
 
-                    Button("Clear All") {
+                    Button {
                         module.clearHistory(keepPinned: true)
                         uiState.pendingClearAll = false
                         uiState.previewEntryID = nil
                         uiState.selectedEntryID = filteredEntries.first?.id
+                    } label: {
+                        Text("Clear All")
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 6)
+                            .background(Color.red, in: RoundedRectangle(cornerRadius: 7))
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.red)
+                    .buttonStyle(.plain)
+                    .focusEffectDisabled()
                     .pointerCursor()
                 }
             }
@@ -583,5 +697,115 @@ struct ClipboardPopoverView: View {
         if uiState.selectedEntryID == entry.id {
             uiState.selectedEntryID = filteredEntries.first?.id
         }
+    }
+}
+
+private struct ClipboardRowVisibilityScrollView: NSViewRepresentable {
+    let isSelected: Bool
+    let openSequence: Int
+    let isPreviewOpen: Bool
+
+    func makeNSView(context: Context) -> ClipboardRowVisibilityNSView {
+        ClipboardRowVisibilityNSView()
+    }
+
+    func updateNSView(_ nsView: ClipboardRowVisibilityNSView, context: Context) {
+        let selectionActivated = isSelected && !nsView.wasSelected
+        let reopenedSelected = isSelected && nsView.lastOpenSequence != openSequence
+        let previewDismissed = isSelected && nsView.wasPreviewOpen && !isPreviewOpen
+        nsView.wasSelected = isSelected
+        nsView.lastOpenSequence = openSequence
+        nsView.wasPreviewOpen = isPreviewOpen
+
+        if !isPreviewOpen && (selectionActivated || reopenedSelected || previewDismissed) {
+            nsView.scheduleScrollToVisible()
+        }
+    }
+}
+
+final class ClipboardRowVisibilityNSView: NSView {
+    var wasSelected = false
+    var lastOpenSequence = -1
+    var wasPreviewOpen = false
+    private var scrollPending = false
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if wasSelected && window != nil && !wasPreviewOpen {
+            scheduleScrollToVisible()
+        }
+    }
+
+    func scheduleScrollToVisible() {
+        guard !scrollPending else { return }
+        scrollPending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.scrollPending = false
+            self.scrollIntoViewIfNeeded()
+        }
+    }
+
+    static func minimalVerticalScrollOriginY(
+        rowRect: NSRect,
+        visibleRect: NSRect,
+        documentBounds: NSRect,
+        isFlipped: Bool
+    ) -> CGFloat? {
+        let clampedRow = rowRect.intersection(documentBounds)
+        guard !clampedRow.isNull, !clampedRow.isEmpty else { return nil }
+        if visibleRect.contains(clampedRow) {
+            return nil
+        }
+
+        var targetY = visibleRect.origin.y
+        if isFlipped {
+            if clampedRow.minY < visibleRect.minY {
+                targetY = clampedRow.minY
+            } else if clampedRow.maxY > visibleRect.maxY {
+                targetY = clampedRow.maxY - visibleRect.height
+            }
+        } else {
+            if clampedRow.maxY > visibleRect.maxY {
+                targetY = clampedRow.maxY - visibleRect.height
+            } else if clampedRow.minY < visibleRect.minY {
+                targetY = clampedRow.minY
+            }
+        }
+
+        let minOriginY = documentBounds.minY
+        let maxOriginY = max(minOriginY, documentBounds.maxY - visibleRect.height)
+        targetY = min(max(minOriginY, targetY), maxOriginY)
+        return abs(targetY - visibleRect.origin.y) > 0.5 ? targetY : nil
+    }
+
+    private func scrollIntoViewIfNeeded() {
+        guard wasSelected,
+              !wasPreviewOpen,
+              window != nil,
+              !bounds.isEmpty,
+              let scrollView = enclosingScrollView,
+              let documentView = scrollView.documentView else {
+            return
+        }
+        scrollView.layoutSubtreeIfNeeded()
+        let clipView = scrollView.contentView
+        let visibleRect = clipView.documentVisibleRect
+        let rowRectInDoc = documentView.convert(bounds, from: self).insetBy(dx: 0, dy: -8)
+        guard let nextY = Self.minimalVerticalScrollOriginY(
+            rowRect: rowRectInDoc,
+            visibleRect: visibleRect,
+            documentBounds: documentView.bounds,
+            isFlipped: documentView.isFlipped
+        ) else {
+            return
+        }
+
+        clipView.scroll(to: NSPoint(x: visibleRect.origin.x, y: nextY))
+        scrollView.reflectScrolledClipView(clipView)
     }
 }

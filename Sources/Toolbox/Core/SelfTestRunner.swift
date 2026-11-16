@@ -41,9 +41,10 @@ enum SelfTestRunner {
         testCallControlsTypingMicStateMachine()
         testCallControlsHotKeyConflictsAndLifecycle()
         testCallControlsDeveloperSimulation()
+        testMultiScreenOnboardingClipboardScrollAndMicSync()
 
         if failures.isEmpty {
-            print("All 28 self-test suites passed.")
+            print("All 29 self-test suites passed.")
             return 0
         } else {
             for f in failures {
@@ -396,11 +397,28 @@ enum SelfTestRunner {
 
         let menuBar = MenuBarController()
         menuBar.setVisible(true, isActive: true)
-        expect(menuBar.attachedMenuForTesting === menuBar.menuInstanceForTesting, "NSStatusItem must attach native NSMenu for guaranteed click-to-toggle")
-        expect(menuBar.menuInstanceForTesting.items.first?.view != nil, "Menu item must host MenuBarPopoverView")
+        expect(menuBar.attachedMenuForTesting == nil, "NSStatusItem must not attach NSMenu so macOS 26 does not auto-cancel tracking while inactive")
+        expect(menuBar.statusButtonForTesting?.action != nil, "NSStatusItem button must handle clicks to toggle popover")
         expect(menuBar.pointerCursorViewCountForTesting >= 10, "Menu bar interactive controls must attach PointerCursorNSView overlays (found \(menuBar.pointerCursorViewCountForTesting))")
+        menuBar.showPopoverForTesting()
+        expect(menuBar.isPopoverVisibleForTesting, "showPopoverForTesting must display the status bar popover")
+        expect(menuBar.popoverPanelForTesting?.styleMask.contains(.nonactivatingPanel) == true, "Status bar popover panel must use .nonactivatingPanel")
+        expect(menuBar.popoverPanelForTesting?.hidesOnDeactivate == false, "Status bar popover panel must stay open when Toolbox is inactive")
+        menuBar.hidePopoverForTesting()
+        expect(!menuBar.isPopoverVisibleForTesting, "hidePopoverForTesting must dismiss the status bar popover")
         menuBar.setVisible(false)
-        expect(menuBar.attachedMenuForTesting == nil, "Hiding status item must clear attached menu")
+        expect(menuBar.statusButtonForTesting == nil, "Hiding status item must remove status bar button")
+
+        let primaryScreen = (frame: NSRect(x: 0, y: 0, width: 1728, height: 1117), visibleFrame: NSRect(x: 0, y: 78, width: 1728, height: 1007))
+        let secondaryScreen = (frame: NSRect(x: -132, y: 1117, width: 2560, height: 1440), visibleFrame: NSRect(x: -132, y: 1117, width: 2560, height: 1415))
+        let originOnSecondDisplay = MenuBarController.popoverOrigin(
+            size: NSSize(width: 340, height: 470),
+            cursorPoint: NSPoint(x: 2100, y: 2545),
+            buttonScreenRect: NSRect(x: 1320, y: 1088, width: 32, height: 24),
+            screenFrames: [primaryScreen, secondaryScreen],
+            fallbackVisibleFrame: primaryScreen.visibleFrame
+        )
+        expect(secondaryScreen.frame.contains(originOnSecondDisplay), "Menu bar click on secondary display must open popover on secondary display even if button.window frame is still on primary display (got \(originOnSecondDisplay))")
 
         let win = MainWindowController.shared.ensureWindow()
         win.layoutIfNeeded()
@@ -2135,5 +2153,191 @@ enum SelfTestRunner {
             "ConfigCheckpointStore.diff should detect callControls changes cleanly (got: \(diffs))"
         )
         DeveloperEventLog.shared.clear()
+    }
+
+    private static func testMultiScreenOnboardingClipboardScrollAndMicSync() {
+        // 1. Multi-screen window frame centering clamps cleanly inside secondary display bounds
+        let secondaryVisible = NSRect(x: 1920, y: 25, width: 1440, height: 875)
+        let centered = MainWindowController.centeredWindowFrame(
+            currentSize: NSSize(width: 960, height: 680),
+            onScreenVisibleFrame: secondaryVisible
+        )
+        expect(secondaryVisible.contains(centered), "Centered window frame must fit inside secondary screen visibleFrame: \(centered)")
+        expect(abs(centered.midX - secondaryVisible.midX) <= 1.0, "Window should horizontally center on target screen")
+        expect(abs(centered.midY - secondaryVisible.midY) <= 1.0, "Window should vertically center on target screen")
+
+        // 2. First-open Accessibility onboarding modal state & seen flag persistence
+        var cfg = ToolboxConfig()
+        expect(!cfg.general.hasSeenAccessibilityOnboarding, "hasSeenAccessibilityOnboarding should default to false")
+        cfg.general.hasSeenAccessibilityOnboarding = true
+        if let data = try? JSONEncoder().encode(cfg),
+           let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
+            expect(decoded.general.hasSeenAccessibilityOnboarding, "hasSeenAccessibilityOnboarding must survive JSON round-trip")
+        } else {
+            failures.append("GeneralConfig with hasSeenAccessibilityOnboarding failed Codable round-trip")
+        }
+
+        let perms = PermissionsManager.shared
+        let prevSeen = ConfigManager.shared.config.general.hasSeenAccessibilityOnboarding
+        perms.presentOnboardingModal()
+        expect(perms.isPresentingOnboardingModal, "presentOnboardingModal() must set isPresentingOnboardingModal = true")
+        perms.dismissOnboardingModal(markSeen: true)
+        expect(!perms.isPresentingOnboardingModal, "dismissOnboardingModal() must close onboarding modal")
+        expect(ConfigManager.shared.config.general.hasSeenAccessibilityOnboarding, "dismissOnboardingModal(markSeen: true) must mark flag seen")
+        ConfigManager.shared.config.general.hasSeenAccessibilityOnboarding = prevSeen
+
+        // 3. Clipboard minimal scroll math keeps down-arrow selection at bottom (not top) and preserves selection on preview open/close
+        let docBounds = NSRect(x: 0, y: 0, width: 400, height: 1000)
+        let flippedVisible = NSRect(x: 0, y: 0, width: 400, height: 300)
+        expect(
+            ClipboardRowVisibilityNSView.minimalVerticalScrollOriginY(
+                rowRect: NSRect(x: 8, y: 120, width: 384, height: 50),
+                visibleRect: flippedVisible,
+                documentBounds: docBounds,
+                isFlipped: true
+            ) == nil,
+            "Fully visible row must not trigger scroll"
+        )
+        expect(
+            ClipboardRowVisibilityNSView.minimalVerticalScrollOriginY(
+                rowRect: NSRect(x: 8, y: 290, width: 384, height: 50),
+                visibleRect: flippedVisible,
+                documentBounds: docBounds,
+                isFlipped: true
+            ) == 40,
+            "Scrolling down past bottom (flipped) should place row at bottom edge (y=40), not top (y=290)"
+        )
+        expect(
+            ClipboardRowVisibilityNSView.minimalVerticalScrollOriginY(
+                rowRect: NSRect(x: 8, y: 20, width: 384, height: 50),
+                visibleRect: NSRect(x: 0, y: 100, width: 400, height: 300),
+                documentBounds: docBounds,
+                isFlipped: true
+            ) == 20,
+            "Scrolling up past top (flipped) should place row at top edge (y=20)"
+        )
+        expect(
+            ClipboardRowVisibilityNSView.minimalVerticalScrollOriginY(
+                rowRect: NSRect(x: 8, y: 360, width: 384, height: 50),
+                visibleRect: NSRect(x: 0, y: 400, width: 400, height: 300),
+                documentBounds: docBounds,
+                isFlipped: false
+            ) == 360,
+            "Scrolling down past bottom (unflipped) should place row at bottom edge (y=360)"
+        )
+
+        // 4. Call Controls mute label classification, effective state sync, and idle background Teams guard
+        expect(CallShortcutRemapper.classifyCallMuteControlLabel("Mute mic (⌘⇧M)") == false, "'Mute mic (⌘⇧M)' means currently unmuted (false)")
+        expect(CallShortcutRemapper.classifyCallMuteControlLabel("Unmute mic (⌘⇧M)") == true, "'Unmute mic (⌘⇧M)' means currently muted (true)")
+        expect(CallShortcutRemapper.classifyCallMuteControlLabel("Turn off microphone (⌘ + d)") == false, "Google Meet turn off mic label should classify as unmuted (false)")
+        expect(CallShortcutRemapper.classifyCallMuteControlLabel("Turn on microphone (⌘ + d)") == true, "Google Meet turn on mic label should classify as muted (true)")
+        expect(CallShortcutRemapper.classifyCallMuteControlLabel("Mute notifications") == nil, "Unrelated 'Mute notifications' must return nil")
+        expect(CallShortcutRemapper.classifyCallMuteControlLabel("Mute all participants") == nil, "Unrelated 'Mute all participants' must return nil")
+
+        expect(!CallControlsModule.resolveEffectiveMuteState(isTypingMuted: false, hardwareMuted: false, callAppMuted: false), "Live hardware + live app must resolve to live")
+        expect(CallControlsModule.resolveEffectiveMuteState(isTypingMuted: false, hardwareMuted: false, callAppMuted: true), "App muted must resolve to muted even if hardware unmuted")
+        expect(CallControlsModule.resolveEffectiveMuteState(isTypingMuted: false, hardwareMuted: true, callAppMuted: false), "Hardware muted must resolve to muted")
+        expect(CallControlsModule.resolveEffectiveMuteState(isTypingMuted: true, hardwareMuted: false, callAppMuted: false), "Typing mute must resolve to muted")
+
+        let micShortcut = ShortcutSpec(key: "m", modifiers: [.control, .option, .command])
+        let mCode = UInt16(micShortcut.carbonKeyCode ?? 46)
+        let idleTeamsEverywhere = CallShortcutRemapper.resolveDecision(
+            keyCode: mCode,
+            modifiers: [.control, .option, .command],
+            eventUserData: 0,
+            micShortcut: micShortcut,
+            videoShortcut: .none,
+            overrideScope: .everywhere,
+            mappings: CallAppShortcutMapping.defaults,
+            frontmostBundleID: "com.apple.Xcode",
+            frontmostPID: 303,
+            frontmostWindowTitle: "Toolbox.swift",
+            runningApps: [RunningCallAppSnapshot(bundleIdentifier: "com.microsoft.teams2", pid: 202, windowTitles: ["Chat | Microsoft Teams"], hasActiveCallControl: false)],
+            isCallActivityActive: false
+        )
+        expect(
+            idleTeamsEverywhere == .globalHardwareOnly(action: .mic),
+            "Idle background Teams without active call must not steal focus; should use globalHardwareOnly(.mic)"
+        )
+
+        // 5. Live Clipboard panel navigation: Down x12, Up x12, Right preview, Left back
+        let liveClipboard = ClipboardModule()
+        var clipCfg = ToolboxConfig()
+        clipCfg.clipboard.maxItems = 30
+        clipCfg.clipboard.persistHistory = false
+        liveClipboard.reload(with: clipCfg)
+        liveClipboard.clearHistory(keepPinned: false)
+        for idx in (1...20).reversed() {
+            liveClipboard.recordText("Clip item \(idx)\nSecond line for realistic height")
+        }
+        let clipPanel = liveClipboard.ensurePanel(width: 420, height: 420)
+        liveClipboard.showPopover()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.08))
+
+        func firstScrollView(in view: NSView?) -> NSScrollView? {
+            guard let view else { return nil }
+            if let sv = view as? NSScrollView { return sv }
+            for sub in view.subviews {
+                if let found = firstScrollView(in: sub) { return found }
+            }
+            return nil
+        }
+
+        let clipScrollView = firstScrollView(in: clipPanel.contentView)
+        expect(clipScrollView != nil, "Clipboard popover must contain an NSScrollView")
+        let initialClipY = clipScrollView?.contentView.documentVisibleRect.origin.y ?? -1
+
+        for _ in 0..<12 {
+            liveClipboard.popoverState.moveSelection(delta: 1, in: liveClipboard.entries)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.03))
+        }
+        expect(liveClipboard.popoverState.selectedEntryID == liveClipboard.entries[12].id, "12 down steps should select index 12")
+        let downClipY = clipScrollView?.contentView.documentVisibleRect.origin.y ?? 0
+        expect(downClipY > initialClipY + 20, "Navigating down 12 rows must scroll Clipboard downward (got \(downClipY) from \(initialClipY))")
+
+        for _ in 0..<12 {
+            liveClipboard.popoverState.moveSelection(delta: -1, in: liveClipboard.entries)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.03))
+        }
+        expect(liveClipboard.popoverState.selectedEntryID == liveClipboard.entries[0].id, "12 up steps should return to index 0")
+        let upClipY = clipScrollView?.contentView.documentVisibleRect.origin.y ?? 999
+        expect(abs(upClipY) <= 1.0, "Navigating back up to index 0 must align cleanly at top y=0 (got \(upClipY))")
+
+        for _ in 0..<8 {
+            liveClipboard.popoverState.moveSelection(delta: 1, in: liveClipboard.entries)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.03))
+        }
+        let viewedEntry = liveClipboard.entries[8]
+        let yBeforePreview = clipScrollView?.contentView.documentVisibleRect.origin.y ?? 0
+        expect(liveClipboard.popoverState.selectedEntryID == viewedEntry.id, "8 down steps should select index 8")
+        liveClipboard.popoverState.previewEntryID = viewedEntry.id
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        if let previewID = liveClipboard.popoverState.previewEntryID {
+            liveClipboard.popoverState.selectedEntryID = previewID
+            liveClipboard.popoverState.previewEntryID = nil
+        }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.08))
+        expect(liveClipboard.popoverState.previewEntryID == nil, "Closing preview must clear previewEntryID")
+        expect(liveClipboard.popoverState.selectedEntryID == viewedEntry.id, "Closing preview must stay on viewed entry (index 8), never jump to another row")
+        let yAfterPreview = clipScrollView?.contentView.documentVisibleRect.origin.y ?? -1
+        expect(abs(yAfterPreview - yBeforePreview) <= 2.0, "Closing preview must preserve list scroll position (before=\(yBeforePreview), after=\(yAfterPreview))")
+        liveClipboard.hidePopover()
+        liveClipboard.clearHistory(keepPinned: false)
+        liveClipboard.stop()
+
+        // 6. PortKiller search bar auto-focus & openSequence tracking
+        let pkModule = PortKillerModule()
+        let pkPanel = pkModule.ensurePanel(width: 460, height: 480)
+        let seqBefore = pkModule.popoverState.openSequence
+        pkModule.showPopover()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.08))
+        expect(pkModule.popoverState.openSequence == seqBefore + 1, "PortKiller showPopover must increment openSequence")
+        let pkSearchField = PortKillerModule.findEditableTextField(in: pkPanel.contentView)
+        expect(pkSearchField != nil, "PortKiller popover must provide an editable NSTextField search box")
+        let pkResponder = pkPanel.firstResponder
+        let isPKSearchFocused = ((pkResponder as? NSTextView)?.delegate as AnyObject?) === pkSearchField || pkResponder === pkSearchField
+        expect(isPKSearchFocused, "PortKiller showPopover must focus the search bar automatically")
+        pkModule.hidePopover()
+        pkModule.stop()
     }
 }

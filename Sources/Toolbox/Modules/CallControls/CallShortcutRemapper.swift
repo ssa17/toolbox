@@ -20,6 +20,19 @@ struct RunningCallAppSnapshot: Equatable, Sendable {
     let bundleIdentifier: String
     let pid: pid_t
     let windowTitles: [String]
+    let hasActiveCallControl: Bool?
+
+    init(
+        bundleIdentifier: String,
+        pid: pid_t,
+        windowTitles: [String],
+        hasActiveCallControl: Bool? = nil
+    ) {
+        self.bundleIdentifier = bundleIdentifier
+        self.pid = pid
+        self.windowTitles = windowTitles
+        self.hasActiveCallControl = hasActiveCallControl
+    }
 }
 
 enum CallRemapDecision: Equatable, Sendable {
@@ -76,6 +89,7 @@ final class CallShortcutRemapper: @unchecked Sendable {
     private var frontmostWindowTitle: String?
     private var mruAppPIDs: [pid_t] = []
     private var runningSnapshots: [RunningCallAppSnapshot] = []
+    private var isCallActivityActive: Bool = false
     private var simulatedContext: SimulatedCallContext?
     private var suppressedKeyUps: Set<UInt16> = []
 
@@ -88,8 +102,9 @@ final class CallShortcutRemapper: @unchecked Sendable {
     private var workspaceObservers: [NSObjectProtocol] = []
     private var windowTitleRefreshTimer: Timer?
 
-    var onRemapTriggered: (@Sendable (CallActionKind, CallAppShortcutMapping, ShortcutSpec, Bool) -> Void)?
+    var onRemapTriggered: (@Sendable (CallActionKind, CallAppShortcutMapping, ShortcutSpec, Bool, Bool?) -> Void)?
     var onGlobalActionTriggered: (@Sendable (CallActionKind, Bool) -> Void)?
+    var onNativeAppMicShortcutPressed: (@Sendable (CallAppShortcutMapping, pid_t) -> Void)?
     var onSimulatedActionTriggered: (@Sendable (CallActionKind, Bool) -> Void)?
 
     deinit {
@@ -118,6 +133,17 @@ final class CallShortcutRemapper: @unchecked Sendable {
     func updateSimulatedContext(_ context: SimulatedCallContext?) {
         withLock {
             self.simulatedContext = context
+        }
+    }
+
+    func updateCallActivity(_ active: Bool) {
+        let changed = withLock { () -> Bool in
+            let didChange = (self.isCallActivityActive != active)
+            self.isCallActivityActive = active
+            return didChange
+        }
+        if changed {
+            refreshApplicationContextAsync()
         }
     }
 
@@ -339,8 +365,8 @@ final class CallShortcutRemapper: @unchecked Sendable {
     }
 
     private func refreshApplicationContextAsync() {
-        let snapshotData: (mappings: [CallAppShortcutMapping], mru: [pid_t]) = withLock {
-            (mappings, mruAppPIDs)
+        let snapshotData: (mappings: [CallAppShortcutMapping], mru: [pid_t], callActive: Bool) = withLock {
+            (mappings, mruAppPIDs, isCallActivityActive)
         }
 
         DispatchQueue.main.async { [weak self] in
@@ -371,10 +397,14 @@ final class CallShortcutRemapper: @unchecked Sendable {
                     guard !matchingMappings.isEmpty else { continue }
                     let needsTitles = matchingMappings.contains { !($0.requiredWindowTitleSubstring ?? "").isEmpty }
                     let titles = needsTitles ? Self.allWindowTitles(for: app.pid) : []
+                    let hasControl: Bool? = (!snapshotData.callActive && app.pid != frontPID && AXIsProcessTrusted())
+                        ? (Self.inspectCallAppMuteState(pid: app.pid) != nil)
+                        : nil
                     callSnapshots.append(RunningCallAppSnapshot(
                         bundleIdentifier: app.bundleID,
                         pid: app.pid,
-                        windowTitles: titles
+                        windowTitles: titles,
+                        hasActiveCallControl: hasControl
                     ))
                 }
 
@@ -402,7 +432,8 @@ final class CallShortcutRemapper: @unchecked Sendable {
         frontmostBundleID: String?,
         frontmostPID: pid_t?,
         frontmostWindowTitle: String?,
-        runningApps: [RunningCallAppSnapshot]
+        runningApps: [RunningCallAppSnapshot],
+        isCallActivityActive: Bool = true
     ) -> (app: CallAppShortcutMapping, pid: pid_t?, shortcut: ShortcutSpec, requiresBriefFocusRestore: Bool)? {
         let enabledMappings = mappings.filter { mapping in
             guard mapping.enabled else { return false }
@@ -424,12 +455,15 @@ final class CallShortcutRemapper: @unchecked Sendable {
         }
 
         for app in runningApps {
+            let isAlreadyFrontmost = (app.pid == frontmostPID)
+            if !isAlreadyFrontmost && !isCallActivityActive && app.hasActiveCallControl != true {
+                continue
+            }
             for mapping in enabledMappings where mapping.matches(bundleID: app.bundleIdentifier) {
                 guard passesWindowTitleGate(mapping: mapping, titles: app.windowTitles) else {
                     continue
                 }
                 let targetShortcut = (action == .mic) ? mapping.micShortcut : mapping.videoShortcut
-                let isAlreadyFrontmost = (app.pid == frontmostPID)
                 return (mapping, app.pid, targetShortcut, !isAlreadyFrontmost && mapping.allowBriefFocusRestore)
             }
         }
@@ -444,7 +478,8 @@ final class CallShortcutRemapper: @unchecked Sendable {
                 frontBundle: frontmostBundleID,
                 frontPID: frontmostPID,
                 frontTitle: frontmostWindowTitle,
-                running: runningSnapshots
+                running: runningSnapshots,
+                callActive: isCallActivityActive
             )
         }
         guard let target = Self.resolveTargetPreview(
@@ -454,7 +489,8 @@ final class CallShortcutRemapper: @unchecked Sendable {
             frontmostBundleID: state.frontBundle,
             frontmostPID: state.frontPID,
             frontmostWindowTitle: state.frontTitle,
-            runningApps: state.running
+            runningApps: state.running,
+            isCallActivityActive: state.callActive
         ) else {
             return nil
         }
@@ -465,7 +501,8 @@ final class CallShortcutRemapper: @unchecked Sendable {
     func triggerManualAction(
         _ action: CallActionKind,
         mappings: [CallAppShortcutMapping],
-        overrideScope: CallOverrideScope
+        overrideScope: CallOverrideScope,
+        isCallActivityActive: Bool = true
     ) -> Bool {
         let front = NSWorkspace.shared.frontmostApplication
         let frontBundle = front?.bundleIdentifier
@@ -488,10 +525,14 @@ final class CallShortcutRemapper: @unchecked Sendable {
             guard !matching.isEmpty else { continue }
             let needsTitles = matching.contains { !($0.requiredWindowTitleSubstring ?? "").isEmpty }
             let titles = needsTitles ? Self.allWindowTitles(for: app.processIdentifier) : []
+            let hasControl: Bool? = (!isCallActivityActive && app.processIdentifier != frontPID && AXIsProcessTrusted())
+                ? (Self.inspectCallAppMuteState(pid: app.processIdentifier) != nil)
+                : nil
             snapshots.append(RunningCallAppSnapshot(
                 bundleIdentifier: bundleID,
                 pid: app.processIdentifier,
-                windowTitles: titles
+                windowTitles: titles,
+                hasActiveCallControl: hasControl
             ))
         }
         snapshots.sort { (mruOrder[$0.pid] ?? Int.max) < (mruOrder[$1.pid] ?? Int.max) }
@@ -503,7 +544,8 @@ final class CallShortcutRemapper: @unchecked Sendable {
             frontmostBundleID: frontBundle,
             frontmostPID: frontPID,
             frontmostWindowTitle: frontTitle,
-            runningApps: snapshots
+            runningApps: snapshots,
+            isCallActivityActive: isCallActivityActive
         ) else {
             return false
         }
@@ -557,6 +599,7 @@ final class CallShortcutRemapper: @unchecked Sendable {
                 frontPID: frontmostPID,
                 frontTitle: frontmostWindowTitle,
                 running: runningSnapshots,
+                callActive: isCallActivityActive,
                 simulated: simulatedContext
             )
         }
@@ -628,11 +671,23 @@ final class CallShortcutRemapper: @unchecked Sendable {
             frontmostBundleID: state.frontBundle,
             frontmostPID: state.frontPID,
             frontmostWindowTitle: state.frontTitle,
-            runningApps: state.running
+            runningApps: state.running,
+            isCallActivityActive: state.callActive
         )
 
         switch decision {
         case .passThrough:
+            if let frontBundle = state.frontBundle,
+               let frontPID = state.frontPID,
+               let nativeMapping = state.mappings.first(where: {
+                   $0.enabled && $0.matches(bundleID: frontBundle) &&
+                   Self.matchesShortcut(keyCode: keyCode, modifiers: modifiers, shortcut: $0.micShortcut)
+               }) {
+                let nativeCB = onNativeAppMicShortcutPressed
+                DispatchQueue.main.async {
+                    nativeCB?(nativeMapping, frontPID)
+                }
+            }
             return Unmanaged.passUnretained(event)
 
         case .passThroughWithHardwareSync(let action):
@@ -675,7 +730,8 @@ final class CallShortcutRemapper: @unchecked Sendable {
         frontmostBundleID: String?,
         frontmostPID: pid_t?,
         frontmostWindowTitle: String?,
-        runningApps: [RunningCallAppSnapshot]
+        runningApps: [RunningCallAppSnapshot],
+        isCallActivityActive: Bool = true
     ) -> CallRemapDecision {
         if eventUserData == syntheticEventTag {
             return .passThrough
@@ -730,12 +786,15 @@ final class CallShortcutRemapper: @unchecked Sendable {
         }
 
         for app in runningApps {
+            let isAlreadyFrontmost = (app.pid == frontmostPID)
+            if !isAlreadyFrontmost && !isCallActivityActive && app.hasActiveCallControl != true {
+                continue
+            }
             for mapping in enabledMappings where mapping.matches(bundleID: app.bundleIdentifier) {
                 guard passesWindowTitleGate(mapping: mapping, titles: app.windowTitles) else {
                     continue
                 }
                 let targetShortcut = (action == .mic) ? mapping.micShortcut : mapping.videoShortcut
-                let isAlreadyFrontmost = (app.pid == frontmostPID)
                 if isAlreadyFrontmost && targetShortcut == userShortcut {
                     if overrideScope == .everywhere && action == .mic {
                         return .passThroughWithHardwareSync(action: .mic)
@@ -809,54 +868,64 @@ final class CallShortcutRemapper: @unchecked Sendable {
         let targetFlags = Self.cgEventFlags(for: targetShortcut.modifiers)
         let callback = onRemapTriggered
 
-        // Prefer direct AX menu item invocation for native Mac apps (FaceTime, Zoom, etc.):
-        // triggers silently without focus disruption when enabled, and avoids error beeps/focus
-        // flash when an app's call menu item is disabled (e.g. FaceTime open outside an active call).
-        if let pid = targetPID {
-            switch Self.inspectOrPressMenuItem(pid: pid, shortcut: targetShortcut, performPress: true) {
-            case .pressed:
-                DispatchQueue.main.async {
-                    callback?(action, targetApp, targetShortcut, true)
-                }
-                return
-            case .menuItemDisabled:
-                DispatchQueue.main.async {
-                    callback?(action, targetApp, targetShortcut, false)
-                }
-                return
-            case .notFound:
-                break
-            }
-        }
-
-        if requiresBriefFocusRestore, let pid = targetPID {
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    let previousApp = NSWorkspace.shared.frontmostApplication
-                    Self.activateApplicationForRelay(
-                        pid: pid,
-                        requiredTitleSubstring: targetApp.requiredWindowTitleSubstring
-                    )
-                    self.waitUntilFrontmostAndDispatch(
-                        targetPID: pid,
-                        previousApp: previousApp,
-                        attemptsRemaining: 12,
-                        keyCode: CGKeyCode(targetKeyCode),
-                        flags: targetFlags,
-                        action: action,
-                        targetApp: targetApp,
-                        targetShortcut: targetShortcut,
-                        callback: callback
-                    )
-                }
-            }
-            return
-        }
-
-        let frontPIDSnapshot = withLock { frontmostPID }
         dispatchQueue.async {
-            if let pid = targetPID, let titleNeedle = targetApp.requiredWindowTitleSubstring, !titleNeedle.isEmpty {
-                Self.raiseMatchingWindowIfNeeded(pid: pid, titleSubstring: titleNeedle)
+            let preRelayAppMuted: Bool? = {
+                guard action == .mic, let pid = targetPID else { return nil }
+                return Self.inspectCallAppMuteState(pid: pid)
+            }()
+
+            // Prefer direct AX menu item invocation for native Mac apps (FaceTime, Zoom, etc.):
+            // triggers silently without focus disruption when enabled, and avoids error beeps/focus
+            // flash when an app's call menu item is disabled (e.g. FaceTime open outside an active call).
+            if let pid = targetPID {
+                switch Self.inspectOrPressMenuItem(pid: pid, shortcut: targetShortcut, performPress: true) {
+                case .pressed:
+                    DispatchQueue.main.async {
+                        callback?(action, targetApp, targetShortcut, true, preRelayAppMuted)
+                    }
+                    return
+                case .menuItemDisabled:
+                    DispatchQueue.main.async {
+                        callback?(action, targetApp, targetShortcut, false, preRelayAppMuted)
+                    }
+                    return
+                case .notFound:
+                    break
+                }
+            }
+
+            if requiresBriefFocusRestore, let pid = targetPID {
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        let previousApp = NSWorkspace.shared.frontmostApplication
+                        Self.activateApplicationForRelay(
+                            pid: pid,
+                            requiredTitleSubstring: targetApp.requiredWindowTitleSubstring
+                        )
+                        self.waitUntilFrontmostAndDispatch(
+                            targetPID: pid,
+                            previousApp: previousApp,
+                            attemptsRemaining: 14,
+                            keyCode: CGKeyCode(targetKeyCode),
+                            flags: targetFlags,
+                            action: action,
+                            targetApp: targetApp,
+                            targetShortcut: targetShortcut,
+                            preRelayAppMuted: preRelayAppMuted,
+                            callback: callback
+                        )
+                    }
+                }
+                return
+            }
+
+            let frontPIDSnapshot = self.withLock { self.frontmostPID }
+            if let pid = targetPID {
+                if let titleNeedle = targetApp.requiredWindowTitleSubstring, !titleNeedle.isEmpty {
+                    Self.raiseMatchingWindowIfNeeded(pid: pid, titleSubstring: titleNeedle)
+                } else {
+                    Self.raiseCallWindowIfNeeded(pid: pid)
+                }
             }
             if let pid = targetPID, frontPIDSnapshot != pid {
                 Self.postKeyCombo(keyCode: CGKeyCode(targetKeyCode), flags: targetFlags, targetPID: pid)
@@ -864,7 +933,7 @@ final class CallShortcutRemapper: @unchecked Sendable {
                 Self.postKeyCombo(keyCode: CGKeyCode(targetKeyCode), flags: targetFlags, targetPID: nil)
             }
             DispatchQueue.main.async {
-                callback?(action, targetApp, targetShortcut, true)
+                callback?(action, targetApp, targetShortcut, true, preRelayAppMuted)
             }
         }
     }
@@ -879,7 +948,8 @@ final class CallShortcutRemapper: @unchecked Sendable {
         action: CallActionKind,
         targetApp: CallAppShortcutMapping,
         targetShortcut: ShortcutSpec,
-        callback: (@Sendable (CallActionKind, CallAppShortcutMapping, ShortcutSpec, Bool) -> Void)?
+        preRelayAppMuted: Bool?,
+        callback: (@Sendable (CallActionKind, CallAppShortcutMapping, ShortcutSpec, Bool, Bool?) -> Void)?
     ) {
         let isFrontmostNow = (NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPID)
         if !isFrontmostNow && attemptsRemaining > 0 {
@@ -894,6 +964,7 @@ final class CallShortcutRemapper: @unchecked Sendable {
                         action: action,
                         targetApp: targetApp,
                         targetShortcut: targetShortcut,
+                        preRelayAppMuted: preRelayAppMuted,
                         callback: callback
                     )
                 }
@@ -901,16 +972,16 @@ final class CallShortcutRemapper: @unchecked Sendable {
             return
         }
 
-        // Small settle delay so Electron/Chromium web views finish wiring key window focus.
-        dispatchQueue.asyncAfter(deadline: .now() + 0.025) {
+        // Settle delay so Electron/WebView2 web views finish wiring key window focus.
+        dispatchQueue.asyncAfter(deadline: .now() + 0.045) {
             Self.postKeyCombo(keyCode: keyCode, flags: flags, targetPID: nil)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.090) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.115) {
                 MainActor.assumeIsolated {
                     if let previousApp, previousApp.processIdentifier != targetPID, !previousApp.isTerminated {
                         NSApp.yieldActivation(to: previousApp)
                         previousApp.activate()
                     }
-                    callback?(action, targetApp, targetShortcut, true)
+                    callback?(action, targetApp, targetShortcut, true, preRelayAppMuted)
                 }
             }
         }
@@ -920,12 +991,31 @@ final class CallShortcutRemapper: @unchecked Sendable {
     private static func activateApplicationForRelay(pid: pid_t, requiredTitleSubstring: String?) {
         if let requiredTitleSubstring, !requiredTitleSubstring.isEmpty {
             raiseMatchingWindowIfNeeded(pid: pid, titleSubstring: requiredTitleSubstring)
+        } else {
+            raiseCallWindowIfNeeded(pid: pid)
         }
         let appElem = AXUIElementCreateApplication(pid)
         AXUIElementSetAttributeValue(appElem, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
         if let app = NSRunningApplication(processIdentifier: pid) {
             NSApp.yieldActivation(to: app)
             _ = app.activate()
+        }
+    }
+
+    private static func raiseCallWindowIfNeeded(pid: pid_t) {
+        let appElem = AXUIElementCreateApplication(pid)
+        var windowsRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appElem, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+              let windows = windowsRef as? [AXUIElement],
+              windows.count > 1 else {
+            return
+        }
+        for win in windows.prefix(8) {
+            var remaining = 120
+            if searchWindowForMuteState(win, depthRemaining: 8, nodeBudget: &remaining) != nil {
+                AXUIElementPerformAction(win, kAXRaiseAction as CFString)
+                return
+            }
         }
     }
 
@@ -970,7 +1060,180 @@ final class CallShortcutRemapper: @unchecked Sendable {
         }
     }
 
-    // MARK: - Accessibility Menu Item Lookup & Window Title Queries
+    // MARK: - Accessibility Mute State Inspection & Menu Item Lookup
+
+    /// Classifies a call-app button or menu label into whether the mic is currently muted (`true`)
+    /// or live (`false`), returning `nil` for unrelated controls (e.g. "Mute notifications", "Mute all").
+    static func classifyCallMuteControlLabel(_ rawText: String, isMenuItem: Bool = false) -> Bool? {
+        var text = rawText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !text.isEmpty else { return nil }
+
+        // Strip trailing keyboard shortcut parentheticals such as "Unmute mic (⌘⇧M)" or "Turn off microphone (⌘ + d)"
+        if let parenStart = text.range(of: " ("), text.hasSuffix(")") {
+            text = String(text[..<parenStart.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        let excludedTerms = [
+            "notification", "alert", "chat", "channel", "thread", "tab", "site",
+            "speaker", "others", "all", "participant", "everyone", "audience",
+            "incoming", "deafen", "video", "camera", "sound", "ringtone", "volume"
+        ]
+        if excludedTerms.contains(where: { text.contains($0) }) {
+            return nil
+        }
+
+        let unmutePhrases = [
+            "unmute mic", "unmute microphone", "unmute audio", "unmute myself", "unmute me",
+            "turn on mic", "turn on microphone", "mic is muted", "microphone is muted"
+        ]
+        if text == "unmute" || unmutePhrases.contains(where: { text.contains($0) }) {
+            return true
+        }
+        if isMenuItem && text.hasPrefix("unmute") {
+            return true
+        }
+
+        let mutePhrases = [
+            "mute mic", "mute microphone", "mute audio", "mute myself", "mute me",
+            "turn off mic", "turn off microphone", "mic is on", "microphone is on"
+        ]
+        if text == "mute" || mutePhrases.contains(where: { text.contains($0) }) {
+            return false
+        }
+        if isMenuItem && text.hasPrefix("mute") {
+            return false
+        }
+
+        return nil
+    }
+
+    /// Reads the live in-app mic mute state (`true` = muted, `false` = live, `nil` = unknown/no active call)
+    /// from an app's menu bar or meeting window Accessibility tree. Call off the CGEventTap thread.
+    static func inspectCallAppMuteState(pid: pid_t) -> Bool? {
+        guard AXIsProcessTrusted() else { return nil }
+        let appElem = AXUIElementCreateApplication(pid)
+        AXUIElementSetAttributeValue(appElem, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+
+        var mbRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(appElem, kAXMenuBarAttribute as CFString, &mbRef) == .success,
+           let mb = mbRef {
+            if let menuResult = searchMenuForMuteState(mb as! AXUIElement, depthRemaining: 3, pathDepth: 0) {
+                return menuResult
+            }
+        }
+
+        var windowsRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(appElem, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+           let windows = windowsRef as? [AXUIElement] {
+            var remaining = 320
+            for win in windows.prefix(4) {
+                if let winResult = searchWindowForMuteState(win, depthRemaining: 12, nodeBudget: &remaining) {
+                    return winResult
+                }
+                if remaining <= 0 { break }
+            }
+        }
+        return nil
+    }
+
+    private static func searchMenuForMuteState(
+        _ container: AXUIElement,
+        depthRemaining: Int,
+        pathDepth: Int
+    ) -> Bool? {
+        guard depthRemaining > 0 else { return nil }
+        var childrenRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(container, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+              let children = childrenRef as? [AXUIElement] else {
+            return nil
+        }
+
+        for child in children {
+            var titleRef: CFTypeRef?
+            AXUIElementCopyAttributeValue(child, kAXTitleAttribute as CFString, &titleRef)
+            let title = (titleRef as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if pathDepth == 0 && title == "Apple" {
+                continue
+            }
+
+            if pathDepth >= 2, !title.isEmpty,
+               let classified = classifyCallMuteControlLabel(title, isMenuItem: true) {
+                var enRef: CFTypeRef?
+                AXUIElementCopyAttributeValue(child, kAXEnabledAttribute as CFString, &enRef)
+                let isEnabled = (enRef as? Bool) ?? true
+                if isEnabled {
+                    if !classified {
+                        var markRef: CFTypeRef?
+                        AXUIElementCopyAttributeValue(child, kAXMenuItemMarkCharAttribute as CFString, &markRef)
+                        if let mark = markRef as? String,
+                           !mark.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            return true
+                        }
+                    }
+                    return classified
+                }
+            }
+
+            if let nested = searchMenuForMuteState(child, depthRemaining: depthRemaining - 1, pathDepth: pathDepth + 1) {
+                return nested
+            }
+        }
+        return nil
+    }
+
+    private static func searchWindowForMuteState(
+        _ element: AXUIElement,
+        depthRemaining: Int,
+        nodeBudget: inout Int
+    ) -> Bool? {
+        guard depthRemaining > 0, nodeBudget > 0 else { return nil }
+        nodeBudget -= 1
+
+        var roleRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef)
+        let role = roleRef as? String ?? ""
+
+        let interactiveRoles: Set<String> = [
+            "AXButton", "AXCheckBox", "AXRadioButton", "AXMenuItem", "AXSwitch"
+        ]
+        if interactiveRoles.contains(role) {
+            var enRef: CFTypeRef?
+            AXUIElementCopyAttributeValue(element, kAXEnabledAttribute as CFString, &enRef)
+            let isEnabled = (enRef as? Bool) ?? true
+            if isEnabled {
+                let textAttributes: [CFString] = [
+                    kAXDescriptionAttribute as CFString,
+                    kAXTitleAttribute as CFString,
+                    kAXHelpAttribute as CFString
+                ]
+                for attr in textAttributes {
+                    var valueRef: CFTypeRef?
+                    if AXUIElementCopyAttributeValue(element, attr, &valueRef) == .success,
+                       let label = valueRef as? String,
+                       let classified = classifyCallMuteControlLabel(label, isMenuItem: false) {
+                        return classified
+                    }
+                }
+            }
+        }
+
+        if role == "AXMenuBar" {
+            return nil
+        }
+
+        var childrenRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+              let children = childrenRef as? [AXUIElement] else {
+            return nil
+        }
+        for child in children {
+            if let found = searchWindowForMuteState(child, depthRemaining: depthRemaining - 1, nodeBudget: &nodeBudget) {
+                return found
+            }
+            if nodeBudget <= 0 { break }
+        }
+        return nil
+    }
 
     static func inspectOrPressMenuItem(
         pid: pid_t,

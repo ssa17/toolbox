@@ -11,11 +11,11 @@ enum CleanLockUnlockReason: String, Sendable {
 @MainActor
 final class CleanLockModule: ToolboxModule, ObservableObject {
     let id = "clean_lock"
-    let name = "Clean Lock"
-    let tagline = "Lock your keyboard and trackpad on a countdown timer with a large on-screen display for safe cleaning."
-    let aboutSummary = "Temporarily blocks all keyboard keys (including volume, brightness, and media keys) and mouse/trackpad clicks & scrolling so you can wipe your MacBook safely. A large center-screen countdown automatically restores full control at 0, with a deliberate Hold ⌃ ⌥ ⌘ Esc (3s) emergency kill switch."
+    let name = "Keyboard Lock"
+    let tagline = "Temporarily disable your keyboard and trackpad on a countdown timer so you can dust or clean your keys without accidental presses."
+    let aboutSummary = "Temporarily blocks all keyboard keys (including volume, brightness, and media keys) and mouse/trackpad clicks & scrolling so you can physically dust or clean your keys and trackpad without triggering shortcuts or typing. A large center-screen countdown automatically restores full control at 0, with a deliberate Hold ⌃ ⌥ ⌘ Esc (3s) emergency unlock."
     let featureTips = [
-        "Trigger Clean Lock from this settings page whenever you need to wipe crumbs or dust.",
+        "Trigger Keyboard Lock from this page or the Dashboard whenever you want to dust your keyboard or clean your screen without accidental input.",
         "Every lock session is strictly bounded (10s to 3m) and automatically restores full input when the countdown hits 0.",
         "Need to cancel early? Hold ⌃ ⌥ ⌘ Esc continuously for 3 seconds to unlock immediately."
     ]
@@ -25,7 +25,7 @@ final class CleanLockModule: ToolboxModule, ObservableObject {
     let requiresAccessibility = true
     let supportsMenuBar = false
     let supportsEnableToggle = false
-    let accessibilityReason = "Needed to intercept and temporarily block keyboard and pointer events during the Clean Lock countdown."
+    let accessibilityReason = "Needed to intercept and temporarily block keyboard and pointer events during the Keyboard Lock countdown."
 
     @Published private(set) var isLocked = false
     @Published private(set) var remainingSeconds: Int = 60
@@ -108,7 +108,7 @@ final class CleanLockModule: ToolboxModule, ObservableObject {
 
         guard inputLockTap.install(lockMouseAndTrackpad: lockPointer) else {
             HUDToast.shared.show(
-                title: "Could not start Clean Lock",
+                title: "Could not start Keyboard Lock",
                 symbol: "exclamationmark.triangle.fill",
                 tint: .orange
             )
@@ -123,7 +123,7 @@ final class CleanLockModule: ToolboxModule, ObservableObject {
         )
         DeveloperEventLog.shared.record(
             .cleanLock,
-            "Clean Lock activated",
+            "Keyboard Lock activated",
             detail: "\(clampedDuration)s · pointer \(lockPointer ? "locked" : "unlocked")"
         )
         return true
@@ -158,7 +158,7 @@ final class CleanLockModule: ToolboxModule, ObservableObject {
 
         guard wasLocked else { return }
 
-        DeveloperEventLog.shared.record(.cleanLock, "Clean Lock released", detail: reason.rawValue)
+        DeveloperEventLog.shared.record(.cleanLock, "Keyboard Lock released", detail: reason.rawValue)
 
         if reason != .systemStop {
             let title = config.lockMouseAndTrackpad

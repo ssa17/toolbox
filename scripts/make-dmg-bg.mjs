@@ -1,10 +1,13 @@
-// Generates the Toolbox DMG background image (1320x800 @ 144 DPI = 660x400 pt).
+// Generates the Toolbox DMG background image (1600x1120 @ 144 DPI = 800x560 pt bleed canvas
+// so Finder never exposes white borders around the 660x400 layout).
 // Pure Node (zlib) — zero dependencies. Usage: node make-dmg-bg.mjs <out.png>
 import { deflateSync } from 'node:zlib';
 import { writeFileSync } from 'node:fs';
 
-const W = 1320;
-const H = 800;
+const W = 1600;
+const H = 1120;
+const VIEW_W = 1320;
+const VIEW_H = 800;
 const px = Buffer.alloc(W * H * 4);
 
 function clamp01(v) {
@@ -53,7 +56,7 @@ const bentoShapes = [
 ];
 
 for (let y = 0; y < H; y++) {
-  const vNorm = y / H;
+  const vNorm = Math.min(1, y / H);
   for (let x = 0; x < W; x++) {
     const idx = (y * W + x) * 4;
 
@@ -80,10 +83,10 @@ for (let y = 0; y < H; y++) {
       b += (167 - b) * gr;
     }
 
-    // Subtle dot grid (every 40px) faded toward edges
-    if (x % 40 < 2 && y % 40 < 2) {
-      const edgeX = smoothstep(40, 220, x) * (1 - smoothstep(W - 220, W - 40, x));
-      const edgeY = smoothstep(40, 180, y) * (1 - smoothstep(H - 180, H - 40, y));
+    // Subtle dot grid (every 40px) faded toward edges of the 660x400 window area
+    if (x < VIEW_W && y < VIEW_H && x % 40 < 2 && y % 40 < 2) {
+      const edgeX = smoothstep(40, 220, x) * (1 - smoothstep(VIEW_W - 220, VIEW_W - 40, x));
+      const edgeY = smoothstep(40, 180, y) * (1 - smoothstep(VIEW_H - 180, VIEW_H - 40, y));
       const dotA = 0.045 * edgeX * edgeY;
       r += (139 - r) * dotA;
       g += (148 - g) * dotA;

@@ -9,6 +9,19 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 
 ## [Unreleased]
 
+### Added
+- **First-Open Accessibility Prompt** — explains which features use Accessibility (and what works without it) on first launch, with preview and reset controls in Developer Tools
+
+### Changed
+- **Dashboard & Readability** — refreshed the Accessibility banner, increased card and text contrast across the Dashboard and settings, and renamed **Clean Lock** to **Keyboard Lock** with clearer dusting/cleaning copy
+
+### Fixed
+- **Menu Bar & Multi-Display** — presented the status bar menu in a non-activating panel so macOS 26 keeps it open reliably even when Toolbox is in the background, and opened Toolbox's window on the display where your cursor is
+- **Clipboard Popover** — fixed arrow-key scrolling in both directions, preserved the exact selected row and scroll position when closing full-text preview with Left Arrow, suppressed unhandled arrow alert beeps, and made Delete/action buttons clearly visible
+- **Port Killer** — automatically focused the search box every time the popover opens so you can type to filter or press `↓` to select rows immediately
+- **Call Controls (Teams Sync & Mic Detection)** — synced hardware mute with Microsoft Teams' live in-app mute state, stopped idle background chat windows from hijacking global keybinds, and tracked per-process CoreAudio input streams so output sound effects no longer trigger the floating audio pill
+- **DMG Installer** — expanded the installer backdrop canvas to eliminate white borders around the Finder window
+
 ## [1.2] - 2026-11-15
 
 ### Added

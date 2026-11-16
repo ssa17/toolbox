@@ -233,6 +233,8 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
 
     @Published private(set) var isRunning = false
     @Published private(set) var devices: [AudioDeviceInfo] = []
+    @Published private(set) var hardwareInputMuted: Bool = false
+    @Published private(set) var callAppMutedState: Bool? = nil
     @Published private(set) var isInputMuted: Bool = false
     @Published private(set) var isTypingMuted: Bool = false
     @Published private(set) var isMicStreamActive: Bool = false
@@ -261,6 +263,8 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
     private let typingGuard = TypingMicGuard()
     private let floatingIndicator = FloatingMicIndicatorPanel()
     private var appLifecycleObservers: [NSObjectProtocol] = []
+    private var callAppPollTimer: Timer?
+    private let callAppInspectionQueue = DispatchQueue(label: "app.toolbox.call-app-ax-poll", qos: .utility)
     private var simulatedTypingBurstTask: Task<Void, Never>?
 
     init() {
@@ -285,19 +289,25 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
             self?.refreshCameraStatus()
         }
 
-        callRemapper.onRemapTriggered = { [weak self] action, mapping, targetShortcut, deliveredToCallApp in
+        callRemapper.onRemapTriggered = { [weak self] action, mapping, targetShortcut, deliveredToCallApp, preRelayAppMuted in
             Task { @MainActor in
                 self?.handleCallShortcutRelayed(
                     action: action,
                     mapping: mapping,
                     targetShortcut: targetShortcut,
-                    deliveredToCallApp: deliveredToCallApp
+                    deliveredToCallApp: deliveredToCallApp,
+                    preRelayAppMuted: preRelayAppMuted
                 )
             }
         }
         callRemapper.onGlobalActionTriggered = { [weak self] action, passedThrough in
             Task { @MainActor in
                 self?.handleGlobalKeybindWithoutRelay(action: action, passedThrough: passedThrough)
+            }
+        }
+        callRemapper.onNativeAppMicShortcutPressed = { [weak self] mapping, pid in
+            Task { @MainActor in
+                self?.handleNativeAppMicShortcutPressed(mapping: mapping, pid: pid)
             }
         }
         callRemapper.onSimulatedActionTriggered = { [weak self] action, wasConsumed in
@@ -317,7 +327,7 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
             if self.developerSimulation != nil {
                 self.toggleSimulatedMicFromPill()
             } else {
-                self.toggleHardwareMicMute()
+                self.toggleSmartMicMute()
             }
         }
         floatingIndicator.onToggleVideo = { [weak self] in
@@ -447,9 +457,12 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
         coreAudio.stopObserving()
         coreAudio.clearSavedFallbackVolumes()
         removeAppLifecycleObservers()
+        stopCallAppPollTimer()
 
+        callAppMutedState = nil
         isTypingMuted = false
         isRunning = false
+        updateEffectiveMuteState()
         syncCallShortcutRemapper()
         syncFloatingIndicator()
     }
@@ -1149,7 +1162,12 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
         if isMicStreamActive != active {
             isMicStreamActive = active
         }
-        syncFloatingIndicator()
+        if !active && callAppMutedState != nil {
+            callAppMutedState = nil
+        }
+        callRemapper.updateCallActivity(isCallOrMediaActive)
+        syncCallAppPollTimer()
+        updateEffectiveMuteState()
     }
 
     func refreshCameraStatus() {
@@ -1157,6 +1175,7 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
         hasCameraDevice = cam.hasCamera
         isCameraActive = cam.isCameraActive
         activeCameraName = cam.activeCameraName
+        callRemapper.updateCallActivity(isCallOrMediaActive)
         syncFloatingIndicator()
     }
 
@@ -1334,31 +1353,99 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
 
     func refreshAudioDevices() {
         let updated = CoreAudioController.listDevices()
-        devices = updated
-        let hardwareMuted = coreAudio.currentInputMuteState()
-        isInputMuted = hardwareMuted
-        if !isTypingMuted {
-            typingGuard.syncManualMuteState(hardwareMuted)
+        if devices != updated {
+            devices = updated
         }
-        syncFloatingIndicator()
+        hardwareInputMuted = coreAudio.currentInputMuteState()
+        updateEffectiveMuteState()
     }
 
     private func refreshMuteStateFromHardware() {
         let hardwareMuted = coreAudio.currentInputMuteState()
-        isInputMuted = hardwareMuted
-        if !isTypingMuted {
-            typingGuard.syncManualMuteState(hardwareMuted)
-        } else if !hardwareMuted {
+        hardwareInputMuted = hardwareMuted
+        if isTypingMuted && !hardwareMuted {
             // External app or hardware button unmuted while typing-muted; clear transient flag.
             isTypingMuted = false
-            typingGuard.syncManualMuteState(false)
         }
-        devices = CoreAudioController.listDevices()
+        let updated = CoreAudioController.listDevices()
+        if devices != updated {
+            devices = updated
+        }
+        updateEffectiveMuteState()
+    }
+
+    static func resolveEffectiveMuteState(
+        isTypingMuted: Bool,
+        hardwareMuted: Bool,
+        callAppMuted: Bool?
+    ) -> Bool {
+        if isTypingMuted { return true }
+        return hardwareMuted || (callAppMuted ?? false)
+    }
+
+    private func updateEffectiveMuteState() {
+        let effective = Self.resolveEffectiveMuteState(
+            isTypingMuted: isTypingMuted,
+            hardwareMuted: hardwareInputMuted,
+            callAppMuted: callAppMutedState
+        )
+        if isInputMuted != effective {
+            isInputMuted = effective
+        }
+        if !isTypingMuted {
+            typingGuard.syncManualMuteState(effective)
+        }
         syncFloatingIndicator()
     }
 
     func toggleHardwareMicMute() {
-        setHardwareMicMuted(!isInputMuted, announceToast: true)
+        setHardwareMicMuted(!hardwareInputMuted, announceToast: true)
+    }
+
+    /// Context-aware mic toggle used by the Floating Pill and Menu Bar button:
+    /// coordinates with an active call app (e.g. Teams) so hardware and in-app mute stay in phase.
+    func toggleSmartMicMute() {
+        guard isMicStreamActive,
+              PermissionsManager.shared.isAccessibilityGranted,
+              let target = currentTargetSummary(for: .mic) else {
+            toggleHardwareMicMute()
+            return
+        }
+
+        if isInputMuted {
+            // User wants to UNMUTE. Clear any leftover hardware mute first, and relay to the call app
+            // only if the call app itself is muted (or its state isn't known yet).
+            let hadHardwareMute = hardwareInputMuted
+            if hadHardwareMute {
+                _ = setHardwareMicMuted(false, announceToast: false)
+            }
+            if callAppMutedState == true || !hadHardwareMute {
+                let sent = callRemapper.triggerManualAction(
+                    .mic,
+                    mappings: config.appShortcutMappings,
+                    overrideScope: config.overrideScope,
+                    isCallActivityActive: isCallOrMediaActive
+                )
+                if !sent && hadHardwareMute {
+                    let micName = defaultInputDevice?.name ?? "Microphone"
+                    showToast(title: "Mic Live - \(micName)", symbol: "mic.fill", tint: .green)
+                }
+            } else {
+                let micName = defaultInputDevice?.name ?? "Microphone"
+                showToast(title: "Mic Live · \(target.appName) (\(micName))", symbol: "mic.fill", tint: .green)
+            }
+        } else {
+            // User wants to MUTE.
+            let sent = callRemapper.triggerManualAction(
+                .mic,
+                mappings: config.appShortcutMappings,
+                overrideScope: config.overrideScope,
+                isCallActivityActive: isCallOrMediaActive
+            )
+            if !sent {
+                _ = setHardwareMicMuted(true, announceToast: true)
+            }
+        }
     }
 
     @discardableResult
@@ -1530,11 +1617,34 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
     private func handleGlobalKeybindWithoutRelay(action: CallActionKind, passedThrough: Bool) {
         switch action {
         case .mic:
+            if passedThrough,
+               let target = currentTargetSummary(for: .mic),
+               let pid = target.pid,
+               PermissionsManager.shared.isAccessibilityGranted {
+                let currentAppMuted = CallShortcutRemapper.inspectCallAppMuteState(pid: pid)
+                let nextMuted = currentAppMuted.map { !$0 } ?? !isInputMuted
+                callAppMutedState = nextMuted
+                if defaultInputDevice != nil {
+                    _ = setHardwareMicMuted(nextMuted, announceToast: false)
+                } else {
+                    updateEffectiveMuteState()
+                }
+                let title = "\(nextMuted ? "Mic Muted" : "Mic Live") · \(target.appName)"
+                lastRelayedActionLabel = "\(title) (Synced)"
+                showToast(
+                    title: title,
+                    symbol: nextMuted ? "mic.slash.fill" : "mic.fill",
+                    tint: nextMuted ? .red : .green
+                )
+                scheduleCallAppMuteStateRefresh(pid: pid, appName: target.appName)
+                return
+            }
+
             guard defaultInputDevice != nil else {
                 showToast(title: "No input microphone available", symbol: "mic.slash", tint: .orange, force: true)
                 return
             }
-            let nextMuted = !isInputMuted
+            let nextMuted = !hardwareInputMuted
             guard setHardwareMicMuted(nextMuted, announceToast: false) else { return }
             let micName = defaultInputDevice?.name ?? "Microphone"
             let label = nextMuted ? "Mic Muted - \(micName)" : "Mic Live - \(micName)"
@@ -1550,36 +1660,87 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
         }
     }
 
+    private func handleNativeAppMicShortcutPressed(mapping: CallAppShortcutMapping, pid: pid_t) {
+        guard isRunning, developerSimulation == nil else { return }
+        scheduleCallAppMuteStateRefresh(pid: pid, appName: mapping.appName)
+    }
+
     private func handleCallShortcutRelayed(
         action: CallActionKind,
         mapping: CallAppShortcutMapping,
         targetShortcut: ShortcutSpec,
-        deliveredToCallApp: Bool
+        deliveredToCallApp: Bool,
+        preRelayAppMuted: Bool?
     ) {
-        let shouldSyncHW = (action == .mic)
-            && (config.overrideScope == .everywhere || config.syncHardwareMuteWithAppMicToggle)
-            && defaultInputDevice != nil
-
-        var hwMutedState: Bool? = nil
-        if shouldSyncHW {
-            let nextMuted = !isInputMuted
-            if setHardwareMicMuted(nextMuted, announceToast: false) {
-                hwMutedState = nextMuted
+        if action == .mic {
+            if !deliveredToCallApp {
+                if config.overrideScope == .everywhere, defaultInputDevice != nil {
+                    let nextMuted = !hardwareInputMuted
+                    if setHardwareMicMuted(nextMuted, announceToast: false) {
+                        let hwLabel = nextMuted ? "Mic Muted" : "Mic Live"
+                        let title = "\(hwLabel) (\(mapping.appName) idle)"
+                        lastRelayedActionLabel = title
+                        DeveloperEventLog.shared.record(.callControls, title, detail: targetShortcut.displayString)
+                        showToast(
+                            title: title,
+                            symbol: nextMuted ? "mic.slash.fill" : "mic.fill",
+                            tint: nextMuted ? .red : .green
+                        )
+                        return
+                    }
+                }
+                let note = "\(mapping.appName) mic is disabled until a call is active"
+                lastRelayedActionLabel = note
+                DeveloperEventLog.shared.record(.callControls, note)
+                showToast(title: note, symbol: "mic.slash", tint: .orange, force: true)
+                return
             }
-        }
 
-        if let hwMuted = hwMutedState {
-            let hwLabel = hwMuted ? "Mic Muted" : "Mic Live"
-            let title = deliveredToCallApp
-                ? "\(hwLabel) · \(mapping.appName)"
-                : "\(hwLabel) (\(mapping.appName) idle)"
+            let targetMuted: Bool
+            if let preMuted = preRelayAppMuted {
+                targetMuted = !preMuted
+            } else if let cached = callAppMutedState {
+                targetMuted = !cached
+            } else {
+                targetMuted = !isInputMuted
+            }
+
+            callAppMutedState = targetMuted
+            let shouldSyncHW = (config.overrideScope == .everywhere || config.syncHardwareMuteWithAppMicToggle)
+                && defaultInputDevice != nil
+            if shouldSyncHW {
+                if preRelayAppMuted != nil || config.syncHardwareMuteWithAppMicToggle {
+                    _ = setHardwareMicMuted(targetMuted, announceToast: false)
+                } else if !targetMuted && hardwareInputMuted {
+                    _ = setHardwareMicMuted(false, announceToast: false)
+                } else {
+                    updateEffectiveMuteState()
+                }
+            } else {
+                if !targetMuted && hardwareInputMuted {
+                    _ = setHardwareMicMuted(false, announceToast: false)
+                } else {
+                    updateEffectiveMuteState()
+                }
+            }
+
+            let stateLabel = targetMuted ? "Mic Muted" : "Mic Live"
+            let title = "\(stateLabel) · \(mapping.appName)"
             lastRelayedActionLabel = title
-            DeveloperEventLog.shared.record(.callControls, title, detail: targetShortcut.displayString)
+            DeveloperEventLog.shared.record(
+                .callControls,
+                title,
+                detail: "\(targetShortcut.displayString) · preAX=\(preRelayAppMuted.map { $0 ? "muted" : "live" } ?? "unknown")"
+            )
             showToast(
                 title: title,
-                symbol: hwMuted ? "mic.slash.fill" : "mic.fill",
-                tint: hwMuted ? .red : .green
+                symbol: targetMuted ? "mic.slash.fill" : "mic.fill",
+                tint: targetMuted ? .red : .green
             )
+
+            if let pid = currentTargetSummary(for: .mic)?.pid {
+                scheduleCallAppMuteStateRefresh(pid: pid, appName: mapping.appName)
+            }
             return
         }
 
@@ -1587,27 +1748,108 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
             let note = "\(mapping.appName) \(action.label.lowercased()) is disabled until a call is active"
             lastRelayedActionLabel = note
             DeveloperEventLog.shared.record(.callControls, note)
-            showToast(title: note, symbol: action == .mic ? "mic.slash" : "video.slash", tint: .orange, force: true)
+            showToast(title: note, symbol: "video.slash", tint: .orange, force: true)
             return
         }
 
-        if action == .video {
-            let expectedCameraOn = !isCameraActive
-            let stateTitle = expectedCameraOn ? "Camera On · \(mapping.appName)" : "Camera Off · \(mapping.appName)"
-            let label = "\(stateTitle) (\(targetShortcut.displayString))"
-            lastRelayedActionLabel = label
-            DeveloperEventLog.shared.record(.callControls, "Relayed Video shortcut", detail: label)
-            showToast(
-                title: stateTitle,
-                symbol: expectedCameraOn ? "video.fill" : "video.slash.fill",
-                tint: expectedCameraOn ? .green : .red
-            )
-        } else {
-            let label = "\(action.label) -> \(mapping.appName) (\(targetShortcut.displayString))"
-            lastRelayedActionLabel = label
-            DeveloperEventLog.shared.record(.callControls, "Relayed \(action.label) shortcut", detail: label)
-            showToast(title: label, symbol: "mic.fill", tint: .green)
+        let expectedCameraOn = !isCameraActive
+        let stateTitle = expectedCameraOn ? "Camera On · \(mapping.appName)" : "Camera Off · \(mapping.appName)"
+        let label = "\(stateTitle) (\(targetShortcut.displayString))"
+        lastRelayedActionLabel = label
+        DeveloperEventLog.shared.record(.callControls, "Relayed Video shortcut", detail: label)
+        showToast(
+            title: stateTitle,
+            symbol: expectedCameraOn ? "video.fill" : "video.slash.fill",
+            tint: expectedCameraOn ? .green : .red
+        )
+    }
+
+    private func syncCallAppPollTimer() {
+        let shouldPoll = isRunning && isMicStreamActive && PermissionsManager.shared.isAccessibilityGranted && developerSimulation == nil
+        guard shouldPoll else {
+            stopCallAppPollTimer()
+            return
         }
+        guard callAppPollTimer == nil else { return }
+        pollActiveCallAppMuteState()
+        let timer = Timer(timeInterval: 0.9, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.pollActiveCallAppMuteState()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        callAppPollTimer = timer
+    }
+
+    private func stopCallAppPollTimer() {
+        callAppPollTimer?.invalidate()
+        callAppPollTimer = nil
+    }
+
+    private func activeCallAppTargetForPolling() -> (pid: pid_t, appName: String)? {
+        if let summary = currentTargetSummary(for: .mic), let pid = summary.pid {
+            return (pid, summary.appName)
+        }
+        for mapping in config.appShortcutMappings where mapping.enabled && !mapping.micShortcut.isEmpty {
+            if let running = NSWorkspace.shared.runningApplications.first(where: { app in
+                !app.isTerminated && mapping.matches(bundleID: app.bundleIdentifier)
+            }) {
+                return (running.processIdentifier, mapping.appName)
+            }
+        }
+        return nil
+    }
+
+    private func pollActiveCallAppMuteState() {
+        guard isRunning, isMicStreamActive, PermissionsManager.shared.isAccessibilityGranted, developerSimulation == nil,
+              let target = activeCallAppTargetForPolling() else {
+            return
+        }
+        let pid = target.pid
+        let appName = target.appName
+        callAppInspectionQueue.async { [weak self] in
+            let observed = CallShortcutRemapper.inspectCallAppMuteState(pid: pid)
+            Task { @MainActor [weak self] in
+                self?.applyObservedCallAppMuteState(observed, appName: appName)
+            }
+        }
+    }
+
+    private func scheduleCallAppMuteStateRefresh(pid: pid_t, appName: String) {
+        for delay in [0.18, 0.48] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, self.isRunning, self.developerSimulation == nil else { return }
+                self.callAppInspectionQueue.async { [weak self] in
+                    let observed = CallShortcutRemapper.inspectCallAppMuteState(pid: pid)
+                    Task { @MainActor [weak self] in
+                        self?.applyObservedCallAppMuteState(observed, appName: appName)
+                    }
+                }
+            }
+        }
+    }
+
+    private func applyObservedCallAppMuteState(_ observedMuted: Bool?, appName: String?) {
+        guard isRunning, isMicStreamActive, developerSimulation == nil, let observedMuted else {
+            return
+        }
+        let previous = callAppMutedState
+        let didChangeInApp = (previous != nil && previous != observedMuted)
+        callAppMutedState = observedMuted
+
+        if didChangeInApp && !isTypingMuted {
+            let shouldSyncHW = (config.overrideScope == .everywhere || config.syncHardwareMuteWithAppMicToggle)
+            if shouldSyncHW && hardwareInputMuted != observedMuted && defaultInputDevice != nil {
+                _ = setHardwareMicMuted(observedMuted, announceToast: false)
+                DeveloperEventLog.shared.record(
+                    .callControls,
+                    observedMuted ? "Synced hardware mic to app mute" : "Synced hardware mic to app live",
+                    detail: appName
+                )
+                return
+            }
+        }
+        updateEffectiveMuteState()
     }
 
     private func applyTypingMute(_ shouldMute: Bool) {
@@ -1642,9 +1884,10 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
         isTypingMuted = false
         if shouldRestore && forceUnmuteCurrentDevice {
             _ = coreAudio.setDefaultInputMuted(false)
+            hardwareInputMuted = coreAudio.currentInputMuteState()
             DeveloperEventLog.shared.record(.callControls, "Restored mic from typing mute")
         }
-        syncFloatingIndicator()
+        updateEffectiveMuteState()
     }
 
     private func showToast(title: String, symbol: String, tint: Color, force: Bool = false) {

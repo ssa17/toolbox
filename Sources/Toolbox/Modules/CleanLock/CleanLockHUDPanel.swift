@@ -118,7 +118,7 @@ struct CleanLockHUDCardView: View {
             .padding(.top, 4)
 
             VStack(spacing: 4) {
-                Text("Cleaning Lock Active")
+                Text("Keyboard Lock Active")
                     .font(.headline.weight(.semibold))
                     .foregroundStyle(.primary)
                 Text(state.lockMouseAndTrackpad ? "Keyboard & Trackpad Locked" : "Keyboard Locked")

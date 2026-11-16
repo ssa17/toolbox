@@ -632,6 +632,44 @@ struct DeveloperToolsView: View {
 
                 Divider()
 
+                SettingRow(
+                    "First-Open Permission Prompt & Banner",
+                    subtitle: "Preview the first-launch Accessibility explanation modal, inspect the Dashboard banner, or reset the seen flag."
+                ) {
+                    HStack(spacing: 8) {
+                        Button("Preview Prompt") {
+                            permissions.presentOnboardingModal()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .pointerCursor()
+
+                        Button("Dashboard Banner") {
+                            permissions.setSimulatedAccessibilityGranted(false)
+                            MainWindowController.shared.show(destination: .dashboard)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .pointerCursor()
+
+                        Button("Reset Seen Flag") {
+                            configManager.config.general.hasSeenAccessibilityOnboarding = false
+                            HUDToast.shared.show(
+                                title: "First-open permission prompt reset",
+                                symbol: "arrow.counterclockwise",
+                                tint: .blue
+                            )
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(!configManager.config.general.hasSeenAccessibilityOnboarding)
+                        .pointerCursor(configManager.config.general.hasSeenAccessibilityOnboarding)
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+                }
+
+                Divider()
+
                 VStack(alignment: .leading, spacing: 8) {
                     SettingRow(
                         "HUD Toast Preview",

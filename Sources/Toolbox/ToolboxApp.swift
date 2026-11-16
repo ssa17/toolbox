@@ -45,6 +45,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if configManager.config.general.openDashboardOnLaunch {
             MainWindowController.shared.show(destination: .dashboard)
+            let isDiagnosticMode = CommandLine.arguments.contains("--self-test") || CommandLine.arguments.contains("--snapshot-ui")
+            if !isDiagnosticMode,
+               !configManager.config.general.hasSeenAccessibilityOnboarding,
+               !permissions.isAccessibilityGranted {
+                permissions.presentOnboardingModal()
+            }
         }
     }
 

@@ -98,10 +98,12 @@ final class PortKillerPopoverUIState: ObservableObject {
     @Published var query: String = ""
     @Published var filterMode: PortFilterMode = .all
     @Published var selectedKey: String?
+    @Published var openSequence: Int = 0
 
     func resetForOpen(ports: [ListeningPort]) {
         query = ""
         selectedKey = ports.first?.id
+        openSequence &+= 1
     }
 
     func selectedPort(in list: [ListeningPort]) -> ListeningPort? {
@@ -546,15 +548,39 @@ final class PortKillerModule: NSObject, ToolboxModule, ObservableObject {
         panel.setFrame(NSRect(x: origin.x, y: origin.y, width: width, height: height), display: true)
         panel.orderFrontRegardless()
         panel.makeKey()
+        focusSearchField(in: panel)
         installPopoverMonitors(for: panel)
-        DispatchQueue.main.async { [weak panel] in
+        DispatchQueue.main.async { [weak self, weak panel] in
             if let panel, panel.isVisible {
+                self?.focusSearchField(in: panel)
                 PointerCursorNSView.syncCursor(in: panel)
             }
         }
 
         refreshPorts()
         syncRefreshTimer()
+    }
+
+    private func focusSearchField(in panel: NSPanel) {
+        panel.contentView?.layoutSubtreeIfNeeded()
+        if let searchField = Self.findEditableTextField(in: panel.contentView) {
+            panel.makeFirstResponder(searchField)
+        }
+    }
+
+    internal static func findEditableTextField(in view: NSView?) -> NSTextField? {
+        guard let view else { return nil }
+        if let textField = view as? NSTextField,
+           textField.isEditable,
+           !textField.isHidden {
+            return textField
+        }
+        for subview in view.subviews {
+            if let match = findEditableTextField(in: subview) {
+                return match
+            }
+        }
+        return nil
     }
 
     func hidePopover() {

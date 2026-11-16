@@ -153,6 +153,48 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         return win
     }
 
+    static func screen(containing point: NSPoint, in screens: [NSScreen] = NSScreen.screens) -> NSScreen? {
+        screens.first(where: { NSMouseInRect(point, $0.frame, false) }) ?? NSScreen.main ?? screens.first
+    }
+
+    static func centeredWindowFrame(
+        currentSize: NSSize,
+        onScreenVisibleFrame visibleFrame: NSRect
+    ) -> NSRect {
+        let width = min(max(currentSize.width, minimumContentSize.width), visibleFrame.width)
+        let height = min(max(currentSize.height, minimumContentSize.height + 28), visibleFrame.height)
+        let minX = visibleFrame.minX
+        let maxX = max(minX, visibleFrame.maxX - width)
+        let minY = visibleFrame.minY
+        let maxY = max(minY, visibleFrame.maxY - height)
+        let originX = min(max(round(visibleFrame.midX - width / 2), minX), maxX)
+        let originY = min(max(round(visibleFrame.midY - height / 2), minY), maxY)
+        return NSRect(x: originX, y: originY, width: width, height: height)
+    }
+
+    @discardableResult
+    internal func repositionWindowToScreen(
+        containing point: NSPoint,
+        window win: NSWindow,
+        forceIfVisibleOnOtherScreen: Bool = true
+    ) -> NSScreen? {
+        guard let targetScreen = Self.screen(containing: point) else { return nil }
+        let windowCenter = NSPoint(x: win.frame.midX, y: win.frame.midY)
+        let isCenterOnTargetScreen = targetScreen.frame.contains(windowCenter)
+        let isSameAppKitScreen = (win.screen === targetScreen) && isCenterOnTargetScreen
+        let shouldReposition = win.isVisible
+            ? (forceIfVisibleOnOtherScreen && !isSameAppKitScreen)
+            : !isCenterOnTargetScreen
+        if shouldReposition {
+            let nextFrame = Self.centeredWindowFrame(
+                currentSize: win.frame.size,
+                onScreenVisibleFrame: targetScreen.visibleFrame
+            )
+            win.setFrame(nextFrame, display: win.isVisible)
+        }
+        return targetScreen
+    }
+
     /// Opens or focuses the main window. Pass `nil` to preserve the user's current page.
     func show(destination: SidebarDestination? = nil) {
         if let destination {
@@ -163,6 +205,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         if win.isMiniaturized {
             win.deminiaturize(nil)
         }
+        repositionWindowToScreen(containing: NSEvent.mouseLocation, window: win)
         win.makeKeyAndOrderFront(nil)
         win.makeFirstResponder(nil)
         win.contentMinSize = Self.minimumContentSize
@@ -264,6 +307,9 @@ struct MainSplitView: View {
                 .help(navState.isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
                 .pointerCursor()
             }
+        }
+        .sheet(isPresented: $permissions.isPresentingOnboardingModal) {
+            AccessibilityOnboardingModalView(permissions: permissions)
         }
     }
 

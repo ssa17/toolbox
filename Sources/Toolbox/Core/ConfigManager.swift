@@ -107,6 +107,7 @@ struct GeneralConfig: Codable, Equatable, Sendable {
     var openDashboardOnDockClick: Bool = true
     var dockQuitBehavior: DockQuitBehavior = .closeWindow
     var launchAtLogin: Bool = false
+    var hasSeenAccessibilityOnboarding: Bool = false
     var menuBarModuleOrder: [String] = GeneralConfig.defaultMenuBarModuleOrder
     var menuBarHiddenModules: [String] = []
     var showQuickActionsInMenuBar: Bool = true
@@ -123,6 +124,7 @@ struct GeneralConfig: Codable, Equatable, Sendable {
         openDashboardOnDockClick = try c.decodeIfPresent(Bool.self, forKey: .openDashboardOnDockClick) ?? true
         dockQuitBehavior = try c.decodeIfPresent(DockQuitBehavior.self, forKey: .dockQuitBehavior) ?? .closeWindow
         launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
+        hasSeenAccessibilityOnboarding = try c.decodeIfPresent(Bool.self, forKey: .hasSeenAccessibilityOnboarding) ?? false
         let decodedOrder = try c.decodeIfPresent([String].self, forKey: .menuBarModuleOrder) ?? Self.defaultMenuBarModuleOrder
         menuBarModuleOrder = decodedOrder.map { $0 == "audio_guard" ? "call_controls" : $0 }
         let decodedHidden = try c.decodeIfPresent([String].self, forKey: .menuBarHiddenModules) ?? []

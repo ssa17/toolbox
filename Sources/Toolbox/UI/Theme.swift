@@ -392,10 +392,12 @@ struct StatusBadge: View {
             Text(text)
                 .font(.caption.weight(.medium))
                 .foregroundStyle(color)
+                .lineLimit(1)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
         .background(color.opacity(0.14), in: Capsule())
+        .fixedSize(horizontal: true, vertical: false)
     }
 }
 
@@ -447,10 +449,17 @@ struct SectionCard<Content: View>: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius))
+        .background(
+            RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.62))
+                .overlay(
+                    RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
+                        .fill(Color.primary.opacity(0.035))
+                )
+        )
         .overlay(
             RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
-                .strokeBorder(Color.primary.opacity(0.11), lineWidth: 1)
+                .strokeBorder(Color.primary.opacity(0.14), lineWidth: 1)
         )
     }
 }
@@ -480,8 +489,8 @@ struct FeatureSection<Content: View>: View {
                     .tracking(0.5)
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
                 }
             }
             .padding(.horizontal, 4)
@@ -513,11 +522,11 @@ struct SettingRow<Trailing: View>: View {
         HStack(alignment: .center, spacing: 14) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.callout.weight(.medium))
+                    .font(.callout.weight(.semibold))
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Color.primary.opacity(0.72))
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }

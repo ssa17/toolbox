@@ -78,6 +78,7 @@ def make_dmg
           set arrangement of viewOptions to not arranged
           set icon size of viewOptions to 112
           set text size of viewOptions to 13
+          set background color of viewOptions to {2816, 3328, 4608}
           set background picture of viewOptions to file ".background:background.png"
           set position of item "#{APP_NAME}.app" of container window to {185, 195}
           set position of item "Applications" of container window to {475, 195}
@@ -98,6 +99,20 @@ def make_dmg
 
   sh("hdiutil convert '#{rw_dmg}' -format UDZO -imagekey zlib-level=9 -o '#{dmg_path}'")
   File.delete(rw_dmg) if File.exist?(rw_dmg)
+
+  cert = `security find-identity -v -p codesigning 2>/dev/null | grep -m1 "Developer ID Application" | awk -F'"' '{print $2}'`.strip
+  unless cert.empty?
+    UI.message "--- Signing & Notarizing DMG ---"
+    notary_profile = ENV["NOTARY_PROFILE"] || "notary-profile"
+    sh("codesign --force --sign '#{cert}' --timestamp '#{dmg_path}'")
+    if system("xcrun notarytool submit '#{dmg_path}' --keychain-profile '#{notary_profile}' --wait")
+      sh("xcrun stapler staple '#{dmg_path}'")
+      UI.success "Signed & notarized #{dmg_path} ✅"
+    else
+      UI.warn "DMG notarization skipped/failed (check keychain profile '#{notary_profile}'); continuing with signed DMG."
+    end
+  end
+
   UI.success "Created #{dmg_path} (v#{app_version})"
   dmg_path
 end

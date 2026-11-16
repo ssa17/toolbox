@@ -1,62 +1,54 @@
 import AppKit
 import SwiftUI
 
-private final class MenuHostingContainerView: NSView {
-    override func mouseUp(with event: NSEvent) {
-        // Swallow mouseUp inside the embedded SwiftUI view so AppKit's NSMenu
-        // tracking loop does not treat toggle/button clicks as menu item selection.
+private final class MenuBarPopoverNSPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        frameRect
+    }
+}
+
+private final class MenuBarPopoverChromeView: NSVisualEffectView {
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateBorderColor()
+    }
+
+    func updateBorderColor() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.14).cgColor
+        }
     }
 }
 
 @MainActor
-final class MenuBarController: NSObject, NSMenuDelegate {
+final class MenuBarController: NSObject {
     private var statusItem: NSStatusItem?
-    private let menu = NSMenu()
-    private let contentMenuItem = NSMenuItem(title: "Toolbox", action: nil, keyEquivalent: "")
-    private let containerView = MenuHostingContainerView()
-    private let hostingController: NSHostingController<MenuBarPopoverView>
+    private var panel: MenuBarPopoverNSPanel?
+    private var visualEffectView: MenuBarPopoverChromeView?
+    private var hostingView: PointerCursorHostingView<MenuBarPopoverView>?
     private var isAppActive: Bool = true
     private let menuWidth: CGFloat = 340
-    private var previousFrontmostApp: NSRunningApplication?
-    private var hiddenDashboardWindow: NSWindow?
-    private var keepAppActiveOnClose = false
-    private var cursorSyncTimer: Timer?
+    private var outsideClickMonitor: Any?
+    private var localMouseMonitor: Any?
+    private var localKeyMonitor: Any?
+    private var workspaceActivationObserver: NSObjectProtocol?
+    private var sizeCheckTimer: Timer?
+    private var openedAtUptime: TimeInterval = 0
+    private var frontmostPIDAtOpen: pid_t?
 
     internal var attachedMenuForTesting: NSMenu? { statusItem?.menu }
-    internal var menuInstanceForTesting: NSMenu { menu }
     internal var statusButtonForTesting: NSStatusBarButton? { statusItem?.button }
-    internal var pointerCursorViewCountForTesting: Int { Self.countPointerCursorViews(in: hostingController.view) }
+    internal var popoverPanelForTesting: NSPanel? { panel }
+    internal var isPopoverVisibleForTesting: Bool { panel?.isVisible ?? false }
+    internal var pointerCursorViewCountForTesting: Int {
+        Self.countPointerCursorViews(in: ensurePanelAndHostingView().hostingView)
+    }
 
     override init() {
-        var controllerRef: MenuBarController?
-        let rootView = MenuBarPopoverView(
-            onOpenDashboard: { destination in
-                controllerRef?.keepAppActiveOnClose = true
-                controllerRef?.closeMenu()
-                MainWindowController.shared.show(destination: destination)
-            },
-            onClosePopover: { keepActive in
-                if keepActive {
-                    controllerRef?.keepAppActiveOnClose = true
-                }
-                controllerRef?.closeMenu()
-            }
-        )
-        self.hostingController = NSHostingController(rootView: rootView)
-
         super.init()
-        controllerRef = self
-
-        menu.autoenablesItems = false
-        menu.delegate = self
-        menu.minimumWidth = menuWidth
-
-        hostingController.sizingOptions = []
-        hostingController.view.autoresizingMask = [.width, .height]
-        containerView.addSubview(hostingController.view)
-        updateHostedViewSize()
-        contentMenuItem.view = containerView
-        menu.addItem(contentMenuItem)
 
         NotificationCenter.default.addObserver(
             forName: .toolboxWillPresentUpdateWindow,
@@ -64,9 +56,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self else { return }
-                self.keepAppActiveOnClose = true
-                self.closeMenu()
+                self?.closeMenu()
             }
         }
     }
@@ -76,9 +66,14 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         if visible {
             if statusItem == nil {
                 let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-                // Attach the NSMenu directly and let AppKit present/toggle it natively (same pattern as Pulse).
-                // AppKit guarantees click-to-open, second-click-to-close, outside-click dismiss, and zero delay.
-                item.menu = menu
+                // Present a .nonactivatingPanel popover rather than NSMenu.view so macOS 26
+                // does not cancel menu tracking when Toolbox is in the background.
+                item.menu = nil
+                if let button = item.button {
+                    button.target = self
+                    button.action = #selector(handleStatusBarButtonClick(_:))
+                    button.sendAction(on: [.leftMouseDown, .rightMouseDown])
+                }
                 self.statusItem = item
             }
             updateAppearance(isActive: isActive)
@@ -102,85 +97,292 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         button.toolTip = isActive ? "Toolbox (Active)" : "Toolbox (Paused)"
     }
 
-    func menuWillOpen(_ menu: NSMenu) {
+    @objc
+    private func handleStatusBarButtonClick(_ sender: Any?) {
+        if panel?.isVisible == true {
+            closeMenu()
+        } else {
+            showPopover()
+        }
+    }
+
+    func showPopover() {
+        openedAtUptime = ProcessInfo.processInfo.systemUptime
+        frontmostPIDAtOpen = NSWorkspace.shared.frontmostApplication?.processIdentifier
         PermissionsManager.shared.refresh()
         if ConfigManager.shared.config.callControls.enabled {
             ModuleRegistry.shared.callControls.refreshAudioDevices()
         }
-        updateHostedViewSize()
 
-        keepAppActiveOnClose = false
-        if !NSApp.isActive {
-            let front = NSWorkspace.shared.frontmostApplication
-            previousFrontmostApp = (front?.bundleIdentifier != Bundle.main.bundleIdentifier) ? front : nil
+        let (panel, hosting) = ensurePanelAndHostingView()
+        let size = fitHostingSize(hosting)
+        let origin = anchoredOrigin(for: size)
 
-            // WindowServer only honors NSCursor changes from the active app. If the main Dashboard
-            // window is fully covered behind another app, keep it out of sight while briefly
-            // activating Toolbox for the duration of the status bar menu.
-            if let mainWin = MainWindowController.shared.currentWindow,
-               mainWin.isVisible,
-               !mainWin.isMiniaturized,
-               !mainWin.occlusionState.contains(.visible) {
-                mainWin.orderOut(nil)
-                hiddenDashboardWindow = mainWin
-            }
-            NSApp.activate(ignoringOtherApps: true)
-        } else {
-            previousFrontmostApp = nil
-            hiddenDashboardWindow = nil
-        }
+        panel.setFrame(NSRect(origin: origin, size: size), display: true)
+        hosting.layoutSubtreeIfNeeded()
+        panel.orderFrontRegardless()
+        panel.makeKey()
+        installPopoverMonitors(for: panel)
+        startSizeSyncTimer()
 
-        startCursorSync()
-    }
-
-    func menuDidClose(_ menu: NSMenu) {
-        stopCursorSync()
-        NSCursor.arrow.set()
-
-        if let hiddenWin = hiddenDashboardWindow {
-            hiddenDashboardWindow = nil
-            if !keepAppActiveOnClose {
-                hiddenWin.orderBack(nil)
-            }
-        }
-
-        if !keepAppActiveOnClose, let prev = previousFrontmostApp {
-            previousFrontmostApp = nil
-            prev.activate()
-        } else {
-            previousFrontmostApp = nil
+        DispatchQueue.main.async { [weak self, weak panel] in
+            guard let self, let panel, panel.isVisible else { return }
+            self.syncPanelSizeToContent()
+            PointerCursorNSView.syncCursor(in: panel)
         }
     }
 
-    private func startCursorSync() {
-        stopCursorSync()
-        updateMenuCursor()
-        // NSMenu's modal tracking loop resets the cursor to arrow on clicks without firing
-        // local mouse monitors or mouseEntered; keep the cursor synced while the menu is open.
-        let timer = Timer(timeInterval: 0.04, repeats: true) { [weak self] _ in
+    @discardableResult
+    private func ensurePanelAndHostingView() -> (panel: MenuBarPopoverNSPanel, hostingView: PointerCursorHostingView<MenuBarPopoverView>) {
+        if let panel, let hostingView {
+            return (panel, hostingView)
+        }
+
+        let newPanel = MenuBarPopoverNSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: menuWidth, height: 320),
+            styleMask: [.nonactivatingPanel, .borderless],
+            backing: .buffered,
+            defer: false
+        )
+        newPanel.isFloatingPanel = true
+        newPanel.level = .popUpMenu
+        newPanel.acceptsMouseMovedEvents = true
+        newPanel.isMovableByWindowBackground = false
+        newPanel.backgroundColor = .clear
+        newPanel.isOpaque = false
+        newPanel.hasShadow = true
+        newPanel.hidesOnDeactivate = false
+        newPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+
+        let chrome = MenuBarPopoverChromeView(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 320))
+        chrome.material = .popover
+        chrome.blendingMode = .behindWindow
+        chrome.state = .active
+        chrome.wantsLayer = true
+        chrome.layer?.cornerRadius = 12
+        chrome.layer?.masksToBounds = true
+        chrome.layer?.borderWidth = 1
+        chrome.updateBorderColor()
+
+        let rootView = MenuBarPopoverView(
+            onOpenDashboard: { [weak self] destination in
+                self?.closeMenu()
+                MainWindowController.shared.show(destination: destination)
+            },
+            onClosePopover: { [weak self] _ in
+                self?.closeMenu()
+            }
+        )
+        let newHosting = PointerCursorHostingView(rootView: rootView)
+        newHosting.translatesAutoresizingMaskIntoConstraints = false
+        chrome.addSubview(newHosting)
+        NSLayoutConstraint.activate([
+            newHosting.leadingAnchor.constraint(equalTo: chrome.leadingAnchor),
+            newHosting.trailingAnchor.constraint(equalTo: chrome.trailingAnchor),
+            newHosting.topAnchor.constraint(equalTo: chrome.topAnchor),
+            newHosting.bottomAnchor.constraint(equalTo: chrome.bottomAnchor)
+        ])
+
+        newPanel.contentView = chrome
+        self.panel = newPanel
+        self.visualEffectView = chrome
+        self.hostingView = newHosting
+
+        let initialSize = fitHostingSize(newHosting)
+        newPanel.setContentSize(initialSize)
+        newHosting.layoutSubtreeIfNeeded()
+
+        return (newPanel, newHosting)
+    }
+
+    private func fitHostingSize(_ hosting: PointerCursorHostingView<MenuBarPopoverView>) -> NSSize {
+        hosting.layoutSubtreeIfNeeded()
+        let rawSize = hosting.fittingSize
+        let width = menuWidth
+        let height = min(760, max(140, rawSize.height))
+        return NSSize(width: width, height: height)
+    }
+
+    private func anchoredOrigin(for size: NSSize) -> NSPoint {
+        let screens = NSScreen.screens.map { (frame: $0.frame, visibleFrame: $0.visibleFrame) }
+        return Self.popoverOrigin(
+            size: size,
+            cursorPoint: NSEvent.mouseLocation,
+            buttonScreenRect: statusButtonScreenRect(),
+            screenFrames: screens,
+            fallbackVisibleFrame: NSScreen.main?.visibleFrame
+        )
+    }
+
+    internal static func popoverOrigin(
+        size: NSSize,
+        cursorPoint: NSPoint,
+        buttonScreenRect: NSRect?,
+        screenFrames: [(frame: NSRect, visibleFrame: NSRect)],
+        fallbackVisibleFrame: NSRect? = nil
+    ) -> NSPoint {
+        let cursorScreen = screenFrames.first(where: { NSMouseInRect(cursorPoint, $0.frame, false) })
+        let targetVisible = cursorScreen?.visibleFrame ?? fallbackVisibleFrame ?? screenFrames.first?.visibleFrame
+
+        let validButtonOnCursorScreen: NSRect? = {
+            guard let rect = buttonScreenRect,
+                  rect.width > 1,
+                  rect.height > 1 else { return nil }
+            if let cursorScreen {
+                let center = NSPoint(x: rect.midX, y: rect.midY)
+                guard cursorScreen.frame.contains(center) else { return nil }
+            }
+            return rect
+        }()
+
+        if let rect = validButtonOnCursorScreen {
+            var originX = rect.midX - size.width / 2
+            var originY = rect.minY - 6 - size.height
+            if let visible = targetVisible {
+                originX = min(max(originX, visible.minX + 8), max(visible.minX + 8, visible.maxX - size.width - 8))
+                originY = min(max(originY, visible.minY + 8), max(visible.minY + 8, visible.maxY - size.height - 8))
+            }
+            return NSPoint(x: round(originX), y: round(originY))
+        }
+
+        if let visible = targetVisible {
+            let originX = min(max(cursorPoint.x - size.width / 2, visible.minX + 8), max(visible.minX + 8, visible.maxX - size.width - 8))
+            let originY = max(visible.minY + 8, visible.maxY - 6 - size.height)
+            return NSPoint(x: round(originX), y: round(originY))
+        }
+        return NSPoint(x: 100, y: 100)
+    }
+
+    private func statusButtonScreenRect() -> NSRect? {
+        guard let button = statusItem?.button,
+              let window = button.window else { return nil }
+        let rectInWindow = button.convert(button.bounds, to: nil)
+        let screenRect = window.convertToScreen(rectInWindow)
+        return screenRect.isEmpty ? nil : screenRect
+    }
+
+    private func isPointOverStatusButton(_ screenPoint: NSPoint) -> Bool {
+        guard let buttonRect = statusButtonScreenRect(),
+              buttonRect.width > 1,
+              buttonRect.height > 1 else { return false }
+        return buttonRect.insetBy(dx: -2, dy: -2).contains(screenPoint)
+    }
+
+    private func installPopoverMonitors(for panel: MenuBarPopoverNSPanel) {
+        removePopoverMonitors()
+
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self, weak panel] _ in
+            Task { @MainActor [weak self, weak panel] in
+                guard let self, let panel, panel.isVisible else { return }
+                let mouse = NSEvent.mouseLocation
+                if !panel.frame.contains(mouse), !self.isPointOverStatusButton(mouse) {
+                    self.closeMenu()
+                }
+            }
+        }
+
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self, weak panel] event in
+            guard let self, let panel, panel.isVisible else { return event }
+            let mouse = NSEvent.mouseLocation
+            if self.isPointOverStatusButton(mouse) || event.window === self.statusItem?.button?.window {
+                return event
+            }
+            if let window = event.window,
+               NSStringFromClass(type(of: window)).contains("StatusBar") {
+                return event
+            }
+            if let window = event.window,
+               window !== panel,
+               !NSStringFromClass(type(of: window)).contains("Menu"),
+               !panel.frame.contains(mouse) {
+                self.closeMenu()
+            }
+            return event
+        }
+
+        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak panel] event in
+            guard let self, let panel, panel.isVisible, event.window === panel else { return event }
+            if event.keyCode == 53 {
+                self.closeMenu()
+                return nil
+            }
+            return event
+        }
+
+        workspaceActivationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let activatedApp = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            let activatedBundleID = activatedApp?.bundleIdentifier
+            let activatedPID = activatedApp?.processIdentifier
             MainActor.assumeIsolated {
-                guard let self, self.hostingController.view.window != nil else { return }
-                self.updateMenuCursor()
+                guard let self, self.panel?.isVisible == true else { return }
+                if activatedBundleID != Bundle.main.bundleIdentifier {
+                    let elapsed = ProcessInfo.processInfo.systemUptime - self.openedAtUptime
+                    if activatedPID == self.frontmostPIDAtOpen && elapsed < 0.35 {
+                        return
+                    }
+                    self.closeMenu()
+                }
             }
         }
-        RunLoop.main.add(timer, forMode: .eventTracking)
+    }
+
+    private func removePopoverMonitors() {
+        if let outsideClickMonitor {
+            NSEvent.removeMonitor(outsideClickMonitor)
+            self.outsideClickMonitor = nil
+        }
+        if let localMouseMonitor {
+            NSEvent.removeMonitor(localMouseMonitor)
+            self.localMouseMonitor = nil
+        }
+        if let localKeyMonitor {
+            NSEvent.removeMonitor(localKeyMonitor)
+            self.localKeyMonitor = nil
+        }
+        if let workspaceActivationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(workspaceActivationObserver)
+            self.workspaceActivationObserver = nil
+        }
+    }
+
+    private func startSizeSyncTimer() {
+        stopSizeSyncTimer()
+        let timer = Timer(timeInterval: 0.12, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.syncPanelSizeToContent()
+            }
+        }
         RunLoop.main.add(timer, forMode: .common)
-        cursorSyncTimer = timer
+        sizeCheckTimer = timer
     }
 
-    private func stopCursorSync() {
-        cursorSyncTimer?.invalidate()
-        cursorSyncTimer = nil
+    private func stopSizeSyncTimer() {
+        sizeCheckTimer?.invalidate()
+        sizeCheckTimer = nil
     }
 
-    private func updateMenuCursor() {
-        guard let window = hostingController.view.window else { return }
-        let ptInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
-        let isOverInteractive = PointerCursorNSView.containsPointerCursorView(in: hostingController.view, atWindowPoint: ptInWindow)
-        if isOverInteractive {
-            PointerCursorNSView.forcePointingHandCursor()
-        } else {
-            NSCursor.arrow.set()
+    private func syncPanelSizeToContent() {
+        guard let panel, panel.isVisible, let hostingView else { return }
+        let targetSize = fitHostingSize(hostingView)
+        if abs(panel.frame.width - targetSize.width) > 1 ||
+           abs(panel.frame.height - targetSize.height) > 1 {
+            let currentTopY = panel.frame.maxY
+            var newFrame = NSRect(
+                x: panel.frame.origin.x,
+                y: round(currentTopY - targetSize.height),
+                width: targetSize.width,
+                height: targetSize.height
+            )
+            if let visible = (panel.screen ?? NSScreen.main)?.visibleFrame {
+                newFrame.origin.x = min(max(newFrame.origin.x, visible.minX + 8), max(visible.minX + 8, visible.maxX - targetSize.width - 8))
+                newFrame.origin.y = min(max(newFrame.origin.y, visible.minY + 8), max(visible.minY + 8, visible.maxY - targetSize.height - 8))
+            }
+            panel.setFrame(newFrame, display: true)
+            visualEffectView?.updateBorderColor()
         }
     }
 
@@ -192,20 +394,26 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         return count
     }
 
-    private func updateHostedViewSize() {
-        let fitting = hostingController.sizeThatFits(in: NSSize(width: menuWidth, height: 760))
-        let targetSize = NSSize(width: menuWidth, height: max(140, fitting.height))
-        containerView.frame = NSRect(origin: .zero, size: targetSize)
-        hostingController.view.frame = containerView.bounds
-        hostingController.view.layoutSubtreeIfNeeded()
+    internal func showPopoverForTesting() {
+        showPopover()
+    }
+
+    internal func hidePopoverForTesting() {
+        closeMenu()
     }
 
     internal func refreshHostedViewSizeForTesting() {
-        updateHostedViewSize()
+        let (panel, hosting) = ensurePanelAndHostingView()
+        let size = fitHostingSize(hosting)
+        panel.setContentSize(size)
+        hosting.layoutSubtreeIfNeeded()
     }
 
     private func closeMenu() {
-        menu.cancelTrackingWithoutAnimation()
+        stopSizeSyncTimer()
+        removePopoverMonitors()
+        panel?.orderOut(nil)
+        NSCursor.arrow.set()
     }
 
     internal static func makeStatusBarIcon(isActive: Bool = true) -> NSImage {
@@ -554,7 +762,7 @@ struct MenuBarPopoverView: View {
                     if configManager.config.callControls.enabled && configManager.config.general.appEnabled {
                         HStack(spacing: 8) {
                             Button {
-                                callControls.toggleHardwareMicMute()
+                                callControls.toggleSmartMicMute()
                             } label: {
                                 HStack(spacing: 6) {
                                     Image(systemName: callControls.isInputMuted ? "mic.slash.fill" : "mic.fill")

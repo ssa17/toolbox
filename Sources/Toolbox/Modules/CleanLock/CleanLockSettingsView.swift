@@ -27,13 +27,13 @@ struct CleanLockSettingsView: View {
         VStack(alignment: .leading, spacing: 22) {
             FeatureSection(
                 "Lock Controls",
-                subtitle: "Choose a duration and start a timed cleaning lock."
+                subtitle: "Choose a duration and start a timed keyboard & trackpad lock."
             ) {
                 SettingRow(
-                    module.isLocked ? "Cleaning Lock is active" : "Ready to lock input",
+                    module.isLocked ? "Keyboard Lock is active" : "Ready to lock input",
                     subtitle: module.isLocked
                         ? "Hold ⌃ ⌥ ⌘ Esc for 3s to unlock early, or wait for the countdown."
-                        : "Displays a large center-screen countdown and blocks accidental keypresses."
+                        : "Displays a large center-screen countdown and blocks accidental keypresses while dusting."
                 ) {
                     Button {
                         if module.isLocked {

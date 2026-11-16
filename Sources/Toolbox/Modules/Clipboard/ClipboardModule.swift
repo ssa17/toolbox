@@ -489,38 +489,56 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
 
             switch event.keyCode {
             case 53: // Escape
-                if self.popoverState.previewEntryID != nil {
+                if let previewID = self.popoverState.previewEntryID {
+                    if visible.contains(where: { $0.id == previewID }) {
+                        self.popoverState.selectedEntryID = previewID
+                    }
                     self.popoverState.previewEntryID = nil
                 } else {
                     self.hidePopover()
                 }
                 return nil
             case 125: // Down Arrow
-                self.popoverState.moveSelection(delta: 1, in: visible)
+                if self.popoverState.previewEntryID == nil {
+                    self.popoverState.moveSelection(delta: 1, in: visible)
+                }
                 return nil
             case 126: // Up Arrow
-                self.popoverState.moveSelection(delta: -1, in: visible)
+                if self.popoverState.previewEntryID == nil {
+                    self.popoverState.moveSelection(delta: -1, in: visible)
+                }
                 return nil
             case 124: // Right Arrow -> open detail preview
                 if !isEditingSearch || self.popoverState.query.isEmpty {
                     if self.popoverState.previewEntryID == nil,
                        let entry = self.popoverState.selectedEntry(in: visible) {
+                        self.popoverState.selectedEntryID = entry.id
                         self.popoverState.previewEntryID = entry.id
-                        return nil
                     }
+                    return nil
                 }
                 return event
             case 123: // Left Arrow -> close detail preview
-                if self.popoverState.previewEntryID != nil {
+                if let previewID = self.popoverState.previewEntryID {
+                    if visible.contains(where: { $0.id == previewID }) {
+                        self.popoverState.selectedEntryID = previewID
+                    }
                     self.popoverState.previewEntryID = nil
+                    return nil
+                }
+                if !isEditingSearch || self.popoverState.query.isEmpty {
                     return nil
                 }
                 return event
             case 49: // Space -> toggle detail preview when not typing in search
                 if !isEditingSearch {
-                    if self.popoverState.previewEntryID != nil {
+                    if let previewID = self.popoverState.previewEntryID {
+                        if visible.contains(where: { $0.id == previewID }) {
+                            self.popoverState.selectedEntryID = previewID
+                        }
                         self.popoverState.previewEntryID = nil
                     } else if let entry = self.popoverState.selectedEntry(in: visible) {
+                        self.popoverState.selectedEntryID = entry.id
                         self.popoverState.previewEntryID = entry.id
                     }
                     return nil
@@ -528,9 +546,13 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
                 return event
             case 34: // Cmd+I -> toggle detail preview anytime
                 if hasCommand {
-                    if self.popoverState.previewEntryID != nil {
+                    if let previewID = self.popoverState.previewEntryID {
+                        if visible.contains(where: { $0.id == previewID }) {
+                            self.popoverState.selectedEntryID = previewID
+                        }
                         self.popoverState.previewEntryID = nil
                     } else if let entry = self.popoverState.selectedEntry(in: visible) {
+                        self.popoverState.selectedEntryID = entry.id
                         self.popoverState.previewEntryID = entry.id
                     }
                     return nil

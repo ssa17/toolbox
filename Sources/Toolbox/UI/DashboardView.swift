@@ -23,7 +23,7 @@ struct DashboardView: View {
     var body: some View {
         GeometryReader { proxy in
             let availableGridWidth = max(0, proxy.size.width - 44)
-            let columnCount = availableGridWidth >= 660 ? 3 : 2
+            let columnCount = availableGridWidth >= 720 ? 3 : 2
             let columns = Array(repeating: GridItem(.flexible(), spacing: 14), count: columnCount)
 
             ScrollView {
@@ -34,10 +34,10 @@ struct DashboardView: View {
                         accessibilityBanner
                     }
 
-                    VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 12) {
                         Text("Modules")
-                            .font(.headline)
-                            .foregroundStyle(.secondary)
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.primary)
 
                         LazyVGrid(columns: columns, spacing: 14) {
                             ForEach(registry.modules, id: \.id) { module in
@@ -98,7 +98,7 @@ struct DashboardView: View {
                             : "Toolbox is paused from the status bar. Resume to reactivate your enabled modules."
                     )
                         .font(.callout)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.primary.opacity(0.76))
                 }
                 .textSelection(.enabled)
 
@@ -118,23 +118,27 @@ struct DashboardView: View {
 
     private var accessibilityBanner: some View {
         SectionCard {
-            HStack(alignment: .top, spacing: 14) {
-                Image(systemName: "hand.raised.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(.orange)
-
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Accessibility Permission Optional (Recommended for Full Power)")
-                        .font(.headline)
-                    Text("Toolbox works right away for Keep Awake, Clipboard capture, and Shell Commands. Grant Accessibility only if you want **Dock Click to Minimize**, **Auto-Paste (⌘ V)**, or **Scroll Direction inversion**. Toolbox never logs keystrokes or sends data off your Mac.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                    Text("Already toggled ON in System Settings from an earlier build? Click \"Reset & Grant\" to bind it to this signed app.")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+            HStack(alignment: .center, spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.orange.opacity(0.16))
+                        .frame(width: 40, height: 40)
+                    Image(systemName: "hand.raised.fill")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.orange)
                 }
 
-                Spacer()
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Enable Accessibility for Input & Window Shortcuts")
+                        .font(.headline)
+                    Text("Optional: needed for Dock Minimize, Scroll Direction, Unified Call Keybinds, Keyboard Lock, and Auto-Paste. Runs 100% locally on your Mac.")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Color.primary.opacity(0.76))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .textSelection(.enabled)
+
+                Spacer(minLength: 12)
 
                 VStack(alignment: .trailing, spacing: 6) {
                     Button("Grant Access…") {
@@ -144,13 +148,24 @@ struct DashboardView: View {
                     .tint(.orange)
                     .pointerCursor()
 
-                    Button("Reset & Grant") {
-                        permissions.resetAndRegrantAccessibility()
+                    HStack(spacing: 6) {
+                        Button("Why?") {
+                            permissions.presentOnboardingModal()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .pointerCursor()
+
+                        Button("Reset") {
+                            permissions.resetAndRegrantAccessibility()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help("Re-bind Accessibility permission if already enabled in System Settings from an earlier build.")
+                        .pointerCursor()
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .pointerCursor()
                 }
+                .fixedSize(horizontal: true, vertical: false)
             }
         }
     }
@@ -228,23 +243,27 @@ struct DashboardView: View {
                 onSelectModule(module.id)
             } label: {
                 VStack(alignment: .leading, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 5) {
                         Text(module.name)
                             .font(.headline)
+                            .foregroundStyle(.primary)
                         Text(module.tagline)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
+                            .font(.system(size: 12))
+                            .foregroundStyle(Color.primary.opacity(0.78))
+                            .lineSpacing(1.5)
                             .multilineTextAlignment(.leading)
-                            .frame(minHeight: 30, alignment: .topLeading)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
+
+                    Spacer(minLength: 0)
 
                     HStack {
                         StatusBadge(text: status, color: badgeColor)
-                        Spacer()
+                        Spacer(minLength: 6)
                         Text("Customize →")
                             .font(.callout.weight(.medium))
                             .foregroundStyle(.tint)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -252,6 +271,135 @@ struct DashboardView: View {
             }
             .buttonStyle(.plain)
             .pointerCursor()
+        }
+    }
+}
+
+struct AccessibilityOnboardingModalView: View {
+    @ObservedObject var permissions: PermissionsManager
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .center, spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.orange.opacity(0.24), Color.accentColor.opacity(0.16)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 48, height: 48)
+                    Image(systemName: "hand.raised.fill")
+                        .font(.title2.weight(.semibold))
+                        .foregroundStyle(.orange)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Enable Accessibility for Input & Window Shortcuts")
+                        .font(.title3.bold())
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.shield.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.green)
+                        Text("100% Local · Zero Keystroke Logging · Zero Network Access")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.green)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.green.opacity(0.12), in: Capsule())
+                }
+            }
+
+            Text("Toolbox uses macOS Accessibility only when you enable features that react to Dock clicks, scroll events, or global shortcuts:")
+                .font(.callout)
+                .foregroundStyle(Color.primary.opacity(0.84))
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 12) {
+                onboardingFeatureRow(
+                    symbol: "dock.rectangle",
+                    tint: .blue,
+                    title: "Window & Mouse Utilities",
+                    detail: "Dock Click to Minimize, Scroll Direction inversion, and Keyboard Lock."
+                )
+                Divider()
+                onboardingFeatureRow(
+                    symbol: "mic.fill",
+                    tint: .green,
+                    title: "Unified Call Keybinds",
+                    detail: "Single Mic & Video shortcut across Teams, Zoom, Slack & Meet, plus Auto-Mute While Typing."
+                )
+                Divider()
+                onboardingFeatureRow(
+                    symbol: "doc.on.clipboard",
+                    tint: .teal,
+                    title: "Clipboard Auto-Paste",
+                    detail: "Automatically send ⌘ V into your active app when selecting a clipboard item."
+                )
+            }
+            .padding(14)
+            .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
+            )
+
+            Text("Keep Awake, Clipboard history capture, Port Killer, and Audio Device switching work right away without Accessibility.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 10) {
+                Button("Skip for Now") {
+                    permissions.dismissOnboardingModal(markSeen: true)
+                }
+                .buttonStyle(.bordered)
+                .keyboardShortcut(.cancelAction)
+                .pointerCursor()
+
+                Spacer()
+
+                Button("Grant Accessibility Access…") {
+                    permissions.dismissOnboardingModal(markSeen: true)
+                    permissions.promptAndOpenSettings()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.orange)
+                .keyboardShortcut(.defaultAction)
+                .pointerCursor()
+            }
+        }
+        .padding(22)
+        .frame(width: 520)
+    }
+
+    private func onboardingFeatureRow(
+        symbol: String,
+        tint: Color,
+        title: String,
+        detail: String
+    ) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(tint.opacity(0.15))
+                    .frame(width: 28, height: 28)
+                Image(systemName: symbol)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(tint)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.callout.weight(.semibold))
+                Text(detail)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.primary.opacity(0.75))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }

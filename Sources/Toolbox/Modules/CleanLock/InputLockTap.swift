@@ -198,24 +198,33 @@ final class InputLockTap: @unchecked Sendable {
     }
 
     static func eventMask(lockMouseAndTrackpad: Bool) -> CGEventMask {
-        var mask: CGEventMask =
-            (1 << CGEventType.keyDown.rawValue) |
-            (1 << CGEventType.keyUp.rawValue) |
-            (1 << CGEventType.flagsChanged.rawValue) |
-            (1 << UInt64(systemDefinedEventRawValue))
+        var mask: CGEventMask = 0
+        let keyboardRawTypes: [UInt32] = [
+            CGEventType.keyDown.rawValue,
+            CGEventType.keyUp.rawValue,
+            CGEventType.flagsChanged.rawValue,
+            systemDefinedEventRawValue
+        ]
+        for rawType in keyboardRawTypes {
+            mask |= (CGEventMask(1) << UInt64(rawType))
+        }
 
         if lockMouseAndTrackpad {
-            mask |=
-                (1 << CGEventType.leftMouseDown.rawValue) |
-                (1 << CGEventType.leftMouseUp.rawValue) |
-                (1 << CGEventType.leftMouseDragged.rawValue) |
-                (1 << CGEventType.rightMouseDown.rawValue) |
-                (1 << CGEventType.rightMouseUp.rawValue) |
-                (1 << CGEventType.rightMouseDragged.rawValue) |
-                (1 << CGEventType.otherMouseDown.rawValue) |
-                (1 << CGEventType.otherMouseUp.rawValue) |
-                (1 << CGEventType.otherMouseDragged.rawValue) |
-                (1 << CGEventType.scrollWheel.rawValue)
+            let pointerTypes: [CGEventType] = [
+                .leftMouseDown,
+                .leftMouseUp,
+                .leftMouseDragged,
+                .rightMouseDown,
+                .rightMouseUp,
+                .rightMouseDragged,
+                .otherMouseDown,
+                .otherMouseUp,
+                .otherMouseDragged,
+                .scrollWheel
+            ]
+            for eventType in pointerTypes {
+                mask |= (CGEventMask(1) << UInt64(eventType.rawValue))
+            }
         }
         return mask
     }

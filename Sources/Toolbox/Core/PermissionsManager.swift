@@ -7,6 +7,7 @@ final class PermissionsManager: ObservableObject {
 
     @Published private(set) var isAccessibilityGranted: Bool = false
     @Published private(set) var simulatedAccessibilityGranted: Bool? = nil
+    @Published var isPresentingOnboardingModal: Bool = false
     var onAccessibilityChanged: ((Bool) -> Void)?
 
     private var lastActualAccessibilityGranted: Bool = false
@@ -59,6 +60,18 @@ final class PermissionsManager: ObservableObject {
     func setSimulatedAccessibilityGranted(_ simulated: Bool?) {
         simulatedAccessibilityGranted = simulated
         refresh()
+    }
+
+    func presentOnboardingModal() {
+        refresh()
+        isPresentingOnboardingModal = true
+    }
+
+    func dismissOnboardingModal(markSeen: Bool = true) {
+        isPresentingOnboardingModal = false
+        if markSeen && !ConfigManager.shared.config.general.hasSeenAccessibilityOnboarding {
+            ConfigManager.shared.config.general.hasSeenAccessibilityOnboarding = true
+        }
     }
 
     /// Trigger the system Accessibility prompt ONLY when the user explicitly clicks Grant.

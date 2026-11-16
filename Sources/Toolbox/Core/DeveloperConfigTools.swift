@@ -29,7 +29,7 @@ enum ToolboxConfigSection: String, CaseIterable, Identifiable, Sendable {
         case .clipboard: return "Clipboard History"
         case .portKiller: return "Port Killer"
         case .keepAwake: return "Keep Awake"
-        case .cleanLock: return "Clean Lock"
+        case .cleanLock: return "Keyboard Lock"
         case .customCommands: return "Custom Commands"
         case .scrollDirection: return "Scroll Direction"
         case .callControls: return "Call Controls"

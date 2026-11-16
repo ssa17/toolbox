@@ -128,8 +128,12 @@ final class CoreAudioController {
     var onInputStreamActivityChanged: (() -> Void)?
     var onCameraStateChanged: (() -> Void)?
 
+    private nonisolated static let processObjectListSelector: AudioObjectPropertySelector = 0x70727323 // 'prs#'
+    private nonisolated static let processIsRunningInputSelector: AudioObjectPropertySelector = 0x70697269 // 'piri'
+
     private var systemListeners: [ListenerToken] = []
     private var inputDeviceListeners: [ListenerToken] = []
+    private var processInputListeners: [ListenerToken] = []
     private var cmioSystemListener: CMIOListenerToken?
     private var cmioDeviceListeners: [CMIOListenerToken] = []
     private var observedInputDeviceID: AudioDeviceID = AudioDeviceID(kAudioObjectUnknown)
@@ -161,6 +165,14 @@ final class CoreAudioController {
             self?.onDefaultOutputChanged?(newID)
         }
 
+        if Self.hasSystemProcessObjectList() {
+            addSystemListener(selector: Self.processObjectListSelector) { [weak self] in
+                self?.refreshProcessInputListeners()
+                self?.onInputStreamActivityChanged?()
+            }
+            refreshProcessInputListeners()
+        }
+
         attachInputDeviceListeners(for: Self.defaultInputDeviceID())
         startObservingCameras()
     }
@@ -176,6 +188,7 @@ final class CoreAudioController {
         }
         systemListeners.removeAll()
         removeInputDeviceListeners()
+        removeProcessInputListeners()
         stopObservingCameras()
     }
 
@@ -190,6 +203,42 @@ final class CoreAudioController {
         }
         inputDeviceListeners.removeAll()
         observedInputDeviceID = AudioDeviceID(kAudioObjectUnknown)
+    }
+
+    private func removeProcessInputListeners() {
+        for var token in processInputListeners {
+            AudioObjectRemovePropertyListenerBlock(
+                token.objectID,
+                &token.address,
+                DispatchQueue.main,
+                token.block
+            )
+        }
+        processInputListeners.removeAll()
+    }
+
+    private func refreshProcessInputListeners() {
+        removeProcessInputListeners()
+        for processID in Self.processObjectIDs() {
+            var addr = AudioObjectPropertyAddress(
+                mSelector: Self.processIsRunningInputSelector,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            guard AudioObjectHasProperty(processID, &addr) else { continue }
+            let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+                MainActor.assumeIsolated {
+                    self?.onInputStreamActivityChanged?()
+                }
+            }
+            if AudioObjectAddPropertyListenerBlock(processID, &addr, DispatchQueue.main, block) == noErr {
+                processInputListeners.append(ListenerToken(
+                    objectID: processID,
+                    address: addr,
+                    block: block
+                ))
+            }
+        }
     }
 
     private func addSystemListener(selector: AudioObjectPropertySelector, handler: @escaping @MainActor () -> Void) {
@@ -259,24 +308,29 @@ final class CoreAudioController {
             }
         }
 
-        // Listen for active mic capture streams (e.g., call/meeting apps) without opening any IOProc
-        var runningAddr = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyDeviceIsRunningSomewhere,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        if AudioObjectHasProperty(deviceID, &runningAddr) {
-            let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-                MainActor.assumeIsolated {
-                    self?.onInputStreamActivityChanged?()
+        // Only observe device-level running state on pure input devices when per-process input
+        // tracking is unavailable; on duplex devices (e.g., headsets/USB docks), output alert
+        // beeps flip kAudioDevicePropertyDeviceIsRunningSomewhere to 1.
+        if !Self.hasSystemProcessObjectList(),
+           Self.channelCount(for: deviceID, scope: kAudioObjectPropertyScopeOutput) == 0 {
+            var runningAddr = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyDeviceIsRunningSomewhere,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            if AudioObjectHasProperty(deviceID, &runningAddr) {
+                let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+                    MainActor.assumeIsolated {
+                        self?.onInputStreamActivityChanged?()
+                    }
                 }
-            }
-            if AudioObjectAddPropertyListenerBlock(deviceID, &runningAddr, DispatchQueue.main, block) == noErr {
-                inputDeviceListeners.append(ListenerToken(
-                    objectID: deviceID,
-                    address: runningAddr,
-                    block: block
-                ))
+                if AudioObjectAddPropertyListenerBlock(deviceID, &runningAddr, DispatchQueue.main, block) == noErr {
+                    inputDeviceListeners.append(ListenerToken(
+                        objectID: deviceID,
+                        address: runningAddr,
+                        block: block
+                    ))
+                }
             }
         }
     }
@@ -292,8 +346,25 @@ final class CoreAudioController {
     }
 
     nonisolated static func isDefaultInputRunningSomewhere() -> Bool {
+        if hasSystemProcessObjectList() {
+            for processID in processObjectIDs() {
+                if let runningInput = readUInt32Property(
+                    deviceID: processID,
+                    selector: processIsRunningInputSelector,
+                    scope: kAudioObjectPropertyScopeGlobal,
+                    element: kAudioObjectPropertyElementMain
+                ), runningInput != 0 {
+                    return true
+                }
+            }
+            return false
+        }
+
         let deviceID = defaultInputDeviceID()
-        guard deviceID != AudioDeviceID(kAudioObjectUnknown) else { return false }
+        guard deviceID != AudioDeviceID(kAudioObjectUnknown),
+              channelCount(for: deviceID, scope: kAudioObjectPropertyScopeOutput) == 0 else {
+            return false
+        }
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyDeviceIsRunningSomewhere,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -306,6 +377,50 @@ final class CoreAudioController {
             return false
         }
         return running != 0
+    }
+
+    private nonisolated static func hasSystemProcessObjectList() -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: processObjectListSelector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        return AudioObjectHasProperty(AudioObjectID(kAudioObjectSystemObject), &address)
+    }
+
+    private nonisolated static func processObjectIDs() -> [AudioObjectID] {
+        var address = AudioObjectPropertyAddress(
+            mSelector: processObjectListSelector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            0,
+            nil,
+            &size
+        ) == noErr, size > 0 else {
+            return []
+        }
+
+        let count = Int(size) / MemoryLayout<AudioObjectID>.stride
+        guard count > 0 else { return [] }
+
+        var ids = [AudioObjectID](repeating: 0, count: count)
+        let status = ids.withUnsafeMutableBytes { rawBuf in
+            AudioObjectGetPropertyData(
+                AudioObjectID(kAudioObjectSystemObject),
+                &address,
+                0,
+                nil,
+                &size,
+                rawBuf.baseAddress!
+            )
+        }
+        guard status == noErr else { return [] }
+        return ids.filter { $0 != AudioObjectID(kAudioObjectUnknown) }
     }
 
     nonisolated static func listDevices() -> [AudioDeviceInfo] {
