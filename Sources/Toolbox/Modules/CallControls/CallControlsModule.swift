@@ -1167,6 +1167,9 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
             callAppMutedState = nil
         }
         callRemapper.updateCallActivity(isCallOrMediaActive)
+        if active {
+            callRemapper.refreshContextIfInstalled()
+        }
         syncCallAppPollTimer()
         updateEffectiveMuteState()
     }
@@ -1223,13 +1226,20 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
         }
         // Fallback summary before/without tap install so UI still accurately reflects what would match.
         let front = NSWorkspace.shared.frontmostApplication
+        let activeInputBundles = CoreAudioController.activeInputProcessBundleIDs()
         let snapshots: [RunningCallAppSnapshot] = NSWorkspace.shared.runningApplications.compactMap { app in
             guard !app.isTerminated, let bundleID = app.bundleIdentifier else { return nil }
             let matched = config.appShortcutMappings.filter { $0.enabled && $0.matches(bundleID: bundleID) }
             guard !matched.isEmpty else { return nil }
             let needsTitle = matched.contains { !($0.requiredWindowTitleSubstring ?? "").isEmpty }
             let titles = needsTitle ? CallShortcutRemapper.allWindowTitles(for: app.processIdentifier) : []
-            return RunningCallAppSnapshot(bundleIdentifier: bundleID, pid: app.processIdentifier, windowTitles: titles)
+            let hasAudio = CoreAudioController.bundleID(bundleID, matchesActiveInputProcessBundleIDs: activeInputBundles)
+            return RunningCallAppSnapshot(
+                bundleIdentifier: bundleID,
+                pid: app.processIdentifier,
+                windowTitles: titles,
+                hasActiveAudioInput: hasAudio
+            )
         }
         guard let target = CallShortcutRemapper.resolveTargetPreview(
             action: action,
@@ -1238,7 +1248,8 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
             frontmostBundleID: front?.bundleIdentifier,
             frontmostPID: front?.processIdentifier,
             frontmostWindowTitle: front?.localizedName,
-            runningApps: snapshots
+            runningApps: snapshots,
+            isCallActivityActive: isCallOrMediaActive
         ) else {
             return nil
         }
@@ -1269,6 +1280,16 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
             return frontUnsupported
         }
         guard !frontmostOnly else { return nil }
+        let activeInputBundles = CoreAudioController.activeInputProcessBundleIDs()
+        if let activeUnsupported = config.appShortcutMappings.first(where: { mapping in
+            mapping.enabled
+                && mapping.videoShortcut.isEmpty
+                && mapping.bundleIdentifiers.contains {
+                    CoreAudioController.bundleID($0, matchesActiveInputProcessBundleIDs: activeInputBundles)
+                }
+        }) {
+            return activeUnsupported
+        }
         return config.appShortcutMappings.first { mapping in
             mapping.enabled && mapping.videoShortcut.isEmpty && isAppRunning(for: mapping)
         }

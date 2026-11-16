@@ -130,6 +130,7 @@ final class CoreAudioController {
 
     private nonisolated static let processObjectListSelector: AudioObjectPropertySelector = 0x70727323 // 'prs#'
     private nonisolated static let processIsRunningInputSelector: AudioObjectPropertySelector = 0x70697269 // 'piri'
+    private nonisolated static let processBundleIDSelector: AudioObjectPropertySelector = 0x70626964 // 'pbid'
 
     private var systemListeners: [ListenerToken] = []
     private var inputDeviceListeners: [ListenerToken] = []
@@ -377,6 +378,40 @@ final class CoreAudioController {
             return false
         }
         return running != 0
+    }
+
+    nonisolated static func activeInputProcessBundleIDs() -> Set<String> {
+        guard hasSystemProcessObjectList() else { return [] }
+        var bundleIDs: Set<String> = []
+        for processID in processObjectIDs() {
+            guard let runningInput = readUInt32Property(
+                deviceID: processID,
+                selector: processIsRunningInputSelector,
+                scope: kAudioObjectPropertyScopeGlobal,
+                element: kAudioObjectPropertyElementMain
+            ), runningInput != 0 else {
+                continue
+            }
+            if let bid = readStringProperty(deviceID: processID, selector: processBundleIDSelector)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !bid.isEmpty {
+                bundleIDs.insert(bid)
+            }
+        }
+        return bundleIDs
+    }
+
+    nonisolated static func bundleID(
+        _ bundleID: String,
+        matchesActiveInputProcessBundleIDs activeBundleIDs: Set<String>
+    ) -> Bool {
+        guard !bundleID.isEmpty, !activeBundleIDs.isEmpty else { return false }
+        let target = bundleID.lowercased()
+        let helperPrefix = target + "."
+        return activeBundleIDs.contains { procBundle in
+            let proc = procBundle.lowercased()
+            return proc == target || proc.hasPrefix(helperPrefix)
+        }
     }
 
     private nonisolated static func hasSystemProcessObjectList() -> Bool {

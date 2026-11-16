@@ -21,17 +21,20 @@ struct RunningCallAppSnapshot: Equatable, Sendable {
     let pid: pid_t
     let windowTitles: [String]
     let hasActiveCallControl: Bool?
+    let hasActiveAudioInput: Bool
 
     init(
         bundleIdentifier: String,
         pid: pid_t,
         windowTitles: [String],
-        hasActiveCallControl: Bool? = nil
+        hasActiveCallControl: Bool? = nil,
+        hasActiveAudioInput: Bool = false
     ) {
         self.bundleIdentifier = bundleIdentifier
         self.pid = pid
         self.windowTitles = windowTitles
         self.hasActiveCallControl = hasActiveCallControl
+        self.hasActiveAudioInput = hasActiveAudioInput
     }
 }
 
@@ -143,6 +146,12 @@ final class CallShortcutRemapper: @unchecked Sendable {
             return didChange
         }
         if changed {
+            refreshApplicationContextAsync()
+        }
+    }
+
+    func refreshContextIfInstalled() {
+        if isInstalled {
             refreshApplicationContextAsync()
         }
     }
@@ -391,20 +400,24 @@ final class CallShortcutRemapper: @unchecked Sendable {
                     frontTitle = Self.focusedWindowTitle(for: frontPID) ?? Self.allWindowTitles(for: frontPID).first
                 }
 
+                let activeInputBundles = CoreAudioController.activeInputProcessBundleIDs()
                 var callSnapshots: [RunningCallAppSnapshot] = []
                 for app in running {
                     let matchingMappings = enabledMappings.filter { $0.matches(bundleID: app.bundleID) }
                     guard !matchingMappings.isEmpty else { continue }
                     let needsTitles = matchingMappings.contains { !($0.requiredWindowTitleSubstring ?? "").isEmpty }
                     let titles = needsTitles ? Self.allWindowTitles(for: app.pid) : []
-                    let hasControl: Bool? = (!snapshotData.callActive && app.pid != frontPID && AXIsProcessTrusted())
+                    let hasAudioInput = CoreAudioController.bundleID(app.bundleID, matchesActiveInputProcessBundleIDs: activeInputBundles)
+                    let shouldProbeAX = (!snapshotData.callActive || running.count > 1) && !hasAudioInput && app.pid != frontPID && AXIsProcessTrusted()
+                    let hasControl: Bool? = shouldProbeAX
                         ? (Self.inspectCallAppMuteState(pid: app.pid) != nil)
                         : nil
                     callSnapshots.append(RunningCallAppSnapshot(
                         bundleIdentifier: app.bundleID,
                         pid: app.pid,
                         windowTitles: titles,
-                        hasActiveCallControl: hasControl
+                        hasActiveCallControl: hasControl,
+                        hasActiveAudioInput: hasAudioInput
                     ))
                 }
 
@@ -424,6 +437,61 @@ final class CallShortcutRemapper: @unchecked Sendable {
         }
     }
 
+    /// Unified target resolution for both shortcut dispatch and UI/pill status previews.
+    /// Frontmost call apps and apps actively owning a call stream block fallback to idle background apps
+    /// even when their shortcut for `action` (e.g., Slack `.video`) is empty.
+    private static func resolveCallTarget(
+        action: CallActionKind,
+        overrideScope: CallOverrideScope,
+        mappings: [CallAppShortcutMapping],
+        frontmostBundleID: String?,
+        frontmostPID: pid_t?,
+        frontmostWindowTitle: String?,
+        runningApps: [RunningCallAppSnapshot],
+        isCallActivityActive: Bool
+    ) -> (app: CallAppShortcutMapping, pid: pid_t?, shortcut: ShortcutSpec, requiresBriefFocusRestore: Bool)? {
+        let enabledMappings = mappings.filter(\.enabled)
+
+        // 1. Check frontmost app across all enabled call apps first.
+        if let frontmostBundleID {
+            for mapping in enabledMappings where mapping.matches(bundleID: frontmostBundleID) {
+                if passesWindowTitleGate(mapping: mapping, titles: frontmostWindowTitle.map { [$0] } ?? []) {
+                    let targetShortcut = (action == .mic) ? mapping.micShortcut : mapping.videoShortcut
+                    guard !targetShortcut.isEmpty else { return nil }
+                    return (mapping, frontmostPID, targetShortcut, false)
+                }
+            }
+        }
+
+        // 2. Background call app routing
+        guard overrideScope != .activeCallAppOnly else {
+            return nil
+        }
+
+        let activeCallApps = runningApps.filter { $0.hasActiveAudioInput || $0.hasActiveCallControl == true }
+        let candidateApps: [RunningCallAppSnapshot]
+        if !activeCallApps.isEmpty {
+            candidateApps = activeCallApps
+        } else if isCallActivityActive {
+            candidateApps = runningApps
+        } else {
+            return nil
+        }
+
+        for app in candidateApps {
+            let isAlreadyFrontmost = (app.pid == frontmostPID)
+            for mapping in enabledMappings where mapping.matches(bundleID: app.bundleIdentifier) {
+                guard passesWindowTitleGate(mapping: mapping, titles: app.windowTitles) else {
+                    continue
+                }
+                let targetShortcut = (action == .mic) ? mapping.micShortcut : mapping.videoShortcut
+                guard !targetShortcut.isEmpty else { return nil }
+                return (mapping, app.pid, targetShortcut, !isAlreadyFrontmost && mapping.allowBriefFocusRestore)
+            }
+        }
+        return nil
+    }
+
     /// Returns the call app and native shortcut that would receive `action` right now.
     static func resolveTargetPreview(
         action: CallActionKind,
@@ -435,39 +503,16 @@ final class CallShortcutRemapper: @unchecked Sendable {
         runningApps: [RunningCallAppSnapshot],
         isCallActivityActive: Bool = true
     ) -> (app: CallAppShortcutMapping, pid: pid_t?, shortcut: ShortcutSpec, requiresBriefFocusRestore: Bool)? {
-        let enabledMappings = mappings.filter { mapping in
-            guard mapping.enabled else { return false }
-            let target = (action == .mic) ? mapping.micShortcut : mapping.videoShortcut
-            return !target.isEmpty
-        }
-
-        if let frontmostBundleID {
-            for mapping in enabledMappings where mapping.matches(bundleID: frontmostBundleID) {
-                if passesWindowTitleGate(mapping: mapping, titles: frontmostWindowTitle.map { [$0] } ?? []) {
-                    let targetShortcut = (action == .mic) ? mapping.micShortcut : mapping.videoShortcut
-                    return (mapping, frontmostPID, targetShortcut, false)
-                }
-            }
-        }
-
-        guard overrideScope != .activeCallAppOnly else {
-            return nil
-        }
-
-        for app in runningApps {
-            let isAlreadyFrontmost = (app.pid == frontmostPID)
-            if !isAlreadyFrontmost && !isCallActivityActive && app.hasActiveCallControl != true {
-                continue
-            }
-            for mapping in enabledMappings where mapping.matches(bundleID: app.bundleIdentifier) {
-                guard passesWindowTitleGate(mapping: mapping, titles: app.windowTitles) else {
-                    continue
-                }
-                let targetShortcut = (action == .mic) ? mapping.micShortcut : mapping.videoShortcut
-                return (mapping, app.pid, targetShortcut, !isAlreadyFrontmost && mapping.allowBriefFocusRestore)
-            }
-        }
-        return nil
+        resolveCallTarget(
+            action: action,
+            overrideScope: overrideScope,
+            mappings: mappings,
+            frontmostBundleID: frontmostBundleID,
+            frontmostPID: frontmostPID,
+            frontmostWindowTitle: frontmostWindowTitle,
+            runningApps: runningApps,
+            isCallActivityActive: isCallActivityActive
+        )
     }
 
     func currentTargetSummary(for action: CallActionKind) -> (appName: String, pid: pid_t?, shortcut: ShortcutSpec)? {
@@ -518,21 +563,27 @@ final class CallShortcutRemapper: @unchecked Sendable {
         let stateMru = withLock { mruAppPIDs }
         let mruOrder = Dictionary(uniqueKeysWithValues: stateMru.enumerated().map { ($1, $0) })
         let enabledMappings = mappings.filter(\.enabled)
+        let activeInputBundles = CoreAudioController.activeInputProcessBundleIDs()
+        let matchedRunning = NSWorkspace.shared.runningApplications.filter { app in
+            !app.isTerminated && (app.bundleIdentifier.map { bid in enabledMappings.contains { $0.matches(bundleID: bid) } } ?? false)
+        }
         var snapshots: [RunningCallAppSnapshot] = []
-        for app in NSWorkspace.shared.runningApplications {
-            guard !app.isTerminated, let bundleID = app.bundleIdentifier else { continue }
+        for app in matchedRunning {
+            guard let bundleID = app.bundleIdentifier else { continue }
             let matching = enabledMappings.filter { $0.matches(bundleID: bundleID) }
-            guard !matching.isEmpty else { continue }
             let needsTitles = matching.contains { !($0.requiredWindowTitleSubstring ?? "").isEmpty }
             let titles = needsTitles ? Self.allWindowTitles(for: app.processIdentifier) : []
-            let hasControl: Bool? = (!isCallActivityActive && app.processIdentifier != frontPID && AXIsProcessTrusted())
+            let hasAudioInput = CoreAudioController.bundleID(bundleID, matchesActiveInputProcessBundleIDs: activeInputBundles)
+            let shouldProbeAX = (!isCallActivityActive || matchedRunning.count > 1) && !hasAudioInput && app.processIdentifier != frontPID && AXIsProcessTrusted()
+            let hasControl: Bool? = shouldProbeAX
                 ? (Self.inspectCallAppMuteState(pid: app.processIdentifier) != nil)
                 : nil
             snapshots.append(RunningCallAppSnapshot(
                 bundleIdentifier: bundleID,
                 pid: app.processIdentifier,
                 windowTitles: titles,
-                hasActiveCallControl: hasControl
+                hasActiveCallControl: hasControl,
+                hasActiveAudioInput: hasAudioInput
             ))
         }
         snapshots.sort { (mruOrder[$0.pid] ?? Int.max) < (mruOrder[$1.pid] ?? Int.max) }
@@ -752,63 +803,30 @@ final class CallShortcutRemapper: @unchecked Sendable {
         }
 
         let userShortcut = (action == .mic) ? micShortcut : videoShortcut
-        let enabledMappings = mappings.filter { mapping in
-            guard mapping.enabled else { return false }
-            let target = (action == .mic) ? mapping.micShortcut : mapping.videoShortcut
-            return !target.isEmpty
-        }
-
-        // 1. Check frontmost app first
-        if let frontmostBundleID {
-            for mapping in enabledMappings where mapping.matches(bundleID: frontmostBundleID) {
-                if passesWindowTitleGate(mapping: mapping, titles: frontmostWindowTitle.map { [$0] } ?? []) {
-                    let targetShortcut = (action == .mic) ? mapping.micShortcut : mapping.videoShortcut
-                    if targetShortcut == userShortcut {
-                        if overrideScope == .everywhere && action == .mic {
-                            return .passThroughWithHardwareSync(action: .mic)
-                        }
-                        return .passThrough
-                    }
-                    return .remap(
-                        action: action,
-                        targetApp: mapping,
-                        targetPID: frontmostPID,
-                        targetShortcut: targetShortcut,
-                        requiresBriefFocusRestore: false
-                    )
+        if let resolved = resolveCallTarget(
+            action: action,
+            overrideScope: overrideScope,
+            mappings: mappings,
+            frontmostBundleID: frontmostBundleID,
+            frontmostPID: frontmostPID,
+            frontmostWindowTitle: frontmostWindowTitle,
+            runningApps: runningApps,
+            isCallActivityActive: isCallActivityActive
+        ) {
+            let isAlreadyFrontmost = (resolved.pid == frontmostPID) && !resolved.requiresBriefFocusRestore
+            if isAlreadyFrontmost && resolved.shortcut == userShortcut {
+                if overrideScope == .everywhere && action == .mic {
+                    return .passThroughWithHardwareSync(action: .mic)
                 }
+                return .passThrough
             }
-        }
-
-        // 2. Optionally fall back to background running call apps
-        guard overrideScope != .activeCallAppOnly else {
-            return .passThrough
-        }
-
-        for app in runningApps {
-            let isAlreadyFrontmost = (app.pid == frontmostPID)
-            if !isAlreadyFrontmost && !isCallActivityActive && app.hasActiveCallControl != true {
-                continue
-            }
-            for mapping in enabledMappings where mapping.matches(bundleID: app.bundleIdentifier) {
-                guard passesWindowTitleGate(mapping: mapping, titles: app.windowTitles) else {
-                    continue
-                }
-                let targetShortcut = (action == .mic) ? mapping.micShortcut : mapping.videoShortcut
-                if isAlreadyFrontmost && targetShortcut == userShortcut {
-                    if overrideScope == .everywhere && action == .mic {
-                        return .passThroughWithHardwareSync(action: .mic)
-                    }
-                    return .passThrough
-                }
-                return .remap(
-                    action: action,
-                    targetApp: mapping,
-                    targetPID: app.pid,
-                    targetShortcut: targetShortcut,
-                    requiresBriefFocusRestore: !isAlreadyFrontmost && mapping.allowBriefFocusRestore
-                )
-            }
+            return .remap(
+                action: action,
+                targetApp: resolved.app,
+                targetPID: resolved.pid,
+                targetShortcut: resolved.shortcut,
+                requiresBriefFocusRestore: resolved.requiresBriefFocusRestore
+            )
         }
 
         if overrideScope == .everywhere {

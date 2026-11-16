@@ -2307,6 +2307,83 @@ enum SelfTestRunner {
             "Idle background Teams without active call must not steal focus; should use globalHardwareOnly(.mic)"
         )
 
+        expect(
+            CoreAudioController.bundleID("com.tinyspeck.slackmacgap", matchesActiveInputProcessBundleIDs: ["com.tinyspeck.slackmacgap.helper"]),
+            "Electron audio helper bundle ID must match its host call app"
+        )
+        expect(
+            !CoreAudioController.bundleID("com.microsoft.teams", matchesActiveInputProcessBundleIDs: ["com.microsoft.teams2"]),
+            "Similar bundle prefix without dot boundary must not cross-match"
+        )
+
+        let videoShortcut = ShortcutSpec(key: "v", modifiers: [.control, .option, .command])
+        let vCode = UInt16(videoShortcut.carbonKeyCode ?? 9)
+        let slackActiveTeamsIdleSnapshots = [
+            RunningCallAppSnapshot(
+                bundleIdentifier: "com.microsoft.teams2",
+                pid: 202,
+                windowTitles: ["Chat | Microsoft Teams"],
+                hasActiveCallControl: false,
+                hasActiveAudioInput: false
+            ),
+            RunningCallAppSnapshot(
+                bundleIdentifier: "com.tinyspeck.slackmacgap",
+                pid: 405,
+                windowTitles: ["Slack Huddle"],
+                hasActiveCallControl: true,
+                hasActiveAudioInput: true
+            )
+        ]
+
+        let frontSlackVideo = CallShortcutRemapper.resolveDecision(
+            keyCode: vCode,
+            modifiers: [.control, .option, .command],
+            eventUserData: 0,
+            micShortcut: micShortcut,
+            videoShortcut: videoShortcut,
+            overrideScope: .everywhere,
+            mappings: CallAppShortcutMapping.defaults,
+            frontmostBundleID: "com.tinyspeck.slackmacgap",
+            frontmostPID: 405,
+            frontmostWindowTitle: "Slack Huddle",
+            runningApps: slackActiveTeamsIdleSnapshots,
+            isCallActivityActive: true
+        )
+        expect(
+            frontSlackVideo == .globalHardwareOnly(action: .video),
+            "Frontmost Slack (no video shortcut) must not fall through to idle background Teams for .video"
+        )
+
+        let bgSlackCallVideo = CallShortcutRemapper.resolveTargetPreview(
+            action: .video,
+            overrideScope: .everywhere,
+            mappings: CallAppShortcutMapping.defaults,
+            frontmostBundleID: "com.apple.Xcode",
+            frontmostPID: 303,
+            frontmostWindowTitle: "Toolbox.swift",
+            runningApps: slackActiveTeamsIdleSnapshots,
+            isCallActivityActive: true
+        )
+        expect(
+            bgSlackCallVideo == nil,
+            "Active Slack Huddle owning mic input must block .video fallback to idle background Teams"
+        )
+
+        let bgSlackCallMic = CallShortcutRemapper.resolveTargetPreview(
+            action: .mic,
+            overrideScope: .everywhere,
+            mappings: CallAppShortcutMapping.defaults,
+            frontmostBundleID: "com.apple.Xcode",
+            frontmostPID: 303,
+            frontmostWindowTitle: "Toolbox.swift",
+            runningApps: slackActiveTeamsIdleSnapshots,
+            isCallActivityActive: true
+        )
+        expect(
+            bgSlackCallMic?.app.id == "slack",
+            "Active Slack Huddle owning mic input must receive .mic even if idle Teams precedes it in snapshot list"
+        )
+
         // 5. Live Clipboard panel navigation: Down x12, Up x12, Right preview, Left back
         let liveClipboard = ClipboardModule()
         var clipCfg = ToolboxConfig()
