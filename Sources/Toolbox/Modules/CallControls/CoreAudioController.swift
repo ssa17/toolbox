@@ -221,6 +221,10 @@ final class CoreAudioController {
     private func refreshProcessInputListeners() {
         removeProcessInputListeners()
         for processID in Self.processObjectIDs() {
+            let bid = Self.readStringProperty(deviceID: processID, selector: Self.processBundleIDSelector)
+            if Self.isNonCallSystemInputBundleID(bid) {
+                continue
+            }
             var addr = AudioObjectPropertyAddress(
                 mSelector: Self.processIsRunningInputSelector,
                 mScope: kAudioObjectPropertyScopeGlobal,
@@ -346,19 +350,58 @@ final class CoreAudioController {
         readDeviceID(selector: kAudioHardwarePropertyDefaultOutputDevice)
     }
 
+    private nonisolated static let nonCallInputBundlePrefixes: [String] = [
+        "com.apple.sound-settings.",
+        "com.apple.systempreferences.",
+        "com.apple.preference.sound"
+    ]
+
+    private nonisolated static let nonCallInputBundleIDs: Set<String> = [
+        "com.apple.sound-settings.extension",
+        "com.apple.systemsettings",
+        "com.apple.systempreferences"
+    ]
+
+    nonisolated static func isNonCallSystemInputBundleID(_ rawBundleID: String?) -> Bool {
+        guard let raw = rawBundleID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else {
+            return false
+        }
+        let low = raw.lowercased()
+        if let appBundle = Bundle.main.bundleIdentifier?.lowercased(), low == appBundle {
+            return true
+        }
+        if nonCallInputBundleIDs.contains(low) {
+            return true
+        }
+        return nonCallInputBundlePrefixes.contains { low.hasPrefix($0) }
+    }
+
+    private nonisolated static func activeInputProcesses() -> [(objectID: AudioObjectID, bundleID: String?)] {
+        guard hasSystemProcessObjectList() else { return [] }
+        var matches: [(objectID: AudioObjectID, bundleID: String?)] = []
+        for processID in processObjectIDs() {
+            guard let runningInput = readUInt32Property(
+                deviceID: processID,
+                selector: processIsRunningInputSelector,
+                scope: kAudioObjectPropertyScopeGlobal,
+                element: kAudioObjectPropertyElementMain
+            ), runningInput != 0 else {
+                continue
+            }
+            let bid = readStringProperty(deviceID: processID, selector: processBundleIDSelector)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if isNonCallSystemInputBundleID(bid) {
+                continue
+            }
+            matches.append((processID, bid))
+        }
+        return matches
+    }
+
     nonisolated static func isDefaultInputRunningSomewhere() -> Bool {
         if hasSystemProcessObjectList() {
-            for processID in processObjectIDs() {
-                if let runningInput = readUInt32Property(
-                    deviceID: processID,
-                    selector: processIsRunningInputSelector,
-                    scope: kAudioObjectPropertyScopeGlobal,
-                    element: kAudioObjectPropertyElementMain
-                ), runningInput != 0 {
-                    return true
-                }
-            }
-            return false
+            return !activeInputProcesses().isEmpty
         }
 
         let deviceID = defaultInputDeviceID()
@@ -381,24 +424,7 @@ final class CoreAudioController {
     }
 
     nonisolated static func activeInputProcessBundleIDs() -> Set<String> {
-        guard hasSystemProcessObjectList() else { return [] }
-        var bundleIDs: Set<String> = []
-        for processID in processObjectIDs() {
-            guard let runningInput = readUInt32Property(
-                deviceID: processID,
-                selector: processIsRunningInputSelector,
-                scope: kAudioObjectPropertyScopeGlobal,
-                element: kAudioObjectPropertyElementMain
-            ), runningInput != 0 else {
-                continue
-            }
-            if let bid = readStringProperty(deviceID: processID, selector: processBundleIDSelector)?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-               !bid.isEmpty {
-                bundleIDs.insert(bid)
-            }
-        }
-        return bundleIDs
+        Set(activeInputProcesses().compactMap { $0.bundleID }.filter { !$0.isEmpty })
     }
 
     nonisolated static func bundleID(

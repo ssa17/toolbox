@@ -2315,6 +2315,14 @@ enum SelfTestRunner {
             !CoreAudioController.bundleID("com.microsoft.teams", matchesActiveInputProcessBundleIDs: ["com.microsoft.teams2"]),
             "Similar bundle prefix without dot boundary must not cross-match"
         )
+        expect(
+            CoreAudioController.isNonCallSystemInputBundleID("com.apple.Sound-Settings.extension"),
+            "System Settings Sound meter extension must be excluded from call mic activity detection"
+        )
+        expect(
+            !CoreAudioController.isNonCallSystemInputBundleID("com.tinyspeck.slackmacgap.helper"),
+            "Call app audio helpers must not be filtered as system settings extensions"
+        )
 
         let videoShortcut = ShortcutSpec(key: "v", modifiers: [.control, .option, .command])
         let vCode = UInt16(videoShortcut.carbonKeyCode ?? 9)
