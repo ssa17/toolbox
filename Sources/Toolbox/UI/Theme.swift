@@ -609,3 +609,37 @@ struct ToolboxBentoMark: View {
         .frame(width: size, height: size)
     }
 }
+
+extension NSWindow {
+    /// Finds the first visible editable text field in `contentView`.
+    @MainActor
+    func firstEditableTextField() -> NSTextField? {
+        Self.findEditableTextField(in: contentView)
+    }
+
+    /// Lays out the content view and moves first-responder focus into its first editable text field.
+    @MainActor
+    @discardableResult
+    func focusFirstEditableTextField() -> NSTextField? {
+        contentView?.layoutSubtreeIfNeeded()
+        guard let field = firstEditableTextField() else { return nil }
+        makeFirstResponder(field)
+        return field
+    }
+
+    @MainActor
+    private static func findEditableTextField(in view: NSView?) -> NSTextField? {
+        guard let view else { return nil }
+        if let textField = view as? NSTextField,
+           textField.isEditable,
+           !textField.isHidden {
+            return textField
+        }
+        for subview in view.subviews {
+            if let match = findEditableTextField(in: subview) {
+                return match
+            }
+        }
+        return nil
+    }
+}

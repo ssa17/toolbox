@@ -2273,6 +2273,11 @@ enum SelfTestRunner {
         let clipPanel = liveClipboard.ensurePanel(width: 420, height: 420)
         liveClipboard.showPopover()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.08))
+        let clipSearchField = clipPanel.firstEditableTextField()
+        expect(clipSearchField != nil, "Clipboard popover must contain an editable NSTextField search box")
+        let clipResponder = clipPanel.firstResponder
+        let isClipSearchFocused = ((clipResponder as? NSTextView)?.delegate as AnyObject?) === clipSearchField || clipResponder === clipSearchField
+        expect(isClipSearchFocused, "Clipboard showPopover must auto-focus search so character keys filter instead of beeping")
 
         func firstScrollView(in view: NSView?) -> NSScrollView? {
             guard let view else { return nil }
@@ -2332,7 +2337,7 @@ enum SelfTestRunner {
         pkModule.showPopover()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.08))
         expect(pkModule.popoverState.openSequence == seqBefore + 1, "PortKiller showPopover must increment openSequence")
-        let pkSearchField = PortKillerModule.findEditableTextField(in: pkPanel.contentView)
+        let pkSearchField = pkPanel.firstEditableTextField()
         expect(pkSearchField != nil, "PortKiller popover must provide an editable NSTextField search box")
         let pkResponder = pkPanel.firstResponder
         let isPKSearchFocused = ((pkResponder as? NSTextView)?.delegate as AnyObject?) === pkSearchField || pkResponder === pkSearchField

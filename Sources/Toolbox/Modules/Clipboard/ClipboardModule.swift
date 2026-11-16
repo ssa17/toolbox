@@ -346,7 +346,14 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
         panel.setFrame(NSRect(x: origin.x, y: origin.y, width: width, height: height), display: true)
         panel.orderFrontRegardless()
         panel.makeKey()
+        panel.focusFirstEditableTextField()
         installPopoverMonitors(for: panel)
+        DispatchQueue.main.async { [weak panel] in
+            if let panel, panel.isVisible {
+                panel.focusFirstEditableTextField()
+                PointerCursorNSView.syncCursor(in: panel)
+            }
+        }
     }
 
     @discardableResult
@@ -530,8 +537,8 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
                     return nil
                 }
                 return event
-            case 49: // Space -> toggle detail preview when not typing in search
-                if !isEditingSearch {
+            case 49: // Space -> toggle detail preview when search query is empty or search is unfocused
+                if !isEditingSearch || self.popoverState.query.isEmpty {
                     if let previewID = self.popoverState.previewEntryID {
                         if visible.contains(where: { $0.id == previewID }) {
                             self.popoverState.selectedEntryID = previewID
@@ -590,6 +597,9 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
             default:
                 if event.window !== panel {
                     return event
+                }
+                if !isEditingSearch && event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
+                    return nil
                 }
                 return event
             }

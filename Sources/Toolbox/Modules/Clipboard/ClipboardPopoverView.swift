@@ -50,6 +50,7 @@ struct ClipboardPopoverView: View {
     @ObservedObject var uiState: ClipboardPopoverUIState
     let onSelect: (ClipboardEntry) -> Void
     let onClose: () -> Void
+    @FocusState private var isSearchFocused: Bool
     @FocusState private var focusedRenameID: UUID?
 
     private var filteredEntries: [ClipboardEntry] {
@@ -76,6 +77,7 @@ struct ClipboardPopoverView: View {
                     .foregroundStyle(.secondary)
                 TextField("Search clipboard or pinned labels…", text: $uiState.query)
                     .textFieldStyle(.plain)
+                    .focused($isSearchFocused)
                     .onChange(of: uiState.query) { _, _ in
                         if let first = filteredEntries.first {
                             uiState.selectedEntryID = first.id
@@ -174,6 +176,21 @@ struct ClipboardPopoverView: View {
                 confirmClearAllOverlay()
             }
         }
+        .onAppear {
+            isSearchFocused = true
+        }
+        .onChange(of: uiState.openSequence) { _, _ in
+            DispatchQueue.main.async {
+                isSearchFocused = true
+            }
+        }
+        .onChange(of: uiState.previewEntryID) { oldID, newID in
+            if oldID != nil && newID == nil && uiState.renamingEntryID == nil {
+                DispatchQueue.main.async {
+                    isSearchFocused = true
+                }
+            }
+        }
         .onChange(of: uiState.renamingEntryID) { _, newID in
             if let newID {
                 DispatchQueue.main.async {
@@ -181,6 +198,9 @@ struct ClipboardPopoverView: View {
                 }
             } else {
                 focusedRenameID = nil
+                DispatchQueue.main.async {
+                    isSearchFocused = true
+                }
             }
         }
     }
