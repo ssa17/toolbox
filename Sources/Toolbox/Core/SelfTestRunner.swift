@@ -2231,6 +2231,8 @@ enum SelfTestRunner {
         expect(CallShortcutRemapper.classifyCallMuteControlLabel("Unmute mic (⌘⇧M)") == true, "'Unmute mic (⌘⇧M)' means currently muted (true)")
         expect(CallShortcutRemapper.classifyCallMuteControlLabel("Turn off microphone (⌘ + d)") == false, "Google Meet turn off mic label should classify as unmuted (false)")
         expect(CallShortcutRemapper.classifyCallMuteControlLabel("Turn on microphone (⌘ + d)") == true, "Google Meet turn on mic label should classify as muted (true)")
+        expect(CallShortcutRemapper.classifyCallMuteControlLabel("Unmute huddle") == true, "Slack 'Unmute huddle' label should classify as muted (true)")
+        expect(CallShortcutRemapper.classifyCallMuteControlLabel("Mute huddle") == false, "Slack 'Mute huddle' label should classify as unmuted (false)")
         expect(CallShortcutRemapper.classifyCallMuteControlLabel("Mute notifications") == nil, "Unrelated 'Mute notifications' must return nil")
         expect(CallShortcutRemapper.classifyCallMuteControlLabel("Mute all participants") == nil, "Unrelated 'Mute all participants' must return nil")
 
@@ -2238,6 +2240,51 @@ enum SelfTestRunner {
         expect(CallControlsModule.resolveEffectiveMuteState(isTypingMuted: false, hardwareMuted: false, callAppMuted: true), "App muted must resolve to muted even if hardware unmuted")
         expect(CallControlsModule.resolveEffectiveMuteState(isTypingMuted: false, hardwareMuted: true, callAppMuted: false), "Hardware muted must resolve to muted")
         expect(CallControlsModule.resolveEffectiveMuteState(isTypingMuted: true, hardwareMuted: false, callAppMuted: false), "Typing mute must resolve to muted")
+
+        let initialSyncPlan = CallControlsModule.planObservedCallMuteSync(
+            observedMuted: true,
+            previousCallAppMuted: nil,
+            hardwareInputMuted: false,
+            syncHardwareWithApp: true,
+            isTypingMuted: false,
+            withinPostRelaySettleWindow: false,
+            defaultInputAvailable: true
+        )
+        expect(
+            initialSyncPlan == CallControlsModule.ObservedCallMutePlan(
+                adoptCallAppMuted: true,
+                hardwareMuteTarget: true,
+                announceHardwareSyncLog: true
+            ),
+            "First read when joining an already-muted call with HW sync enabled must copy app mute to hardware"
+        )
+        let appOnlyPlan = CallControlsModule.planObservedCallMuteSync(
+            observedMuted: true,
+            previousCallAppMuted: nil,
+            hardwareInputMuted: false,
+            syncHardwareWithApp: false,
+            isTypingMuted: false,
+            withinPostRelaySettleWindow: false,
+            defaultInputAvailable: true
+        )
+        expect(
+            appOnlyPlan == CallControlsModule.ObservedCallMutePlan(
+                adoptCallAppMuted: true,
+                hardwareMuteTarget: nil,
+                announceHardwareSyncLog: false
+            ),
+            "App-only mode must adopt app mute status in Toolbox without muting OS hardware (prevents Slack system-mute banner)"
+        )
+        let postRelayStale = CallControlsModule.planObservedCallMuteSync(
+            observedMuted: false,
+            previousCallAppMuted: true,
+            hardwareInputMuted: true,
+            syncHardwareWithApp: true,
+            isTypingMuted: false,
+            withinPostRelaySettleWindow: true,
+            defaultInputAvailable: true
+        )
+        expect(postRelayStale == nil, "Post-relay settle window must ignore stale pre-flip AX poll")
 
         let micShortcut = ShortcutSpec(key: "m", modifiers: [.control, .option, .command])
         let mCode = UInt16(micShortcut.carbonKeyCode ?? 46)

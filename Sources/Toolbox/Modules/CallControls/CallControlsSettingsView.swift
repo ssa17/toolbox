@@ -352,19 +352,17 @@ struct CallControlsSettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                if cfg.overrideScope != .everywhere {
-                    Divider()
-                        .padding(.vertical, 10)
+                Divider()
+                    .padding(.vertical, 10)
 
-                    SettingRow(
-                        "Also Mute macOS Hardware Mic",
-                        subtitle: "Toggles your system input mute via CoreAudio whenever My Mic Keybind relays to a call app."
-                    ) {
-                        Toggle("", isOn: $configManager.config.callControls.syncHardwareMuteWithAppMicToggle)
-                            .labelsHidden()
-                            .toggleStyle(.switch)
-                            .pointerCursor()
-                    }
+                SettingRow(
+                    "Also Mute macOS Hardware Mic",
+                    subtitle: "Also mutes system input via CoreAudio during call-app toggles. Leave off to prevent Slack/Teams system-mute warning banners."
+                ) {
+                    Toggle("", isOn: $configManager.config.callControls.syncHardwareMuteWithAppMicToggle)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .pointerCursor()
                 }
             }
         }

@@ -265,6 +265,7 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
     private var appLifecycleObservers: [NSObjectProtocol] = []
     private var callAppPollTimer: Timer?
     private let callAppInspectionQueue = DispatchQueue(label: "app.toolbox.call-app-ax-poll", qos: .utility)
+    private var lastCallRelayUptime: TimeInterval = 0
     private var simulatedTypingBurstTask: Task<Void, Never>?
 
     init() {
@@ -1403,23 +1404,38 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
     }
 
     /// Context-aware mic toggle used by the Floating Pill and Menu Bar button:
-    /// coordinates with an active call app (e.g. Teams) so hardware and in-app mute stay in phase.
+    /// reads the live app mute status first so hardware and in-app mute stay aligned.
     func toggleSmartMicMute() {
         guard isMicStreamActive,
               PermissionsManager.shared.isAccessibilityGranted,
-              let target = currentTargetSummary(for: .mic) else {
+              let target = currentTargetSummary(for: .mic),
+              let pid = target.pid else {
             toggleHardwareMicMute()
             return
         }
 
+        callAppInspectionQueue.async { [weak self] in
+            let freshObserved = CallShortcutRemapper.inspectCallAppMuteState(pid: pid)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let freshObserved {
+                    self.callAppMutedState = freshObserved
+                    self.updateEffectiveMuteState()
+                }
+                self.performSmartMicToggle(targetAppName: target.appName)
+            }
+        }
+    }
+
+    private func performSmartMicToggle(targetAppName: String) {
         if isInputMuted {
             // User wants to UNMUTE. Clear any leftover hardware mute first, and relay to the call app
-            // only if the call app itself is muted (or its state isn't known yet).
+            // if the call app itself is muted (or its state could not be read yet).
             let hadHardwareMute = hardwareInputMuted
             if hadHardwareMute {
                 _ = setHardwareMicMuted(false, announceToast: false)
             }
-            if callAppMutedState == true || !hadHardwareMute {
+            if callAppMutedState == true || !hadHardwareMute || callAppMutedState == nil {
                 let sent = callRemapper.triggerManualAction(
                     .mic,
                     mappings: config.appShortcutMappings,
@@ -1432,7 +1448,7 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
                 }
             } else {
                 let micName = defaultInputDevice?.name ?? "Microphone"
-                showToast(title: "Mic Live · \(target.appName) (\(micName))", symbol: "mic.fill", tint: .green)
+                showToast(title: "Mic Live · \(targetAppName) (\(micName))", symbol: "mic.fill", tint: .green)
             }
         } else {
             // User wants to MUTE.
@@ -1621,22 +1637,34 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
                let target = currentTargetSummary(for: .mic),
                let pid = target.pid,
                PermissionsManager.shared.isAccessibilityGranted {
-                let currentAppMuted = CallShortcutRemapper.inspectCallAppMuteState(pid: pid)
-                let nextMuted = currentAppMuted.map { !$0 } ?? !isInputMuted
-                callAppMutedState = nextMuted
-                if defaultInputDevice != nil {
-                    _ = setHardwareMicMuted(nextMuted, announceToast: false)
-                } else {
-                    updateEffectiveMuteState()
+                lastCallRelayUptime = ProcessInfo.processInfo.systemUptime
+                callAppInspectionQueue.asyncAfter(deadline: .now() + 0.14) { [weak self] in
+                    let observedPostToggle = CallShortcutRemapper.inspectCallAppMuteState(pid: pid)
+                    Task { @MainActor [weak self] in
+                        guard let self, self.isRunning, self.developerSimulation == nil else { return }
+                        let nextMuted = observedPostToggle ?? !self.isInputMuted
+                        self.callAppMutedState = nextMuted
+                        if self.config.syncHardwareMuteWithAppMicToggle, self.defaultInputDevice != nil {
+                            if self.hardwareInputMuted != nextMuted {
+                                _ = self.setHardwareMicMuted(nextMuted, announceToast: false)
+                            } else {
+                                self.updateEffectiveMuteState()
+                            }
+                        } else if !nextMuted && self.hardwareInputMuted && self.defaultInputDevice != nil {
+                            _ = self.setHardwareMicMuted(false, announceToast: false)
+                        } else {
+                            self.updateEffectiveMuteState()
+                        }
+                        let title = "\(nextMuted ? "Mic Muted" : "Mic Live") · \(target.appName)"
+                        self.lastRelayedActionLabel = "\(title) (Synced)"
+                        self.showToast(
+                            title: title,
+                            symbol: nextMuted ? "mic.slash.fill" : "mic.fill",
+                            tint: nextMuted ? .red : .green
+                        )
+                        self.scheduleCallAppMuteStateRefresh(pid: pid, appName: target.appName)
+                    }
                 }
-                let title = "\(nextMuted ? "Mic Muted" : "Mic Live") · \(target.appName)"
-                lastRelayedActionLabel = "\(title) (Synced)"
-                showToast(
-                    title: title,
-                    symbol: nextMuted ? "mic.slash.fill" : "mic.fill",
-                    tint: nextMuted ? .red : .green
-                )
-                scheduleCallAppMuteStateRefresh(pid: pid, appName: target.appName)
                 return
             }
 
@@ -1662,6 +1690,7 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
 
     private func handleNativeAppMicShortcutPressed(mapping: CallAppShortcutMapping, pid: pid_t) {
         guard isRunning, developerSimulation == nil else { return }
+        lastCallRelayUptime = ProcessInfo.processInfo.systemUptime
         scheduleCallAppMuteStateRefresh(pid: pid, appName: mapping.appName)
     }
 
@@ -1705,19 +1734,16 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
                 targetMuted = !isInputMuted
             }
 
+            lastCallRelayUptime = ProcessInfo.processInfo.systemUptime
             callAppMutedState = targetMuted
-            let shouldSyncHW = (config.overrideScope == .everywhere || config.syncHardwareMuteWithAppMicToggle)
-                && defaultInputDevice != nil
-            if shouldSyncHW {
-                if preRelayAppMuted != nil || config.syncHardwareMuteWithAppMicToggle {
+            if config.syncHardwareMuteWithAppMicToggle && defaultInputDevice != nil {
+                if hardwareInputMuted != targetMuted {
                     _ = setHardwareMicMuted(targetMuted, announceToast: false)
-                } else if !targetMuted && hardwareInputMuted {
-                    _ = setHardwareMicMuted(false, announceToast: false)
                 } else {
                     updateEffectiveMuteState()
                 }
             } else {
-                if !targetMuted && hardwareInputMuted {
+                if !targetMuted && hardwareInputMuted && defaultInputDevice != nil {
                     _ = setHardwareMicMuted(false, announceToast: false)
                 } else {
                     updateEffectiveMuteState()
@@ -1829,25 +1855,69 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
         }
     }
 
+    struct ObservedCallMutePlan: Equatable, Sendable {
+        let adoptCallAppMuted: Bool
+        let hardwareMuteTarget: Bool?
+        let announceHardwareSyncLog: Bool
+    }
+
+    static func planObservedCallMuteSync(
+        observedMuted: Bool?,
+        previousCallAppMuted: Bool?,
+        hardwareInputMuted: Bool,
+        syncHardwareWithApp: Bool,
+        isTypingMuted: Bool,
+        withinPostRelaySettleWindow: Bool,
+        defaultInputAvailable: Bool
+    ) -> ObservedCallMutePlan? {
+        guard let observedMuted else { return nil }
+        if withinPostRelaySettleWindow,
+           let prev = previousCallAppMuted,
+           prev != observedMuted {
+            return nil
+        }
+        let hardwareTarget: Bool? = {
+            guard syncHardwareWithApp, !isTypingMuted, defaultInputAvailable else {
+                return nil
+            }
+            return hardwareInputMuted != observedMuted ? observedMuted : nil
+        }()
+        let shouldLog = (hardwareTarget != nil) && (previousCallAppMuted == nil || previousCallAppMuted != observedMuted)
+        return ObservedCallMutePlan(
+            adoptCallAppMuted: observedMuted,
+            hardwareMuteTarget: hardwareTarget,
+            announceHardwareSyncLog: shouldLog
+        )
+    }
+
     private func applyObservedCallAppMuteState(_ observedMuted: Bool?, appName: String?) {
-        guard isRunning, isMicStreamActive, developerSimulation == nil, let observedMuted else {
+        guard isRunning, isMicStreamActive, developerSimulation == nil else {
             return
         }
-        let previous = callAppMutedState
-        let didChangeInApp = (previous != nil && previous != observedMuted)
-        callAppMutedState = observedMuted
+        let elapsedSinceRelay = ProcessInfo.processInfo.systemUptime - lastCallRelayUptime
+        guard let plan = Self.planObservedCallMuteSync(
+            observedMuted: observedMuted,
+            previousCallAppMuted: callAppMutedState,
+            hardwareInputMuted: hardwareInputMuted,
+            syncHardwareWithApp: config.syncHardwareMuteWithAppMicToggle,
+            isTypingMuted: isTypingMuted,
+            withinPostRelaySettleWindow: elapsedSinceRelay < 0.42,
+            defaultInputAvailable: defaultInputDevice != nil
+        ) else {
+            return
+        }
 
-        if didChangeInApp && !isTypingMuted {
-            let shouldSyncHW = (config.overrideScope == .everywhere || config.syncHardwareMuteWithAppMicToggle)
-            if shouldSyncHW && hardwareInputMuted != observedMuted && defaultInputDevice != nil {
-                _ = setHardwareMicMuted(observedMuted, announceToast: false)
+        callAppMutedState = plan.adoptCallAppMuted
+        if let hardwareTarget = plan.hardwareMuteTarget {
+            _ = setHardwareMicMuted(hardwareTarget, announceToast: false)
+            if plan.announceHardwareSyncLog {
                 DeveloperEventLog.shared.record(
                     .callControls,
-                    observedMuted ? "Synced hardware mic to app mute" : "Synced hardware mic to app live",
+                    hardwareTarget ? "Synced hardware mic to app mute" : "Synced hardware mic to app live",
                     detail: appName
                 )
-                return
             }
+            return
         }
         updateEffectiveMuteState()
     }

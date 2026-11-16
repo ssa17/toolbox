@@ -1084,7 +1084,8 @@ final class CallShortcutRemapper: @unchecked Sendable {
 
         let unmutePhrases = [
             "unmute mic", "unmute microphone", "unmute audio", "unmute myself", "unmute me",
-            "turn on mic", "turn on microphone", "mic is muted", "microphone is muted"
+            "unmute huddle", "turn on mic", "turn on microphone", "turn mic on", "turn microphone on",
+            "mic is muted", "microphone is muted", "mic muted", "microphone muted"
         ]
         if text == "unmute" || unmutePhrases.contains(where: { text.contains($0) }) {
             return true
@@ -1095,7 +1096,8 @@ final class CallShortcutRemapper: @unchecked Sendable {
 
         let mutePhrases = [
             "mute mic", "mute microphone", "mute audio", "mute myself", "mute me",
-            "turn off mic", "turn off microphone", "mic is on", "microphone is on"
+            "mute huddle", "turn off mic", "turn off microphone", "turn mic off", "turn microphone off",
+            "mic is on", "microphone is on", "microphone unmuted"
         ]
         if text == "mute" || mutePhrases.contains(where: { text.contains($0) }) {
             return false
@@ -1117,7 +1119,7 @@ final class CallShortcutRemapper: @unchecked Sendable {
         var mbRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(appElem, kAXMenuBarAttribute as CFString, &mbRef) == .success,
            let mb = mbRef {
-            if let menuResult = searchMenuForMuteState(mb as! AXUIElement, depthRemaining: 3, pathDepth: 0) {
+            if let menuResult = searchMenuForMuteState(mb as! AXUIElement, depthRemaining: 4, pathDepth: 0) {
                 return menuResult
             }
         }
@@ -1125,15 +1127,48 @@ final class CallShortcutRemapper: @unchecked Sendable {
         var windowsRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(appElem, kAXWindowsAttribute as CFString, &windowsRef) == .success,
            let windows = windowsRef as? [AXUIElement] {
-            var remaining = 320
-            for win in windows.prefix(4) {
-                if let winResult = searchWindowForMuteState(win, depthRemaining: 12, nodeBudget: &remaining) {
+            let orderedWindows = prioritizedCallWindows(windows)
+            var totalBudget = 1600
+            for win in orderedWindows.prefix(8) {
+                var perWindowBudget = min(450, totalBudget)
+                let startBudget = perWindowBudget
+                if let winResult = searchWindowForMuteState(win, depthRemaining: 24, nodeBudget: &perWindowBudget) {
                     return winResult
                 }
-                if remaining <= 0 { break }
+                totalBudget -= (startBudget - perWindowBudget)
+                if totalBudget <= 0 { break }
             }
         }
         return nil
+    }
+
+    private static func prioritizedCallWindows(_ windows: [AXUIElement]) -> [AXUIElement] {
+        guard windows.count > 1 else { return windows }
+        return windows.enumerated().sorted { lhs, rhs in
+            let lScore = callWindowPriorityScore(lhs.element)
+            let rScore = callWindowPriorityScore(rhs.element)
+            if lScore != rScore { return lScore > rScore }
+            return lhs.offset < rhs.offset
+        }.map(\.element)
+    }
+
+    private static func callWindowPriorityScore(_ win: AXUIElement) -> Int {
+        var score = 0
+        var titleRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(win, kAXTitleAttribute as CFString, &titleRef) == .success,
+           let title = (titleRef as? String)?.lowercased() {
+            let keywords = ["huddle", "meeting", "call", "meet", "zoom", "facetime"]
+            if keywords.contains(where: { title.contains($0) }) {
+                score += 10
+            }
+        }
+        var subroleRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(win, kAXSubroleAttribute as CFString, &subroleRef) == .success,
+           let subrole = subroleRef as? String,
+           subrole == "AXFloatingWindow" || subrole == "AXSystemDialog" {
+            score += 5
+        }
+        return score
     }
 
     private static func searchMenuForMuteState(
@@ -1211,6 +1246,17 @@ final class CallShortcutRemapper: @unchecked Sendable {
                     if AXUIElementCopyAttributeValue(element, attr, &valueRef) == .success,
                        let label = valueRef as? String,
                        let classified = classifyCallMuteControlLabel(label, isMenuItem: false) {
+                        if !classified && (role == "AXCheckBox" || role == "AXSwitch" || role == "AXRadioButton") {
+                            var controlValRef: CFTypeRef?
+                            if AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &controlValRef) == .success {
+                                if let intVal = controlValRef as? Int, intVal != 0 {
+                                    return true
+                                }
+                                if let boolVal = controlValRef as? Bool, boolVal {
+                                    return true
+                                }
+                            }
+                        }
                         return classified
                     }
                 }
