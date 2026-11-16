@@ -3,27 +3,28 @@
     <channel>
         <title>Toolbox</title>
         <item>
-            <title>1.2</title>
-            <pubDate>Sun, 15 Nov 2026 23:02:57 +0000</pubDate>
-            <sparkle:version>1.2</sparkle:version>
-            <sparkle:shortVersionString>1.2</sparkle:shortVersionString>
+            <title>1.3</title>
+            <pubDate>Mon, 16 Nov 2026 15:05:14 +0000</pubDate>
+            <sparkle:version>1.3</sparkle:version>
+            <sparkle:shortVersionString>1.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <description sparkle:format="markdown"><![CDATA[
 ### Added
-- **Call Controls (`⌃ ⌥ ⌘ M` / `⌃ ⌥ ⌘ V`)** — unified global Mic and Video shortcuts that mute your system microphone and control FaceTime, Microsoft Teams, Zoom, Slack, Google Meet, Discord, or custom call apps, paired with a draggable floating Mic/Camera status pill, output device cycling, and auto-mute while typing
-- **Clean Lock** — temporarily lock your keyboard (including media, volume, and brightness keys) and mouse/trackpad input for `10s`–`3m` with a center-screen countdown and `Hold ⌃ ⌥ ⌘ Esc (3s)` emergency unlock
-- **Clipboard History** — keep recent unpinned clipboard items across restarts by default, with a toggle in Privacy & Cleanup
-- **Developer Tools** — added live background update schedule diagnostics and a Call Controls simulation and telemetry workspace
+- **First-Open Accessibility Prompt** — explains on first launch which features use Accessibility (and what still works without it), with preview and reset controls in Developer Tools
 
 ### Changed
-- Expanded the **Dashboard** module grid up to 3 columns on wider windows and standardized **HUD Toast** height across all status icons
+- **Dashboard & Readability** — refreshed the Accessibility banner, increased card and text contrast across the Dashboard and settings, and renamed **Clean Lock** to **Keyboard Lock** with clearer copy
 
 ### Fixed
-- Stabilized the Call Controls floating pill position when toggling Mic or Camera and fixed a crash when closing the pill
+- **Menu Bar & Multi-Display** — the status bar menu now stays open reliably when Toolbox is in the background, and the window opens on the display where your cursor is
+- **Clipboard Popover** — the search field auto-focuses on open so keys filter immediately (no alert beeps), arrow-key scrolling works in both directions, and closing the full-text preview with Left Arrow keeps your exact row and scroll position
+- **Port Killer** — the search box auto-focuses on open so you can type to filter or press `↓` to select rows immediately
+- **Call Controls** — in-app mute status syncs cleanly when joining calls, the **Also Mute macOS Hardware Mic** toggle works in all scopes, idle background chat windows no longer hijack mic/video toggles during an active Slack call, and the floating pill only appears during real calls
+- **DMG Installer** — removed white borders around the Finder window in the installer backdrop
 
 ]]></description>
-            <enclosure url="https://github.com/ssa17/toolbox/releases/download/v1.2/Toolbox-1.2.zip" length="4464534" type="application/octet-stream" sparkle:edSignature="E6CBA/cW3BgJr3ky7VBkcnhbzGSE3udKhkdgPc79IDTGcahdBtiobMRLda8yrekq8wGNd8qVaNI7Q0scAzkWAQ=="/>
+            <enclosure url="https://github.com/ssa17/toolbox/releases/download/v1.3/Toolbox-1.3.zip" length="4595121" type="application/octet-stream" sparkle:edSignature="p8Y/EjZx2SNt1Tx1E8HYozJc7OfeNkYVCpFby/Yq74dQAQZDFGWfDKkWBdgdDnqkIznyMenj8fQ2AndARyE/BQ=="/>
         </item>
     </channel>
 </rss>

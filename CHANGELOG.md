@@ -9,18 +9,20 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 
 ## [Unreleased]
 
+## [1.3] - 2026-11-16
+
 ### Added
-- **First-Open Accessibility Prompt** — explains which features use Accessibility (and what works without it) on first launch, with preview and reset controls in Developer Tools
+- **First-Open Accessibility Prompt** — explains on first launch which features use Accessibility (and what still works without it), with preview and reset controls in Developer Tools
 
 ### Changed
-- **Dashboard & Readability** — refreshed the Accessibility banner, increased card and text contrast across the Dashboard and settings, and renamed **Clean Lock** to **Keyboard Lock** with clearer dusting/cleaning copy
+- **Dashboard & Readability** — refreshed the Accessibility banner, increased card and text contrast across the Dashboard and settings, and renamed **Clean Lock** to **Keyboard Lock** with clearer copy
 
 ### Fixed
-- **Menu Bar & Multi-Display** — presented the status bar menu in a non-activating panel so macOS 26 keeps it open reliably even when Toolbox is in the background, and opened Toolbox's window on the display where your cursor is
-- **Clipboard Popover** — auto-focused the search field on open so character keys filter immediately without alert beeps, fixed arrow-key scrolling in both directions, preserved the exact selected row and scroll position when closing full-text preview with Left Arrow, and made Delete/action buttons clearly visible
-- **Port Killer** — automatically focused the search box every time the popover opens so you can type to filter or press `↓` to select rows immediately
-- **Call Controls (Slack/Teams Sync & Mic Detection)** — read and sync initial in-app mute status cleanly when joining calls, let the **Also Mute macOS Hardware Mic** toggle work in all scopes (avoiding Slack's system-mute warning banner when disabled), stopped idle background chat windows from hijacking mic/video toggles during an active Slack call, and filtered CoreAudio per-process input streams (ignoring output sounds and System Settings' Sound meter) so the floating pill only shows during real calls
-- **DMG Installer** — expanded the installer backdrop canvas to eliminate white borders around the Finder window
+- **Menu Bar & Multi-Display** — the status bar menu now stays open reliably when Toolbox is in the background, and the window opens on the display where your cursor is
+- **Clipboard Popover** — the search field auto-focuses on open so keys filter immediately (no alert beeps), arrow-key scrolling works in both directions, and closing the full-text preview with Left Arrow keeps your exact row and scroll position
+- **Port Killer** — the search box auto-focuses on open so you can type to filter or press `↓` to select rows immediately
+- **Call Controls** — in-app mute status syncs cleanly when joining calls, the **Also Mute macOS Hardware Mic** toggle works in all scopes, idle background chat windows no longer hijack mic/video toggles during an active Slack call, and the floating pill only appears during real calls
+- **DMG Installer** — removed white borders around the Finder window in the installer backdrop
 
 ## [1.2] - 2026-11-15
 
