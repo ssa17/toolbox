@@ -44,9 +44,10 @@ enum SelfTestRunner {
         testScreenOCRConfigAndLifecycle()
         testScreenOCREngineRecognition()
         testMultiScreenOnboardingClipboardScrollAndMicSync()
+        testSupportLinks()
 
         if failures.isEmpty {
-            print("All 31 self-test suites passed.")
+            print("All 32 self-test suites passed.")
             return 0
         } else {
             for f in failures {
@@ -2773,5 +2774,14 @@ enum SelfTestRunner {
         expect(isPKSearchFocused, "PortKiller showPopover must focus the search bar automatically")
         pkModule.hidePopover()
         pkModule.stop()
+    }
+
+    private static func testSupportLinks() {
+        expect(SupportLinks.githubSponsors.scheme == "https", "GitHub Sponsors URL must use https")
+        expect(SupportLinks.githubSponsors.host == "github.com", "GitHub Sponsors URL host mismatch")
+        expect(SupportLinks.githubSponsors.path == "/sponsors/ssa17", "GitHub Sponsors URL path mismatch")
+        expect(SupportLinks.koFi.scheme == "https", "Ko-fi URL must use https")
+        expect(SupportLinks.koFi.host == "ko-fi.com", "Ko-fi URL host mismatch")
+        expect(SupportLinks.koFi.path == "/ssa17", "Ko-fi URL path mismatch")
     }
 }

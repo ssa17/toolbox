@@ -2,7 +2,7 @@
 
 Lightweight, native macOS utilities for Dock window toggling, clipboard history, port management, call mic/video controls, keyboard-lock mode, display sleep control, independent mouse scroll direction, and global shortcuts.
 
-**[Download .dmg](https://github.com/ssa17/toolbox/releases/latest/download/Toolbox.dmg)** · [All releases](https://github.com/ssa17/toolbox/releases)
+**[Download .dmg](https://github.com/ssa17/toolbox/releases/latest/download/Toolbox.dmg)** · [All releases](https://github.com/ssa17/toolbox/releases) · [Sponsor on GitHub](https://github.com/sponsors/ssa17) · [Support on Ko-fi](https://ko-fi.com/ssa17)
 
 ![Toolbox dashboard](docs/screenshots/dashboard.png)
 
@@ -36,6 +36,13 @@ Toolbox checks for updates automatically via Sparkle and installs them in place.
 ## Requirements
 
 - macOS 14 (Sonoma) or later, Apple Silicon
+
+## Support
+
+Toolbox is free, private, and open source. If it saves you time, you can support ongoing development via:
+
+- **[GitHub Sponsors](https://github.com/sponsors/ssa17)** (for developers — 0% fees)
+- **[Ko-fi](https://ko-fi.com/ssa17)** (Apple Pay, cards, or PayPal — no GitHub account needed)
 
 ---
 

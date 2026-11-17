@@ -244,6 +244,51 @@ struct SettingsView: View {
                             }
                         }
                     }
+
+                    Divider()
+
+                    HStack(alignment: .center, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Support Toolbox")
+                                .font(.callout.weight(.semibold))
+                            Text("Toolbox is free and open-source with no ads or tracking. If it saves you time, consider supporting development.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        Spacer(minLength: 12)
+
+                        HStack(spacing: 8) {
+                            Button {
+                                SupportLinks.open(SupportLinks.githubSponsors)
+                            } label: {
+                                Label {
+                                    Text("GitHub Sponsors")
+                                } icon: {
+                                    Image(systemName: "heart.fill")
+                                        .foregroundStyle(.pink)
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .pointerCursor()
+
+                            Button {
+                                SupportLinks.open(SupportLinks.koFi)
+                            } label: {
+                                Label {
+                                    Text("Ko-fi")
+                                } icon: {
+                                    Image(systemName: "cup.and.saucer.fill")
+                                        .foregroundStyle(.orange)
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .pointerCursor()
+                        }
+                    }
                 }
             }
             .padding(22)

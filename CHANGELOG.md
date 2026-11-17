@@ -11,6 +11,7 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 
 ### Added
 - **Screen OCR (`⌃ ⌥ ⌘ O`)** — drag-select any area of the screen to copy unselectable text or decode QR/barcodes using on-device Apple Vision OCR, with fast/accurate modes, line-break and toast options, and a session-only recent-captures list in Settings
+- **Support Links** — added GitHub Sponsors and Ko-fi links under **Settings → About Toolbox**
 
 ## [1.3] - 2026-11-16
 
