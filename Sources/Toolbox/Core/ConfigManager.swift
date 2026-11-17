@@ -468,7 +468,7 @@ enum OCRRecognitionLevel: String, Codable, CaseIterable, Sendable {
 
 struct ScreenOCRConfig: Codable, Equatable, Sendable {
     var enabled: Bool = false
-    var shortcut: ShortcutSpec = ShortcutSpec(key: "o", modifiers: [.control, .option, .command])
+    var shortcut: ShortcutSpec = ShortcutSpec(key: "0", modifiers: [.command, .shift])
     var recognitionLevel: OCRRecognitionLevel = .accurate
     var preserveLineBreaks: Bool = true
     var detectQRCodes: Bool = true
@@ -480,7 +480,7 @@ struct ScreenOCRConfig: Codable, Equatable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
         shortcut = try c.decodeIfPresent(ShortcutSpec.self, forKey: .shortcut)
-            ?? ShortcutSpec(key: "o", modifiers: [.control, .option, .command])
+            ?? ShortcutSpec(key: "0", modifiers: [.command, .shift])
         recognitionLevel = try c.decodeIfPresent(OCRRecognitionLevel.self, forKey: .recognitionLevel) ?? .accurate
         preserveLineBreaks = try c.decodeIfPresent(Bool.self, forKey: .preserveLineBreaks) ?? true
         detectQRCodes = try c.decodeIfPresent(Bool.self, forKey: .detectQRCodes) ?? true

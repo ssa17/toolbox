@@ -15,7 +15,7 @@ Features are ordered from zero-permission, self-contained utilities to modules t
 | 1 | **Localhost Port Killer** | `port_killer` | Developer Tools | `⌃ ⌥ ⌘ P` | None | `Foundation`, `Darwin` (`libproc`), `Network` (tests) | Done |
 | 2 | **Color Picker & Swatch History** | `color_picker` | Developer Tools | `⌃ ⌥ ⌘ C` | None | `AppKit` (`NSColorSampler`, `NSColorSpace`) | Planned |
 | 3 | **Dev Converter & Scratchpad** | `dev_tools` | Developer Tools | `⌃ ⌥ ⌘ B` | None | `Foundation`, `CryptoKit` | Planned |
-| 4 | **Screen OCR (Text Grabber)** | `screen_ocr` | Developer Tools | `⌃ ⌥ ⌘ O` | Screen Recording (OS-managed via `screencapture`) | `Vision`, `CoreGraphics`, `AppKit` | Done |
+| 4 | **Screen OCR (Text Grabber)** | `screen_ocr` | Developer Tools | `⇧ ⌘ 0` | Screen Recording (OS-managed via `screencapture`) | `Vision`, `CoreGraphics`, `AppKit` | Done |
 | 5 | **Keyboard & Trackpad Clean Lock** | `clean_lock` | System & Power | None *(Button / Menu Bar only)* | Accessibility (required) | `CoreGraphics` (`CGEventTap`), `AppKit` | Done |
 | 6 | **Call Controls** | `call_controls` | System & Power | `⌃ ⌥ ⌘ M` (Mic) & `⌃ ⌥ ⌘ V` (Video), customizable per user | Accessibility (optional: Unified Call Keybind Override & Auto-Mute While Typing) | `CoreAudio`, `AudioToolbox`, `CoreMediaIO`, `CoreGraphics`, `ApplicationServices` | Done |
 
@@ -320,10 +320,10 @@ struct DevToolsConfig: Codable, Equatable, Sendable {
 ## 5. Feature 4: Screen OCR / Text Grabber (`Modules/ScreenOCR/`) — Done
 
 ### Purpose & User Value
-Often you need text locked inside a screenshot, YouTube tutorial, PDF scan, simulator screenshot, error dialog, or screen-share video call. **Screen OCR** binds a global shortcut (`⌃ ⌥ ⌘ O`) to drag-select any screen region, runs Apple's on-device `Vision` text & QR/barcode recognizer completely offline, and drops the extracted text straight onto your clipboard.
+Often you need text locked inside a screenshot, YouTube tutorial, PDF scan, simulator screenshot, error dialog, or screen-share video call. **Screen OCR** binds a global shortcut (`⇧ ⌘ 0`) to drag-select any screen region, runs Apple's on-device `Vision` text & QR/barcode recognizer completely offline, and drops the extracted text straight onto your clipboard.
 
 ### User Flows & UX
-- **Capture Hotkey (`⌃ ⌥ ⌘ O`) or Menu/Settings Button:**
+- **Capture Hotkey (`⇧ ⌘ 0`) or Menu/Settings Button:**
   - Invokes macOS's native interactive crosshair region selector (`/usr/sbin/screencapture -i -x`).
   - Dragging a box captures the region silently (`-x` disables camera shutter sound) and runs `ScreenOCREngine` asynchronously.
   - On success: copies recognized text (or decoded QR payload) to `NSPasteboard.general`, shows `HUDToast` with a snippet preview (e.g., `"Copied 4 lines"` or `"Copied QR URL"`), and appends to an in-memory **Recent Captures** list (up to 10 items, never persisted to disk for privacy).
@@ -377,7 +377,7 @@ enum OCRRecognitionLevel: String, Codable, CaseIterable, Sendable {
 
 struct ScreenOCRConfig: Codable, Equatable, Sendable {
     var enabled: Bool = false
-    var shortcut: ShortcutSpec = ShortcutSpec(key: "o", modifiers: [.control, .option, .command])
+    var shortcut: ShortcutSpec = ShortcutSpec(key: "0", modifiers: [.command, .shift])
     var recognitionLevel: OCRRecognitionLevel = .accurate
     var preserveLineBreaks: Bool = true
     var detectQRCodes: Bool = true

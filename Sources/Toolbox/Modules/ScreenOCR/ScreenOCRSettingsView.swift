@@ -56,7 +56,7 @@ struct ScreenOCRSettingsView: View {
                     HStack(spacing: 8) {
                         ShortcutRecorderView(
                             shortcut: configManager.config.screenOCR.shortcut,
-                            defaultShortcut: ShortcutSpec(key: "o", modifiers: [.control, .option, .command]),
+                            defaultShortcut: ShortcutSpec(key: "0", modifiers: [.command, .shift]),
                             sourceID: "screen_ocr",
                             registrationKey: module.hotKeyName
                         ) { newShortcut in

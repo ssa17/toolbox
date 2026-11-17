@@ -103,7 +103,7 @@ final class ScreenOCRModule: NSObject, ToolboxModule, ObservableObject {
     let tagline = "Drag-select any area on screen to copy unselectable text or QR codes, completely offline."
     let aboutSummary = "Invokes macOS's interactive crosshair region selector, then runs Apple's on-device Vision OCR and QR/barcode detection locally over the selection. Recognition never leaves your Mac, and the recent-captures list lives only in memory for the current Toolbox session."
     let featureTips = [
-        "Press your shortcut (default ⌃ ⌥ ⌘ O) and drag a box over any text, screenshot, or dialog to copy it.",
+        "Press your shortcut (default ⇧ ⌘ 0) and drag a box over any text, screenshot, or dialog to copy it.",
         "Works on unselectable text inside videos, PDFs, simulators, and other apps' windows, with no network involved.",
         "QR and barcode detection runs in the same pass, so pointing at a QR code copies its payload.",
         "Up to 10 recent captures are kept in memory for the session and are never written to disk."

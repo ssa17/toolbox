@@ -203,7 +203,7 @@ enum SelfTestRunner {
         expect(!cfg.keepAwake.enabled, "KeepAwake should default to disabled (off by default)")
         expect(!cfg.screenOCR.enabled, "ScreenOCR should default to disabled (off by default)")
         expect(cfg.screenOCR.recognitionLevel == .accurate, "ScreenOCR should default to accurate recognition")
-        expect(cfg.screenOCR.shortcut == ShortcutSpec(key: "o", modifiers: [.control, .option, .command]), "ScreenOCR default shortcut should be ⌃ ⌥ ⌘ O")
+        expect(cfg.screenOCR.shortcut == ShortcutSpec(key: "0", modifiers: [.command, .shift]), "ScreenOCR default shortcut should be ⇧ ⌘ 0")
         expect(!cfg.customCommands.enabled, "CustomCommands should default to disabled (off by default)")
         expect(!cfg.scrollDirection.enabled, "ScrollDirection should default to disabled (off by default)")
         expect(cfg.dockMinimize.excludedBundleIDs.isEmpty, "No apps should be excluded by default")
@@ -2171,8 +2171,8 @@ enum SelfTestRunner {
         expect(cfg.screenOCR.detectQRCodes, "ScreenOCR should default to detecting QR/barcodes")
         expect(cfg.screenOCR.showToast, "ScreenOCR should default to showing toasts")
         expect(
-            cfg.screenOCR.shortcut == ShortcutSpec(key: "o", modifiers: [.control, .option, .command]),
-            "ScreenOCR default shortcut should be ⌃ ⌥ ⌘ O"
+            cfg.screenOCR.shortcut == ShortcutSpec(key: "0", modifiers: [.command, .shift]),
+            "ScreenOCR default shortcut should be ⇧ ⌘ 0"
         )
 
         // Codable round-trip
@@ -2212,8 +2212,8 @@ enum SelfTestRunner {
                 "Partial screenOCR should fill missing fields with defaults"
             )
             expect(
-                decoded.screenOCR.shortcut == ShortcutSpec(key: "o", modifiers: [.control, .option, .command]),
-                "Partial screenOCR shortcut should default to ⌃ ⌥ ⌘ O"
+                decoded.screenOCR.shortcut == ShortcutSpec(key: "0", modifiers: [.command, .shift]),
+                "Partial screenOCR shortcut should default to ⇧ ⌘ 0"
             )
         } else {
             failures.append("Failed to decode partial screenOCR JSON")
@@ -2284,7 +2284,7 @@ enum SelfTestRunner {
 
         // shortcutText formatting
         expect(
-            module.shortcutText(in: statusCfg) == ShortcutSpec(key: "o", modifiers: [.control, .option, .command]).displayString,
+            module.shortcutText(in: statusCfg) == ShortcutSpec(key: "0", modifiers: [.command, .shift]).displayString,
             "shortcutText should format the default shortcut"
         )
         statusCfg.screenOCR.shortcut = .none

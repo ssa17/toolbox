@@ -12,7 +12,7 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 ## [1.4] - 2026-11-17
 
 ### Added
-- **Screen OCR (`⌃ ⌥ ⌘ O`)** — drag-select any area of the screen to copy unselectable text or decode QR/barcodes with on-device Apple Vision OCR, with fast/accurate modes, line-break and toast options, and a recent-captures list in Settings
+- **Screen OCR (`⇧ ⌘ 0`)** — drag-select any area of the screen to copy unselectable text or decode QR/barcodes with on-device Apple Vision OCR, with fast/accurate modes, line-break and toast options, and a recent-captures list in Settings
 - **Developer Tools** — a dedicated Screen OCR section with a stage-by-stage live capture test that pinpoints exactly where a capture fails, permission and environment inspection, an offline recognition self-check, and OCR event history
 - **Support Links** — GitHub Sponsors and Ko-fi links under Settings → About Toolbox
 
