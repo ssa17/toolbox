@@ -387,15 +387,22 @@ struct ScreenOCRConfig: Codable, Equatable, Sendable {
 - `ToolboxConfig`: add `var screenOCR: ScreenOCRConfig = ScreenOCRConfig()`.
 
 ### Verification & Self-Tests
-- **Offscreen `Vision` OCR test (`SelfTestRunner`):** Programmatically draw high-contrast text (`"Toolbox Vision OCR 42"`) onto an offscreen bitmap `CGContext` (`NSBitmapImageRep` / `CGContext`), extract `CGImage`, run `ScreenOCREngine.recognizeText(in:options:)`, and assert the output contains `"Toolbox Vision OCR 42"`.
-- **Line-break joining test:** Verify `preserveLineBreaks: true` vs `false` formatting over multi-line test lines.
+- **Offscreen `Vision` OCR test (`SelfTestRunner`):** Programmatically draw high-contrast text (`"Toolbox Vision OCR 42"`) onto an offscreen bitmap `CGContext` (`NSBitmapImageRep` / `CGContext`), extract `CGImage`, run `ScreenOCREngine.recognize(...)`, and assert the output contains `"Toolbox Vision OCR 42"`.
+- **Line-break joining test:** Verify `preserveLineBreaks: true` vs `false` formatting over multi-line test lines, including a dense-rows regression (line heights relative to a large capture must not merge adjacent lines) and a same-row columns case.
+- **End-to-end QR/barcode test:** Generate a real QR code with CoreImage `CIQRCodeGenerator` and assert `VNDetectBarcodesRequest` decodes its payload; the developer self-check sample must round-trip through the same engine path.
+- **Developer self-check lifecycle test:** `ScreenOCRModule.runSelfCheck()` runs the sample off the main thread, then stores the `OCRSelfCheckResult` (text, QR payloads, duration).
 - **Missing/cancelled file handling:** Assert graceful `nil` / cancelled state when temp screenshot file does not exist.
-- **Visual Snapshot (`SnapshotRunner`):** Render `module_screen_ocr.png`.
+- **Visual Snapshot (`SnapshotRunner`):** Render `module_screen_ocr.png` (permission badge pinned for determinism).
 
 ### Edge Cases & Pitfalls
 - **Tiny or low-contrast screenshots:** When a user selects a small UI label (`< 40 px` tall), Vision recognizes significantly better if very small `CGImage` regions are checked with `.accurate` (or upscaled 2x if height `< 32 px`).
-- **Rapid shortcut presses:** Ignoring re-entrant hotkey triggers while `screencapture` is already active prevents spawning stacked crosshair sessions.
-- **Temp cleanup:** Always delete the temp PNG immediately in a `defer` block even on cancellation or Vision failure.
+- **Dense text in large selections:** Same-row grouping must scale with the *text* size, not the selection size — the tolerance is half the median observation line height (clamped to 0.4–2% of image height), so body copy in a full-screen capture keeps its line breaks while same-line columns still merge.
+- **Rapid shortcut presses / stacked crosshairs:** Ignoring re-entrant hotkey triggers while a capture is in flight prevents spawning stacked crosshair sessions. `isCaptureInFlight` deliberately includes the developer pipeline test, whose interactive crosshair must not stack a second one under the global hotkey.
+- **Stopped mid-flight:** If the module is disabled or the app pauses while a capture/recognition is in flight, the in-flight result is dropped (never written to the clipboard) and its file removed.
+- **Failed-capture retention (diagnostic evidence):** Successful captures delete their temp PNG immediately, but *failed* (empty/undecodable) captures are **kept** and surfaced in Developer Tools → Screen OCR (Reveal / Re-analyze) plus `Toolbox --ocr-file`. Stale `toolbox-ocr-*` artifacts are swept at app launch (`ScreenOCRModule.sweepStaleTempFiles`) and pipeline-test artifacts at the start of each test, so nothing accumulates across sessions.
+- **Uniform-black vs dark UI:** The "selection looks black" permission heuristic tests the *fraction* of near-black pixels (> 99% = uniform black = permission-failure signature) — never an average luminance, which false-positives on dark-themed UIs (terminals, dark mode) that are dark but not uniform.
+- **Small text in large captures:** Vision's default `minimumTextHeight` (1/40 of image height) silently drops normal 13–16 pt text in full-screen Retina captures; the engine sets it to 1/100.
+- **Multi-line observations & paragraphs:** Vision groups a paragraph into one observation; the box is split evenly across its sub-lines (own Y + height each) so paragraphs don't merge into one row, and a vertical gap > 1× median line height — or an explicit blank line in the source text — re-emits a paragraph break when `preserveLineBreaks` is on.
 
 ---
 

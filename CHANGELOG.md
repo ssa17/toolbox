@@ -11,12 +11,17 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 
 ### Added
 - **Screen OCR (`⌃ ⌥ ⌘ O`)** — drag-select any area of the screen to copy unselectable text or decode QR/barcodes using on-device Apple Vision OCR, with fast/accurate modes, line-break and toast options, and a session-only recent-captures list in Settings
+- **Developer Tools** — dedicated Screen OCR section: stage-by-stage live capture pipeline test (interactive crosshair + full-screen control) that pinpoints exactly where a capture fails and keeps the file for inspection, permission/environment inspection, the offline recognition self-check, and OCR event history — plus headless `Toolbox --ocr-file <image>` / `--ocr-capture` diagnostic modes
 - **Support Links** — added GitHub Sponsors and Ko-fi links under **Settings → About Toolbox**
 
 ### Changed
 - **Call Controls** — camera on/off is now tracked alongside mic mute so the floating pill and the call session stay consistent when video toggles (e.g. Google Meet keeps the call open after the camera turns off), all mapped call apps are monitored at once instead of a single target, and the pill shows a short app name for the video target
 
+### Changed
+- **Screen OCR formatting** — recognizes more of the screen and keeps its structure: Vision's default minimum text height (which silently dropped normal small text from large captures) is lowered, multi-line observations are split into their individual lines so paragraphs no longer collapse into one merged line, and selections with paragraph spacing come out with real paragraph breaks when Preserve Line Breaks is on
+
 ### Fixed
+- **Screen OCR** — dense text in large selections (e.g. a full-screen capture of body copy) keeps its line breaks instead of adjacent lines being merged into one; a capture that finishes after the module is disabled or the app is paused no longer writes to the clipboard; and empty results now distinguish a *uniform*-black capture (the Screen Recording permission-failure signature — dark-themed UIs like terminals no longer false-positive as "screen might be blank") from a selection that simply contains no text, with image size, near-black percentage, observation count, and any engine error logged to the developer console, and failed captures are kept on disk for **Reveal / Re-analyze** in Developer Tools
 - **Call Controls** — browser-hosted web calls (Google Meet, Zoom web, etc.) no longer press the browser's own menu items (Bookmark This Tab, Use Selection for Find, Minimize, Dynamic Island) by mistake, with a short focus-settle delay before web-call toggles, and the floating pill lands on the correct screen when pinned near a shared monitor boundary
 
 ## [1.3] - 2026-11-16

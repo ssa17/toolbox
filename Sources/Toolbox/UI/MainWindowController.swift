@@ -234,6 +234,7 @@ struct MainSplitView: View {
     @ObservedObject private var healthChecks = DeveloperHealthCheckRunner.shared
     @ObservedObject private var hotKeys = HotKeyManager.shared
     @ObservedObject private var callControls = ModuleRegistry.shared.callControls
+    @ObservedObject private var screenOCR = ModuleRegistry.shared.screenOCR
 
     var body: some View {
         HStack(spacing: 0) {
@@ -490,6 +491,8 @@ struct MainSplitView: View {
                 : nil
         case .uiAndModules:
             return permissions.simulatedAccessibilityGranted != nil ? ("SIM", .orange) : nil
+        case .screenOCR:
+            return screenOCR.isRunningPipelineTest || screenOCR.isRunningSelfCheck ? ("TEST", .orange) : nil
         case .callControls:
             return callControls.developerSimulation != nil ? ("SIM", .orange) : nil
         case .eventsAndTaps:

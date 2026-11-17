@@ -43,6 +43,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Start all enabled modules immediately (Accessibility-gated modules wait gracefully without blocking launch).
         registry.reloadAll(with: configManager.config)
 
+        // Screen OCR: remove capture artifacts left behind by the previous session
+        // (failed captures are intentionally kept on disk for diagnosis, so they must
+        // not accumulate across launches).
+        ScreenOCRModule.sweepStaleTempFiles()
+
         if configManager.config.general.openDashboardOnLaunch {
             MainWindowController.shared.show(destination: .dashboard)
             let isDiagnosticMode = CommandLine.arguments.contains("--self-test") || CommandLine.arguments.contains("--snapshot-ui")
@@ -140,6 +145,24 @@ enum ToolboxMain {
             let app = NSApplication.shared
             app.setActivationPolicy(.prohibited)
             exit(SnapshotRunner.run(outputDir: outPath))
+        }
+
+        if let ocrIdx = CommandLine.arguments.firstIndex(of: "--ocr-file") {
+            let path: String?
+            if ocrIdx + 1 < CommandLine.arguments.count {
+                path = CommandLine.arguments[ocrIdx + 1]
+            } else {
+                path = nil
+            }
+            let app = NSApplication.shared
+            app.setActivationPolicy(.prohibited)
+            exit(OCRCliRunner.runFile(path: path))
+        }
+
+        if CommandLine.arguments.contains("--ocr-capture") {
+            let app = NSApplication.shared
+            app.setActivationPolicy(.prohibited)
+            exit(OCRCliRunner.runCapture())
         }
 
         // Single-instance guard: focus an already-running Toolbox.app instead of spawning duplicates.

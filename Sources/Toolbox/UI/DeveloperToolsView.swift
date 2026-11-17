@@ -42,6 +42,8 @@ struct DeveloperToolsView: View {
                 case .uiAndModules:
                     uiFeedbackSection
                     moduleInspectorSection
+                case .screenOCR:
+                    DeveloperScreenOCRView()
                 case .callControls:
                     DeveloperCallControlsView()
                 case .eventsAndTaps:

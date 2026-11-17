@@ -998,7 +998,7 @@ enum SelfTestRunner {
         expect(!postLockReload.isUnlocked, "Explicit lock() must require PIN on next launch")
 
         // Developer sections, presets, and release notes templates
-        expect(DeveloperSection.allCases.count == 6 && DeveloperSection.allCases.contains(.callControls), "Expected 6 DeveloperSection cases including .callControls")
+        expect(DeveloperSection.allCases.count == 7 && DeveloperSection.allCases.contains(.screenOCR) && DeveloperSection.allCases.contains(.callControls), "Expected 7 DeveloperSection cases including .screenOCR and .callControls")
         expect(
             UpdateSimulationPreset.allCases.allSatisfy { !$0.summary.isEmpty },
             "All UpdateSimulationPreset cases should have non-empty summaries"
@@ -2300,6 +2300,82 @@ enum SelfTestRunner {
         expect(module.recentCaptures.first?.lineCount == 1, "Single-line capture should report 1 line")
         module.clearRecentCaptures()
         expect(module.recentCaptures.isEmpty, "clearRecentCaptures should empty the session list")
+
+        // Developer self-check lifecycle: renders the synthetic sample, runs the real
+        // engine path off the main thread, and stores the result. Shortcut .none keeps
+        // the global hotkey un-armed in the test process.
+        var selfCheckCfg = ToolboxConfig()
+        selfCheckCfg.screenOCR.enabled = true
+        selfCheckCfg.screenOCR.shortcut = .none
+        selfCheckCfg.screenOCR.recognitionLevel = .accurate
+        selfCheckCfg.screenOCR.detectQRCodes = true
+        module.reload(with: selfCheckCfg)
+        module.clearSelfCheckResults()
+        expect(module.lastSelfCheck == nil, "clearSelfCheckResults must clear the stored result")
+        module.runSelfCheck()
+        expect(module.isRunningSelfCheck, "runSelfCheck must mark the check in flight")
+        let selfCheckDeadline = Date().addingTimeInterval(10)
+        while module.isRunningSelfCheck && Date() < selfCheckDeadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
+        expect(!module.isRunningSelfCheck, "runSelfCheck must finish within the deadline")
+        expect(
+            module.lastSelfCheck?.recognizedText.contains("Toolbox OCR self-check") == true,
+            "Self-check must recognize the sample headline (got: \(module.lastSelfCheck?.recognizedText ?? "nil"))"
+        )
+        expect(
+            module.lastSelfCheck?.qrPayloads.contains(ScreenOCREngine.selfCheckQRPayload) == true,
+            "Self-check must decode the sample QR payload (got: \(module.lastSelfCheck?.qrPayloads ?? []))"
+        )
+        module.stop()
+
+        // Developer pipeline test: report struct semantics, then a real full-screen
+        // control run. Content-dependent stages (vision/output) may legitimately fail on
+        // a machine without Screen Recording permission, so assert completion + launch,
+        // never the recognition outcome.
+        var reportProbe = OCRPipelineReport(
+            kind: .fullScreen,
+            stages: [
+                OCRPipelineStage(id: "a", name: "A", status: .pass, detail: "ok"),
+                OCRPipelineStage(id: "b", name: "B")
+            ],
+            startedAt: Date(),
+            artifactPath: nil,
+            outputPreview: nil
+        )
+        expect(!reportProbe.isComplete && !reportProbe.hasFailure, "Pending stage must block completion and not count as failure")
+        reportProbe.stages[1].status = .fail
+        expect(reportProbe.isComplete && reportProbe.hasFailure, "Fail stage must complete the report and flag failure")
+
+        module.runPipelineTest(interactive: false)
+        expect(module.isRunningPipelineTest, "runPipelineTest must mark the run in flight")
+        let pipelineDeadline = Date().addingTimeInterval(20)
+        while module.isRunningPipelineTest && Date() < pipelineDeadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
+        expect(!module.isRunningPipelineTest, "Pipeline test must finish within the deadline")
+        if let report = module.pipelineReport {
+            let stageSummary = report.stages.map { "\($0.id)=\(String(describing: $0.status))" }.joined(separator: ", ")
+            expect(report.isComplete, "Pipeline report must resolve every stage (got: \(stageSummary))")
+            let launch = report.stages.first { $0.id == "launch" }
+            expect(launch?.status == .pass, "screencapture must launch in the pipeline test")
+        } else {
+            failures.append("Pipeline report missing after run")
+        }
+        module.cancelPipelineTest()
+        module.clearPipelineReport()
+
+        // Stale temp sweep (launch hygiene): previous-session capture artifacts must be
+        // removed, unrelated files must survive.
+        let tempDir = FileManager.default.temporaryDirectory
+        let staleURL = tempDir.appendingPathComponent("toolbox-ocr-selftest-sweep-\(UUID().uuidString).png")
+        let keepURL = tempDir.appendingPathComponent("not-toolbox-selftest-\(UUID().uuidString).txt")
+        try? Data([1]).write(to: staleURL)
+        try? Data([1]).write(to: keepURL)
+        ScreenOCRModule.sweepStaleTempFiles()
+        expect(!FileManager.default.fileExists(atPath: staleURL.path), "sweepStaleTempFiles must remove stale toolbox-ocr-* artifacts")
+        expect(FileManager.default.fileExists(atPath: keepURL.path), "sweepStaleTempFiles must leave unrelated files alone")
+        try? FileManager.default.removeItem(at: keepURL)
     }
 
     private static func testScreenOCREngineRecognition() {
@@ -2315,6 +2391,61 @@ enum SelfTestRunner {
         let joined = ScreenOCREngine.formattedText(from: lines, preserveLineBreaks: false)
         expect(joined == "alpha left right bottom", "formattedText with preserveLineBreaks=false must join rows with spaces: \(joined)")
         expect(ScreenOCREngine.formattedText(from: [], preserveLineBreaks: true) == "", "Empty input must format to an empty string")
+
+        // 1b. Height-relative same-row tolerance: adjacent lines in a dense document must
+        // stay separate rows even when their spacing is well under the fixed 2% fallback
+        // (regression: the old image-height tolerance merged them in large selections).
+        let denseLines = (0..<6).map { i in
+            RecognizedTextLine(
+                text: "line \(i)",
+                normalizedY: 0.95 - 0.015 * CGFloat(i),
+                normalizedX: 0.20,
+                normalizedHeight: 0.015,
+                confidence: 0.9
+            )
+        }
+        let denseOut = ScreenOCREngine.formattedText(from: denseLines, preserveLineBreaks: true)
+        let denseRowCount = denseOut.components(separatedBy: "\n").count
+        expect(denseRowCount == 6, "Dense lines (spacing 0.015, height 0.015) must stay 6 rows (got \(denseRowCount): \(denseOut.replacingOccurrences(of: "\n", with: " | ")))" )
+
+        // Same visual line: two columns whose origins differ by less than half the line
+        // height share one row and are joined left-to-right.
+        let columnLines = [
+            RecognizedTextLine(text: "colA", normalizedY: 0.800, normalizedX: 0.10, normalizedHeight: 0.015, confidence: 0.9),
+            RecognizedTextLine(text: "colB", normalizedY: 0.806, normalizedX: 0.55, normalizedHeight: 0.015, confidence: 0.9)
+        ]
+        expect(
+            ScreenOCREngine.formattedText(from: columnLines, preserveLineBreaks: true) == "colA colB",
+            "Columns within half a line height must share one row"
+        )
+
+        // Paragraph gaps: a vertical gap wider than one median line height becomes a blank
+        // line (line-breaks mode only); gaps exactly one height stay inside the paragraph.
+        let paraLines = [
+            RecognizedTextLine(text: "para one A", normalizedY: 0.94, normalizedX: 0.10, normalizedHeight: 0.02, confidence: 0.9),
+            RecognizedTextLine(text: "para one B", normalizedY: 0.90, normalizedX: 0.10, normalizedHeight: 0.02, confidence: 0.9),
+            RecognizedTextLine(text: "para two", normalizedY: 0.80, normalizedX: 0.10, normalizedHeight: 0.02, confidence: 0.9)
+        ]
+        let paraOut = ScreenOCREngine.formattedText(from: paraLines, preserveLineBreaks: true)
+        expect(paraOut == "para one A\npara one B\n\npara two", "Paragraph gap must add a blank line only for the wide gap (got: \(paraOut.debugDescription))")
+        let paraJoined = ScreenOCREngine.formattedText(from: paraLines, preserveLineBreaks: false)
+        expect(paraJoined == "para one A para one B para two", "preserveLineBreaks=false must never emit blank lines (got: \(paraJoined.debugDescription))")
+
+        // Textual paragraph break: Vision emitted a blank line inside the observation.
+        let blankParaLines = [
+            RecognizedTextLine(text: "first", normalizedY: 0.90, normalizedX: 0.10, normalizedHeight: 0.02, confidence: 0.9),
+            RecognizedTextLine(text: "second", normalizedY: 0.86, normalizedX: 0.10, normalizedHeight: 0.02, confidence: 0.9, hadBlankBefore: true)
+        ]
+        expect(
+            ScreenOCREngine.formattedText(from: blankParaLines, preserveLineBreaks: true) == "first\n\nsecond",
+            "hadBlankBefore must re-emit the paragraph break"
+        )
+
+        // Unknown heights (legacy/test lines) must fall back to the fixed 2% tolerance.
+        expect(
+            ScreenOCREngine.sameRowTolerance(for: [RecognizedTextLine(text: "a", normalizedY: 0.5, normalizedX: 0.1, confidence: 0.9)]) == ScreenOCREngine.sameRowYtolerance,
+            "sameRowTolerance without heights must fall back to sameRowYtolerance"
+        )
 
         // 2. Pure text + QR combination
         expect(ScreenOCREngine.combinedOutput(text: "", qrPayloads: []) == "", "Empty text + empty QR must produce empty output")
@@ -2369,11 +2500,21 @@ enum SelfTestRunner {
                 "preserveLineBreaks=false must join lines with spaces (got: \(joinedResult.text))"
             )
 
-            // Empty image (blank white bitmap) must recognize as empty, not crash
+            // Empty image (blank white bitmap) must recognize as empty, not crash — and a
+            // bright blank is NOT the near-black permission signature.
             if let blank = Self.drawTestImage(width: 300, height: 200, lines: [""], fontSize: 40) {
                 let blankResult = ScreenOCREngine.recognize(in: blank, recognitionLevel: .fast, preserveLineBreaks: true, detectBarcodes: true)
                 expect(blankResult.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, "Blank image must produce no text (got: \(blankResult.text))")
                 expect(blankResult.isEmpty, "Blank image must produce an empty result")
+                expect(!blankResult.looksBlank, "Bright blank image must not flag looksBlank")
+            }
+
+            // A near-black image is the classic Screen Recording permission failure
+            // signature: empty result + looksBlank must both be true.
+            if let black = Self.drawTestImage(width: 300, height: 200, lines: [""], fontSize: 40, background: .black) {
+                let blackResult = ScreenOCREngine.recognize(in: black, recognitionLevel: .fast, preserveLineBreaks: true, detectBarcodes: true)
+                expect(blackResult.isEmpty, "Black image must produce an empty result")
+                expect(blackResult.looksBlank, "Near-black image must flag looksBlank")
             }
         } else {
             failures.append("Could not render offscreen OCR test bitmap")
@@ -2419,10 +2560,78 @@ enum SelfTestRunner {
         } else {
             failures.append("Could not build round-trip test bitmap")
         }
+
+        // 8. End-to-end QR/barcode path: generate a real QR code (CoreImage) and decode
+        // it with Vision's VNDetectBarcodesRequest. Previously only the pure
+        // combinedOutput helper was tested, never the barcode request itself.
+        if let qr = ScreenOCREngine.qrCodeImage(payload: "https://toolbox.dev/self-test", targetSize: 240) {
+            if let framed = Self.frameImage(qr, in: 320, margin: 16) {
+                let qrResult = ScreenOCREngine.recognize(in: framed, recognitionLevel: .fast, preserveLineBreaks: true, detectBarcodes: true)
+                expect(
+                    qrResult.qrPayloads.contains("https://toolbox.dev/self-test"),
+                    "Vision must decode the generated QR code (got: \(qrResult.qrPayloads))"
+                )
+                expect(
+                    qrResult.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                    "QR-only bitmap must not produce spurious text lines (got: \(qrResult.text))"
+                )
+            } else {
+                failures.append("Could not frame QR test bitmap")
+            }
+        } else {
+            failures.append("CoreImage could not generate the QR test code")
+        }
+
+        // 9. Developer self-check sample: the exact image the Developer Tools button
+        // renders must round-trip through the engine (3 text lines + 1 QR payload).
+        if let sample = ScreenOCREngine.makeSelfCheckSample() {
+            let sampleResult = ScreenOCREngine.recognize(
+                in: ScreenOCREngine.prepareImage(sample),
+                recognitionLevel: .fast,
+                preserveLineBreaks: true,
+                detectBarcodes: true
+            )
+            expect(
+                sampleResult.text.contains("Toolbox OCR self-check"),
+                "Self-check sample text must be recognized (got: \(sampleResult.text))"
+            )
+            expect(
+                sampleResult.qrPayloads.contains(ScreenOCREngine.selfCheckQRPayload),
+                "Self-check sample QR must be decoded (got: \(sampleResult.qrPayloads))"
+            )
+        } else {
+            failures.append("Could not render the developer self-check sample")
+        }
+    }
+
+    /// Centers `image` on a white `size`×`size` bitmap with a `margin` quiet zone.
+    private static func frameImage(_ image: CGImage, in size: Int, margin: Int) -> CGImage? {
+        let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: size,
+            pixelsHigh: size,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        )
+        guard let rep, let context = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        NSColor.white.setFill()
+        NSRect(x: 0, y: 0, width: size, height: size).fill()
+        let inner = CGFloat(size) - CGFloat(margin) * 2
+        let nsImage = NSImage(cgImage: image, size: NSSize(width: inner, height: inner))
+        nsImage.draw(in: NSRect(x: CGFloat(margin), y: CGFloat(margin), width: inner, height: inner))
+        NSGraphicsContext.restoreGraphicsState()
+        return rep.cgImage
     }
 
     /// Renders high-contrast text lines into an offscreen bitmap for engine tests.
-    private static func drawTestImage(width: Int, height: Int, lines: [String], fontSize: CGFloat) -> CGImage? {
+    private static func drawTestImage(width: Int, height: Int, lines: [String], fontSize: CGFloat, background: NSColor = .white) -> CGImage? {
         let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil,
             pixelsWide: width,
@@ -2438,7 +2647,7 @@ enum SelfTestRunner {
         guard let rep, let context = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = context
-        NSColor.white.setFill()
+        background.setFill()
         NSRect(x: 0, y: 0, width: width, height: height).fill()
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: fontSize, weight: .semibold),

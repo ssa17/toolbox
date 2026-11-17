@@ -5,6 +5,7 @@ import Foundation
 enum DeveloperSection: String, CaseIterable, Hashable, Identifiable, Sendable {
     case updates
     case uiAndModules
+    case screenOCR
     case callControls
     case eventsAndTaps
     case hotKeysAndConfig
@@ -16,6 +17,7 @@ enum DeveloperSection: String, CaseIterable, Hashable, Identifiable, Sendable {
         switch self {
         case .updates: return "Updates"
         case .uiAndModules: return "UI & Modules"
+        case .screenOCR: return "Screen OCR"
         case .callControls: return "Call Controls"
         case .eventsAndTaps: return "Events & Taps"
         case .hotKeysAndConfig: return "HotKeys & Config"
@@ -29,6 +31,8 @@ enum DeveloperSection: String, CaseIterable, Hashable, Identifiable, Sendable {
             return "Simulate app-wide update states, customize release notes, preview dark Sparkle dialogs, and probe the live appcast feed."
         case .uiAndModules:
             return "Override Accessibility UI banners, trigger HUD toasts, launch floating popovers, and inspect or reload modules."
+        case .screenOCR:
+            return "Diagnose the live capture pipeline stage by stage, inspect permission and environment state, and run the offline recognition self-check."
         case .callControls:
             return "Simulate Zoom, FaceTime, Slack, or Teams calls, preview and interact with the floating status pill, test keybind routing, and inspect menu bar controls."
         case .eventsAndTaps:
@@ -44,6 +48,7 @@ enum DeveloperSection: String, CaseIterable, Hashable, Identifiable, Sendable {
         switch self {
         case .updates: return "arrow.down.circle"
         case .uiAndModules: return "square.stack.3d.up"
+        case .screenOCR: return "text.viewfinder"
         case .callControls: return "mic.and.signal.meter"
         case .eventsAndTaps: return "waveform.path.ecg"
         case .hotKeysAndConfig: return "keyboard"

@@ -88,6 +88,9 @@ enum SnapshotRunner {
                 createdAt: Date()
             )
         ])
+        // Pin the Screen Recording badge to a deterministic state: the module otherwise
+        // reflects the machine's real TCC grant, which varies between CI boxes and laptops.
+        ocrModule.setScreenRecordingGrantedForTesting(true)
 
         let navScreenOCR = NavigationState()
         navScreenOCR.selection = .module("screen_ocr")
@@ -315,6 +318,43 @@ enum SnapshotRunner {
             size: NSSize(width: 940, height: 960),
             to: outURL.appendingPathComponent("developer_events.png")
         )
+
+        // Screen OCR developer section: seed a failed interactive pipeline run (red stage
+        // states render) plus a passing offline self-check, and the matching OCR event.
+        let devOCR = registry.screenOCR
+        devOCR.clearPipelineReport()
+        devOCR.setPipelineReportForTesting(OCRPipelineReport(
+            kind: .interactive,
+            stages: [
+                OCRPipelineStage(id: "permission", name: "Screen Recording Permission", status: .pass, detail: "granted"),
+                OCRPipelineStage(id: "tempdir", name: "Temp Directory", status: .pass, detail: "/var/folders/5s/…/T"),
+                OCRPipelineStage(id: "launch", name: "Launch screencapture", status: .pass, detail: "pid 48213 · -i -x /var/folders/5s/…/toolbox-ocr-pipetest-9F2A….png"),
+                OCRPipelineStage(id: "file", name: "Capture File", status: .pass, detail: "toolbox-ocr-pipetest-9F2A….png · 184,220 bytes (kept)"),
+                OCRPipelineStage(id: "decode", name: "Image Decode", status: .pass, detail: "812x504 px · kCGColorSpaceSRGB · alpha=1 · near-black 2.4%"),
+                OCRPipelineStage(id: "prepare", name: "Image Prep", status: .skipped, detail: "no upscale (height ≥ 32)"),
+                OCRPipelineStage(id: "vision", name: "Vision Recognition", status: .fail, detail: "0 observation(s) · 318 ms · near-black 2.4%"),
+                OCRPipelineStage(id: "barcode", name: "QR / Barcode Detection", status: .pass, detail: "0 payload(s)"),
+                OCRPipelineStage(id: "output", name: "Combined Output", status: .fail, detail: "empty — no text or QR in the captured region")
+            ],
+            startedAt: Date(),
+            artifactPath: "/var/folders/5s/…/T/toolbox-ocr-pipetest-9F2A….png",
+            outputPreview: nil
+        ))
+        DeveloperEventLog.shared.record(.ocr, "No text found in selection", detail: "image 812x504 · 0 observation(s) · near-black 2.4% · file kept: /var/folders/5s/…/toolbox-ocr-9F2A….png")
+        devOCR.setLastFailedCaptureForTesting(
+            path: "/var/folders/5s/…/T/toolbox-ocr-9F2A….png",
+            note: "812x504 px · near-black 2.4% · 0 observation(s) · still empty"
+        )
+        let navDevOCR = NavigationState()
+        navDevOCR.selection = .developer(.screenOCR)
+        navDevOCR.isSidebarVisible = true
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navDevOCR),
+            size: NSSize(width: 940, height: 1380),
+            to: outURL.appendingPathComponent("developer_screen_ocr.png")
+        )
+        devOCR.setPipelineReportForTesting(nil)
+        DeveloperEventLog.shared.clear()
 
         ConfigCheckpointStore.shared.saveCheckpoint()
         let navDevHotKeys = NavigationState()
