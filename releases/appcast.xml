@@ -3,28 +3,28 @@
     <channel>
         <title>Toolbox</title>
         <item>
-            <title>1.3</title>
-            <pubDate>Mon, 16 Nov 2026 15:05:14 +0000</pubDate>
-            <sparkle:version>1.3</sparkle:version>
-            <sparkle:shortVersionString>1.3</sparkle:shortVersionString>
+            <title>1.4</title>
+            <pubDate>Tue, 17 Nov 2026 23:27:48 +0000</pubDate>
+            <sparkle:version>1.4</sparkle:version>
+            <sparkle:shortVersionString>1.4</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <description sparkle:format="markdown"><![CDATA[
 ### Added
-- **First-Open Accessibility Prompt** — explains on first launch which features use Accessibility (and what still works without it), with preview and reset controls in Developer Tools
+- **Screen OCR (`⌃ ⌥ ⌘ O`)** — drag-select any area of the screen to copy unselectable text or decode QR/barcodes with on-device Apple Vision OCR, with fast/accurate modes, line-break and toast options, and a recent-captures list in Settings
+- **Developer Tools** — a dedicated Screen OCR section with a stage-by-stage live capture test that pinpoints exactly where a capture fails, permission and environment inspection, an offline recognition self-check, and OCR event history
+- **Support Links** — GitHub Sponsors and Ko-fi links under Settings → About Toolbox
 
 ### Changed
-- **Dashboard & Readability** — refreshed the Accessibility banner, increased card and text contrast across the Dashboard and settings, and renamed **Clean Lock** to **Keyboard Lock** with clearer copy
+- **Call Controls** — camera on/off is now tracked alongside mic mute so the floating pill and the call session stay consistent when video toggles, all mapped call apps are monitored at once, and the pill shows a short app name for the video target
+- **Screen OCR** — recognizes more of the screen and keeps its structure: small text in large captures is no longer silently dropped, and multi-line selections come out as real lines and paragraphs instead of one merged line
 
 ### Fixed
-- **Menu Bar & Multi-Display** — the status bar menu now stays open reliably when Toolbox is in the background, and the window opens on the display where your cursor is
-- **Clipboard Popover** — the search field auto-focuses on open so keys filter immediately (no alert beeps), arrow-key scrolling works in both directions, and closing the full-text preview with Left Arrow keeps your exact row and scroll position
-- **Port Killer** — the search box auto-focuses on open so you can type to filter or press `↓` to select rows immediately
-- **Call Controls** — in-app mute status syncs cleanly when joining calls, the **Also Mute macOS Hardware Mic** toggle works in all scopes, idle background chat windows no longer hijack mic/video toggles during an active Slack call, and the floating pill only appears during real calls
-- **DMG Installer** — removed white borders around the Finder window in the installer backdrop
+- **Screen OCR** — a capture that finishes after the module is disabled or the app is paused no longer writes to the clipboard, and empty results no longer false-positive on dark-themed UIs (terminals) as "screen might be blank"; failed captures are kept on disk for Reveal / Re-analyze in Developer Tools
+- **Call Controls** — browser-hosted web calls (Google Meet, Zoom web, etc.) no longer press the browser's own menu items by mistake, and the floating pill lands on the correct screen when pinned near a shared monitor boundary
 
 ]]></description>
-            <enclosure url="https://github.com/ssa17/toolbox/releases/download/v1.3/Toolbox-1.3.zip" length="4595121" type="application/octet-stream" sparkle:edSignature="p8Y/EjZx2SNt1Tx1E8HYozJc7OfeNkYVCpFby/Yq74dQAQZDFGWfDKkWBdgdDnqkIznyMenj8fQ2AndARyE/BQ=="/>
+            <enclosure url="https://github.com/ssa17/toolbox/releases/download/v1.4/Toolbox-1.4.zip" length="4807984" type="application/octet-stream" sparkle:edSignature="h/v3Pg37zZhgy8MNFickSEFYQk8ju+DvnwG0bXBKJwLHyDtg5S1xAJiHIOuZlukQol+p2NM6yUJkzCE/8qovDA=="/>
         </item>
     </channel>
 </rss>
