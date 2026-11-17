@@ -390,42 +390,21 @@ final class CallShortcutRemapper: @unchecked Sendable {
 
             self.contextRefreshQueue.async { [weak self] in
                 guard let self else { return }
-                let mruOrder = Dictionary(uniqueKeysWithValues: snapshotData.mru.enumerated().map { ($1, $0) })
                 let enabledMappings = snapshotData.mappings.filter(\.enabled)
-
-                var frontTitle: String?
-                if let frontPID,
-                   let frontBundle,
-                   enabledMappings.contains(where: { $0.matches(bundleID: frontBundle) && !($0.requiredWindowTitleSubstring ?? "").isEmpty }) {
-                    frontTitle = Self.focusedWindowTitle(for: frontPID) ?? Self.allWindowTitles(for: frontPID).first
-                }
-
-                let activeInputBundles = CoreAudioController.activeInputProcessBundleIDs()
-                var callSnapshots: [RunningCallAppSnapshot] = []
-                for app in running {
-                    let matchingMappings = enabledMappings.filter { $0.matches(bundleID: app.bundleID) }
-                    guard !matchingMappings.isEmpty else { continue }
-                    let needsTitles = matchingMappings.contains { !($0.requiredWindowTitleSubstring ?? "").isEmpty }
-                    let titles = needsTitles ? Self.allWindowTitles(for: app.pid) : []
-                    let hasAudioInput = CoreAudioController.bundleID(app.bundleID, matchesActiveInputProcessBundleIDs: activeInputBundles)
-                    let shouldProbeAX = (!snapshotData.callActive || running.count > 1) && !hasAudioInput && app.pid != frontPID && AXIsProcessTrusted()
-                    let hasControl: Bool? = shouldProbeAX
-                        ? (Self.inspectCallAppMuteState(pid: app.pid) != nil)
-                        : nil
-                    callSnapshots.append(RunningCallAppSnapshot(
-                        bundleIdentifier: app.bundleID,
-                        pid: app.pid,
-                        windowTitles: titles,
-                        hasActiveCallControl: hasControl,
-                        hasActiveAudioInput: hasAudioInput
-                    ))
-                }
-
-                callSnapshots.sort { lhs, rhs in
-                    let lRank = mruOrder[lhs.pid] ?? Int.max
-                    let rRank = mruOrder[rhs.pid] ?? Int.max
-                    return lRank < rRank
-                }
+                let frontTitle = Self.frontmostWindowTitleIfNeeded(
+                    frontPID: frontPID,
+                    frontBundle: frontBundle,
+                    enabledMappings: enabledMappings
+                )
+                let mruOrder = Dictionary(uniqueKeysWithValues: snapshotData.mru.enumerated().map { ($1, $0) })
+                let callSnapshots = Self.buildRunningCallAppSnapshots(
+                    runningApps: running,
+                    enabledMappings: enabledMappings,
+                    frontmostPID: frontPID,
+                    mruOrder: mruOrder,
+                    isCallActivityActive: snapshotData.callActive,
+                    probeAX: true
+                )
 
                 self.withLock {
                     self.frontmostBundleID = frontBundle
@@ -435,6 +414,68 @@ final class CallShortcutRemapper: @unchecked Sendable {
                 }
             }
         }
+    }
+
+    static func frontmostWindowTitleIfNeeded(
+        frontPID: pid_t?,
+        frontBundle: String?,
+        enabledMappings: [CallAppShortcutMapping]
+    ) -> String? {
+        guard let frontPID,
+              let frontBundle,
+              enabledMappings.contains(where: { $0.matches(bundleID: frontBundle) && !($0.requiredWindowTitleSubstring ?? "").isEmpty }) else {
+            return nil
+        }
+        return focusedWindowTitle(for: frontPID) ?? allWindowTitles(for: frontPID).first
+    }
+
+    static func buildRunningCallAppSnapshots(
+        runningApps: [(bundleID: String, pid: pid_t)],
+        enabledMappings: [CallAppShortcutMapping],
+        frontmostPID: pid_t?,
+        mruOrder: [pid_t: Int],
+        isCallActivityActive: Bool,
+        probeAX: Bool
+    ) -> [RunningCallAppSnapshot] {
+        let activeInputBundles = CoreAudioController.activeInputProcessBundleIDs()
+        var snapshots: [RunningCallAppSnapshot] = []
+        for app in runningApps {
+            let matchingMappings = enabledMappings.filter { $0.matches(bundleID: app.bundleID) }
+            guard !matchingMappings.isEmpty else { continue }
+            let needsTitles = matchingMappings.contains { !($0.requiredWindowTitleSubstring ?? "").isEmpty }
+            let titles = needsTitles ? allWindowTitles(for: app.pid) : []
+            let hasAudioInput = CoreAudioController.bundleID(app.bundleID, matchesActiveInputProcessBundleIDs: activeInputBundles)
+            let matchingTitleNeedles = matchingMappings
+                .filter { passesWindowTitleGate(mapping: $0, titles: titles) }
+                .compactMap { mapping -> String? in
+                    let trimmed = mapping.requiredWindowTitleSubstring?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    return trimmed.isEmpty ? nil : trimmed
+                }
+            let passesAnyGate = matchingMappings.contains { passesWindowTitleGate(mapping: $0, titles: titles) }
+            let shouldProbeAX = probeAX
+                && passesAnyGate
+                && (!isCallActivityActive || runningApps.count > 1)
+                && !hasAudioInput
+                && app.pid != frontmostPID
+                && AXIsProcessTrusted()
+            let hasControl: Bool? = shouldProbeAX
+                ? inspectCallAppState(pid: app.pid, requiredWindowTitleSubstring: matchingTitleNeedles.first).hasActiveControl
+                : nil
+            snapshots.append(RunningCallAppSnapshot(
+                bundleIdentifier: app.bundleID,
+                pid: app.pid,
+                windowTitles: titles,
+                hasActiveCallControl: hasControl,
+                hasActiveAudioInput: hasAudioInput
+            ))
+        }
+
+        snapshots.sort { lhs, rhs in
+            let lRank = mruOrder[lhs.pid] ?? Int.max
+            let rRank = mruOrder[rhs.pid] ?? Int.max
+            return lRank < rRank
+        }
+        return snapshots
     }
 
     /// Unified target resolution for both shortcut dispatch and UI/pill status previews.
@@ -552,41 +593,31 @@ final class CallShortcutRemapper: @unchecked Sendable {
         let front = NSWorkspace.shared.frontmostApplication
         let frontBundle = front?.bundleIdentifier
         let frontPID = front?.processIdentifier
-        let frontTitle: String? = {
-            guard let frontPID, let frontBundle else { return nil }
-            let needsTitle = mappings.contains {
-                $0.enabled && $0.matches(bundleID: frontBundle) && !($0.requiredWindowTitleSubstring ?? "").isEmpty
-            }
-            return needsTitle ? (Self.focusedWindowTitle(for: frontPID) ?? Self.allWindowTitles(for: frontPID).first) : nil
-        }()
+        let enabledMappings = mappings.filter(\.enabled)
+        let frontTitle = Self.frontmostWindowTitleIfNeeded(
+            frontPID: frontPID,
+            frontBundle: frontBundle,
+            enabledMappings: enabledMappings
+        )
 
         let stateMru = withLock { mruAppPIDs }
         let mruOrder = Dictionary(uniqueKeysWithValues: stateMru.enumerated().map { ($1, $0) })
-        let enabledMappings = mappings.filter(\.enabled)
-        let activeInputBundles = CoreAudioController.activeInputProcessBundleIDs()
-        let matchedRunning = NSWorkspace.shared.runningApplications.filter { app in
-            !app.isTerminated && (app.bundleIdentifier.map { bid in enabledMappings.contains { $0.matches(bundleID: bid) } } ?? false)
+        let matchedRunning: [(bundleID: String, pid: pid_t)] = NSWorkspace.shared.runningApplications.compactMap { app in
+            guard !app.isTerminated,
+                  let bid = app.bundleIdentifier,
+                  enabledMappings.contains(where: { $0.matches(bundleID: bid) }) else {
+                return nil
+            }
+            return (bid, app.processIdentifier)
         }
-        var snapshots: [RunningCallAppSnapshot] = []
-        for app in matchedRunning {
-            guard let bundleID = app.bundleIdentifier else { continue }
-            let matching = enabledMappings.filter { $0.matches(bundleID: bundleID) }
-            let needsTitles = matching.contains { !($0.requiredWindowTitleSubstring ?? "").isEmpty }
-            let titles = needsTitles ? Self.allWindowTitles(for: app.processIdentifier) : []
-            let hasAudioInput = CoreAudioController.bundleID(bundleID, matchesActiveInputProcessBundleIDs: activeInputBundles)
-            let shouldProbeAX = (!isCallActivityActive || matchedRunning.count > 1) && !hasAudioInput && app.processIdentifier != frontPID && AXIsProcessTrusted()
-            let hasControl: Bool? = shouldProbeAX
-                ? (Self.inspectCallAppMuteState(pid: app.processIdentifier) != nil)
-                : nil
-            snapshots.append(RunningCallAppSnapshot(
-                bundleIdentifier: bundleID,
-                pid: app.processIdentifier,
-                windowTitles: titles,
-                hasActiveCallControl: hasControl,
-                hasActiveAudioInput: hasAudioInput
-            ))
-        }
-        snapshots.sort { (mruOrder[$0.pid] ?? Int.max) < (mruOrder[$1.pid] ?? Int.max) }
+        let snapshots = Self.buildRunningCallAppSnapshots(
+            runningApps: matchedRunning,
+            enabledMappings: enabledMappings,
+            frontmostPID: frontPID,
+            mruOrder: mruOrder,
+            isCallActivityActive: isCallActivityActive,
+            probeAX: true
+        )
 
         guard let resolved = Self.resolveTargetPreview(
             action: action,
@@ -873,6 +904,40 @@ final class CallShortcutRemapper: @unchecked Sendable {
         return titles.contains { $0.localizedCaseInsensitiveContains(needle) }
     }
 
+    private static let browserBundleIDs: Set<String> = [
+        "com.google.chrome",
+        "com.google.chrome.canary",
+        "company.thebrowser.browser",
+        "com.apple.safari",
+        "com.apple.safaritechnologypreview",
+        "com.brave.browser",
+        "com.microsoft.edgemac",
+        "org.mozilla.firefox",
+        "com.vivaldi.vivaldi",
+        "com.operasoftware.opera",
+        "com.kagi.kagimacos",
+        "app.zen-browser.zen"
+    ]
+
+    static func isBrowserBundleID(_ bundleID: String?) -> Bool {
+        guard let bid = bundleID?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !bid.isEmpty else {
+            return false
+        }
+        return browserBundleIDs.contains(bid)
+    }
+
+    static func isBrowserMapping(_ mapping: CallAppShortcutMapping) -> Bool {
+        if !(mapping.requiredWindowTitleSubstring ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return true
+        }
+        return mapping.bundleIdentifiers.contains { isBrowserBundleID($0) }
+    }
+
+    private static func isBrowserProcess(pid: pid_t) -> Bool {
+        isBrowserBundleID(NSRunningApplication(processIdentifier: pid)?.bundleIdentifier)
+    }
+
     // MARK: - Synthetic Shortcut Relay
 
     private func dispatchRemappedShortcut(
@@ -885,30 +950,56 @@ final class CallShortcutRemapper: @unchecked Sendable {
         guard let targetKeyCode = targetShortcut.carbonKeyCode else { return }
         let targetFlags = Self.cgEventFlags(for: targetShortcut.modifiers)
         let callback = onRemapTriggered
+        let isBrowserTarget = Self.isBrowserMapping(targetApp)
 
         dispatchQueue.async {
             let preRelayAppMuted: Bool? = {
                 guard action == .mic, let pid = targetPID else { return nil }
-                return Self.inspectCallAppMuteState(pid: pid)
+                return Self.inspectCallAppMuteState(
+                    pid: pid,
+                    requiredWindowTitleSubstring: targetApp.requiredWindowTitleSubstring
+                )
             }()
 
-            // Prefer direct AX menu item invocation for native Mac apps (FaceTime, Zoom, etc.):
-            // triggers silently without focus disruption when enabled, and avoids error beeps/focus
-            // flash when an app's call menu item is disabled (e.g. FaceTime open outside an active call).
             if let pid = targetPID {
-                switch Self.inspectOrPressMenuItem(pid: pid, shortcut: targetShortcut, performPress: true) {
-                case .pressed:
-                    DispatchQueue.main.async {
-                        callback?(action, targetApp, targetShortcut, true, preRelayAppMuted)
+                if isBrowserTarget {
+                    // Browser-hosted web calls (e.g. Google Meet): never press browser AXMenuBar items
+                    // because Cmd+D is Bookmark This Tab and Cmd+E is Use Selection for Find.
+                    // Prefer pressing the in-page web call button inside AXWebArea (works silently in
+                    // the background without stealing focus or triggering Omnibox Cmd+D bookmarks).
+                    if Self.pressInPageCallButton(
+                        pid: pid,
+                        action: action,
+                        requiredTitleSubstring: targetApp.requiredWindowTitleSubstring
+                    ) {
+                        DispatchQueue.main.async {
+                            callback?(action, targetApp, targetShortcut, true, preRelayAppMuted)
+                        }
+                        return
                     }
-                    return
-                case .menuItemDisabled:
-                    DispatchQueue.main.async {
-                        callback?(action, targetApp, targetShortcut, false, preRelayAppMuted)
+                } else {
+                    // Prefer direct AX menu item invocation for verified call controls in native Mac apps
+                    // (FaceTime, Zoom, etc.): triggers silently without focus disruption when enabled,
+                    // and avoids error beeps/focus flash when the call menu item is disabled outside a call.
+                    switch Self.inspectOrPressMenuItem(
+                        pid: pid,
+                        shortcut: targetShortcut,
+                        action: action,
+                        performPress: true
+                    ) {
+                    case .pressed:
+                        DispatchQueue.main.async {
+                            callback?(action, targetApp, targetShortcut, true, preRelayAppMuted)
+                        }
+                        return
+                    case .menuItemDisabled:
+                        DispatchQueue.main.async {
+                            callback?(action, targetApp, targetShortcut, false, preRelayAppMuted)
+                        }
+                        return
+                    case .notFound:
+                        break
                     }
-                    return
-                case .notFound:
-                    break
                 }
             }
 
@@ -939,10 +1030,18 @@ final class CallShortcutRemapper: @unchecked Sendable {
 
             let frontPIDSnapshot = self.withLock { self.frontmostPID }
             if let pid = targetPID {
+                var needsSettleDelay = false
                 if let titleNeedle = targetApp.requiredWindowTitleSubstring, !titleNeedle.isEmpty {
-                    Self.raiseMatchingWindowIfNeeded(pid: pid, titleSubstring: titleNeedle)
+                    needsSettleDelay = Self.raiseMatchingWindowIfNeeded(pid: pid, titleSubstring: titleNeedle)
                 } else {
                     Self.raiseCallWindowIfNeeded(pid: pid)
+                }
+                if isBrowserTarget,
+                   Self.focusWebAreaIfNeeded(pid: pid, requiredTitleSubstring: targetApp.requiredWindowTitleSubstring) {
+                    needsSettleDelay = true
+                }
+                if needsSettleDelay {
+                    usleep(22_000)
                 }
             }
             if let pid = targetPID, frontPIDSnapshot != pid {
@@ -990,8 +1089,13 @@ final class CallShortcutRemapper: @unchecked Sendable {
             return
         }
 
-        // Settle delay so Electron/WebView2 web views finish wiring key window focus.
+        let isBrowserTarget = Self.isBrowserMapping(targetApp)
+        // Settle delay so Electron/WebView2/browser web views finish wiring key window focus.
         dispatchQueue.asyncAfter(deadline: .now() + 0.045) {
+            if isBrowserTarget,
+               Self.focusWebAreaIfNeeded(pid: targetPID, requiredTitleSubstring: targetApp.requiredWindowTitleSubstring) {
+                usleep(20_000)
+            }
             Self.postKeyCombo(keyCode: keyCode, flags: flags, targetPID: nil)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.115) {
                 MainActor.assumeIsolated {
@@ -1008,7 +1112,7 @@ final class CallShortcutRemapper: @unchecked Sendable {
     @MainActor
     private static func activateApplicationForRelay(pid: pid_t, requiredTitleSubstring: String?) {
         if let requiredTitleSubstring, !requiredTitleSubstring.isEmpty {
-            raiseMatchingWindowIfNeeded(pid: pid, titleSubstring: requiredTitleSubstring)
+            _ = raiseMatchingWindowIfNeeded(pid: pid, titleSubstring: requiredTitleSubstring)
         } else {
             raiseCallWindowIfNeeded(pid: pid)
         }
@@ -1030,28 +1134,47 @@ final class CallShortcutRemapper: @unchecked Sendable {
         }
         for win in windows.prefix(8) {
             var remaining = 120
-            if searchWindowForMuteState(win, depthRemaining: 8, nodeBudget: &remaining) != nil {
+            if searchWindowForCallControl(
+                win,
+                targetAction: .mic,
+                inWebArea: false,
+                requireWebArea: false,
+                allowBareMuteWord: true,
+                depthRemaining: 8,
+                nodeBudget: &remaining
+            ).muteState != nil {
+                AXUIElementSetAttributeValue(win, kAXMainAttribute as CFString, kCFBooleanTrue)
                 AXUIElementPerformAction(win, kAXRaiseAction as CFString)
                 return
             }
         }
     }
 
-    private static func raiseMatchingWindowIfNeeded(pid: pid_t, titleSubstring: String) {
+    @discardableResult
+    private static func raiseMatchingWindowIfNeeded(pid: pid_t, titleSubstring: String) -> Bool {
         let needle = titleSubstring.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !needle.isEmpty else { return }
+        guard !needle.isEmpty else { return false }
         let appElem = AXUIElementCreateApplication(pid)
         var windowsRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(appElem, kAXWindowsAttribute as CFString, &windowsRef) == .success,
               let windows = windowsRef as? [AXUIElement] else {
-            return
+            return false
+        }
+        var focusedWinTitle: String?
+        if let focused = focusedWindowTitle(for: pid) {
+            focusedWinTitle = focused
+        }
+        if let focusedWinTitle, focusedWinTitle.localizedCaseInsensitiveContains(needle) {
+            return false
         }
         for win in windows.prefix(12) {
             if let title = windowTitle(of: win), title.localizedCaseInsensitiveContains(needle) {
+                AXUIElementSetAttributeValue(win, kAXMainAttribute as CFString, kCFBooleanTrue)
                 AXUIElementPerformAction(win, kAXRaiseAction as CFString)
-                break
+                return true
             }
         }
+        return false
     }
 
     private static func postKeyCombo(keyCode: CGKeyCode, flags: CGEventFlags, targetPID: pid_t?) {
@@ -1080,21 +1203,30 @@ final class CallShortcutRemapper: @unchecked Sendable {
 
     // MARK: - Accessibility Mute State Inspection & Menu Item Lookup
 
-    /// Classifies a call-app button or menu label into whether the mic is currently muted (`true`)
-    /// or live (`false`), returning `nil` for unrelated controls (e.g. "Mute notifications", "Mute all").
-    static func classifyCallMuteControlLabel(_ rawText: String, isMenuItem: Bool = false) -> Bool? {
+    private static func normalizedControlLabel(_ rawText: String) -> String {
         var text = rawText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !text.isEmpty else { return nil }
-
         // Strip trailing keyboard shortcut parentheticals such as "Unmute mic (⌘⇧M)" or "Turn off microphone (⌘ + d)"
         if let parenStart = text.range(of: " ("), text.hasSuffix(")") {
             text = String(text[..<parenStart.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
         }
+        return text
+    }
+
+    /// Classifies a call-app button or menu label into whether the mic is currently muted (`true`)
+    /// or live (`false`), returning `nil` for unrelated controls (e.g. "Mute notifications", "Mute all").
+    static func classifyCallMuteControlLabel(
+        _ rawText: String,
+        isMenuItem: Bool = false,
+        allowBareMuteWord: Bool = true
+    ) -> Bool? {
+        let text = normalizedControlLabel(rawText)
+        guard !text.isEmpty else { return nil }
 
         let excludedTerms = [
             "notification", "alert", "chat", "channel", "thread", "tab", "site",
-            "speaker", "others", "all", "participant", "everyone", "audience",
-            "incoming", "deafen", "video", "camera", "sound", "ringtone", "volume"
+            "speaker", "others", "mute all", "all participants", "participant", "everyone",
+            "audience", "incoming", "deafen", "video", "camera", "sound", "ringtone",
+            "volume", "bookmark", "install", "permission", "settings"
         ]
         if excludedTerms.contains(where: { text.contains($0) }) {
             return nil
@@ -1105,7 +1237,7 @@ final class CallShortcutRemapper: @unchecked Sendable {
             "unmute huddle", "turn on mic", "turn on microphone", "turn mic on", "turn microphone on",
             "mic is muted", "microphone is muted", "mic muted", "microphone muted"
         ]
-        if text == "unmute" || unmutePhrases.contains(where: { text.contains($0) }) {
+        if (allowBareMuteWord && text == "unmute") || unmutePhrases.contains(where: { text.contains($0) }) {
             return true
         }
         if isMenuItem && text.hasPrefix("unmute") {
@@ -1117,7 +1249,7 @@ final class CallShortcutRemapper: @unchecked Sendable {
             "mute huddle", "turn off mic", "turn off microphone", "turn mic off", "turn microphone off",
             "mic is on", "microphone is on", "microphone unmuted"
         ]
-        if text == "mute" || mutePhrases.contains(where: { text.contains($0) }) {
+        if (allowBareMuteWord && text == "mute") || mutePhrases.contains(where: { text.contains($0) }) {
             return false
         }
         if isMenuItem && text.hasPrefix("mute") {
@@ -1127,35 +1259,215 @@ final class CallShortcutRemapper: @unchecked Sendable {
         return nil
     }
 
+    /// Classifies a call-app camera button label into whether the camera is currently active (`true`)
+    /// or off (`false`), returning `nil` for unrelated controls (e.g. "Blur background", "Video settings").
+    static func classifyCallVideoControlLabel(_ rawText: String) -> Bool? {
+        let text = normalizedControlLabel(rawText)
+        guard !text.isEmpty else { return nil }
+
+        let excludedTerms = [
+            "notification", "alert", "chat", "channel", "thread", "tab", "site",
+            "others", "all participants", "participant", "everyone", "audience", "incoming",
+            "mic", "microphone", "audio", "preview", "effect", "background", "filter",
+            "settings", "layout", "pin", "tile", "blur", "permission", "screen", "share",
+            "present", "record", "bookmark", "install"
+        ]
+        if excludedTerms.contains(where: { text.contains($0) }) {
+            return nil
+        }
+
+        let turnOffPhrases = [
+            "turn off camera", "turn camera off", "stop video", "turn off video", "turn video off",
+            "disable camera", "disable video", "camera is on", "video is on"
+        ]
+        if turnOffPhrases.contains(where: { text.contains($0) }) {
+            return true
+        }
+
+        let turnOnPhrases = [
+            "turn on camera", "turn camera on", "start video", "turn on video", "turn video on",
+            "enable camera", "enable video", "camera is off", "video is off"
+        ]
+        if turnOnPhrases.contains(where: { text.contains($0) }) {
+            return false
+        }
+
+        return nil
+    }
+
     /// Reads the live in-app mic mute state (`true` = muted, `false` = live, `nil` = unknown/no active call)
     /// from an app's menu bar or meeting window Accessibility tree. Call off the CGEventTap thread.
-    static func inspectCallAppMuteState(pid: pid_t) -> Bool? {
-        guard AXIsProcessTrusted() else { return nil }
+    static func inspectCallAppMuteState(pid: pid_t, requiredWindowTitleSubstring: String? = nil) -> Bool? {
+        inspectCallAppState(pid: pid, requiredWindowTitleSubstring: requiredWindowTitleSubstring).isMuted
+    }
+
+    /// Inspects both live mic mute state and whether an active call control (mic or camera toggle)
+    /// is present in the target app. Call off the CGEventTap thread.
+    static func inspectCallAppState(
+        pid: pid_t,
+        requiredWindowTitleSubstring: String? = nil
+    ) -> (isMuted: Bool?, hasActiveControl: Bool) {
+        guard AXIsProcessTrusted() else { return (nil, false) }
         let appElem = AXUIElementCreateApplication(pid)
         AXUIElementSetAttributeValue(appElem, "AXManualAccessibility" as CFString, kCFBooleanTrue)
 
-        var mbRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(appElem, kAXMenuBarAttribute as CFString, &mbRef) == .success,
-           let mb = mbRef {
-            if let menuResult = searchMenuForMuteState(mb as! AXUIElement, depthRemaining: 4, pathDepth: 0) {
-                return menuResult
+        let titleNeedle = requiredWindowTitleSubstring?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasTitleGate = !(titleNeedle ?? "").isEmpty
+        let isBrowser = isBrowserProcess(pid: pid)
+
+        if !isBrowser && !hasTitleGate {
+            var mbRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(appElem, kAXMenuBarAttribute as CFString, &mbRef) == .success,
+               let mb = mbRef {
+                if let menuResult = searchMenuForMuteState(mb as! AXUIElement, depthRemaining: 4, pathDepth: 0) {
+                    return (menuResult, true)
+                }
             }
         }
 
-        var windowsRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(appElem, kAXWindowsAttribute as CFString, &windowsRef) == .success,
-           let windows = windowsRef as? [AXUIElement] {
-            let orderedWindows = prioritizedCallWindows(windows)
-            var totalBudget = 1600
-            for win in orderedWindows.prefix(8) {
-                var perWindowBudget = min(450, totalBudget)
-                let startBudget = perWindowBudget
-                if let winResult = searchWindowForMuteState(win, depthRemaining: 24, nodeBudget: &perWindowBudget) {
-                    return winResult
-                }
-                totalBudget -= (startBudget - perWindowBudget)
-                if totalBudget <= 0 { break }
+        let windows = targetWindows(for: pid, requiredTitleSubstring: titleNeedle)
+        guard !windows.isEmpty else { return (nil, false) }
+
+        var totalBudget = 2400
+        var sawVideoControl = false
+        for win in windows.prefix(8) {
+            var perWindowBudget = min(1200, totalBudget)
+            let startBudget = perWindowBudget
+            let result = searchWindowForCallControl(
+                win,
+                targetAction: nil,
+                inWebArea: false,
+                requireWebArea: isBrowser,
+                allowBareMuteWord: !isBrowser,
+                depthRemaining: 32,
+                nodeBudget: &perWindowBudget
+            )
+            if let muteState = result.muteState {
+                return (muteState, true)
             }
+            if result.hasVideoControl {
+                sawVideoControl = true
+            }
+            totalBudget -= (startBudget - perWindowBudget)
+            if totalBudget <= 0 { break }
+        }
+        return (nil, sawVideoControl)
+    }
+
+    private static func targetWindows(for pid: pid_t, requiredTitleSubstring: String?) -> [AXUIElement] {
+        let appElem = AXUIElementCreateApplication(pid)
+        var windowsRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appElem, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+              let windows = windowsRef as? [AXUIElement] else {
+            return []
+        }
+
+        let needle = requiredTitleSubstring?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !needle.isEmpty {
+            let matching = windows.filter { win in
+                guard let title = windowTitle(of: win) else { return false }
+                return title.localizedCaseInsensitiveContains(needle)
+            }
+            return prioritizedCallWindows(matching)
+        }
+        return prioritizedCallWindows(windows)
+    }
+
+    private static func pressInPageCallButton(
+        pid: pid_t,
+        action: CallActionKind,
+        requiredTitleSubstring: String?
+    ) -> Bool {
+        guard AXIsProcessTrusted() else { return false }
+        let appElem = AXUIElementCreateApplication(pid)
+        AXUIElementSetAttributeValue(appElem, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+
+        let windows = targetWindows(for: pid, requiredTitleSubstring: requiredTitleSubstring)
+        guard !windows.isEmpty else { return false }
+
+        var totalBudget = 2400
+        for win in windows.prefix(6) {
+            var perWindowBudget = min(1200, totalBudget)
+            let startBudget = perWindowBudget
+            let result = searchWindowForCallControl(
+                win,
+                targetAction: action,
+                inWebArea: false,
+                requireWebArea: true,
+                allowBareMuteWord: false,
+                depthRemaining: 32,
+                nodeBudget: &perWindowBudget
+            )
+            if let element = result.matchingElement {
+                var actionsRef: CFArray?
+                let actions = (AXUIElementCopyActionNames(element, &actionsRef) == .success)
+                    ? (actionsRef as? [String] ?? [])
+                    : []
+                if actions.isEmpty || actions.contains(kAXPressAction as String) {
+                    if AXUIElementPerformAction(element, kAXPressAction as CFString) == .success {
+                        return true
+                    }
+                }
+            }
+            totalBudget -= (startBudget - perWindowBudget)
+            if totalBudget <= 0 { break }
+        }
+        return false
+    }
+
+    private static func focusWebAreaIfNeeded(pid: pid_t, requiredTitleSubstring: String?) -> Bool {
+        guard AXIsProcessTrusted() else { return false }
+        let windows = targetWindows(for: pid, requiredTitleSubstring: requiredTitleSubstring)
+        guard let targetWin = windows.first else { return false }
+
+        var budget = 400
+        guard let webArea = findWebArea(in: targetWin, depthRemaining: 16, nodeBudget: &budget) else {
+            return false
+        }
+
+        var focusedRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(webArea, kAXFocusedAttribute as CFString, &focusedRef) == .success,
+           let isFocused = focusedRef as? Bool,
+           isFocused {
+            return false
+        }
+
+        var settable: DarwinBoolean = false
+        guard AXUIElementIsAttributeSettable(webArea, kAXFocusedAttribute as CFString, &settable) == .success,
+              settable.boolValue else {
+            return false
+        }
+        return AXUIElementSetAttributeValue(webArea, kAXFocusedAttribute as CFString, kCFBooleanTrue) == .success
+    }
+
+    private static func findWebArea(
+        in element: AXUIElement,
+        depthRemaining: Int,
+        nodeBudget: inout Int
+    ) -> AXUIElement? {
+        guard depthRemaining > 0, nodeBudget > 0 else { return nil }
+        nodeBudget -= 1
+
+        var roleRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef)
+        let role = roleRef as? String ?? ""
+        if role == "AXWebArea" {
+            return element
+        }
+        if role == "AXMenuBar" {
+            return nil
+        }
+
+        var childrenRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+              let children = childrenRef as? [AXUIElement] else {
+            return nil
+        }
+        for child in children {
+            if let found = findWebArea(in: child, depthRemaining: depthRemaining - 1, nodeBudget: &nodeBudget) {
+                return found
+            }
+            if nodeBudget <= 0 { break }
         }
         return nil
     }
@@ -1234,22 +1546,45 @@ final class CallShortcutRemapper: @unchecked Sendable {
         return nil
     }
 
-    private static func searchWindowForMuteState(
+    private struct WindowControlSearchResult {
+        var muteState: Bool? = nil
+        var hasVideoControl: Bool = false
+        var matchingElement: AXUIElement? = nil
+    }
+
+    private static func searchWindowForCallControl(
         _ element: AXUIElement,
+        targetAction: CallActionKind?,
+        inWebArea: Bool,
+        requireWebArea: Bool,
+        allowBareMuteWord: Bool,
         depthRemaining: Int,
         nodeBudget: inout Int
-    ) -> Bool? {
-        guard depthRemaining > 0, nodeBudget > 0 else { return nil }
+    ) -> WindowControlSearchResult {
+        guard depthRemaining > 0, nodeBudget > 0 else { return WindowControlSearchResult() }
         nodeBudget -= 1
 
         var roleRef: CFTypeRef?
         AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef)
         let role = roleRef as? String ?? ""
 
+        if role == "AXMenuBar" {
+            return WindowControlSearchResult()
+        }
+
+        var subroleRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &subroleRef)
+        if (subroleRef as? String) == "AXTabButton" {
+            return WindowControlSearchResult()
+        }
+
+        let nowInWebArea = inWebArea || (role == "AXWebArea")
+        var result = WindowControlSearchResult()
+
         let interactiveRoles: Set<String> = [
             "AXButton", "AXCheckBox", "AXRadioButton", "AXMenuItem", "AXSwitch"
         ]
-        if interactiveRoles.contains(role) {
+        if (!requireWebArea || nowInWebArea) && interactiveRoles.contains(role) {
             var enRef: CFTypeRef?
             AXUIElementCopyAttributeValue(element, kAXEnabledAttribute as CFString, &enRef)
             let isEnabled = (enRef as? Bool) ?? true
@@ -1261,47 +1596,83 @@ final class CallShortcutRemapper: @unchecked Sendable {
                 ]
                 for attr in textAttributes {
                     var valueRef: CFTypeRef?
-                    if AXUIElementCopyAttributeValue(element, attr, &valueRef) == .success,
-                       let label = valueRef as? String,
-                       let classified = classifyCallMuteControlLabel(label, isMenuItem: false) {
+                    guard AXUIElementCopyAttributeValue(element, attr, &valueRef) == .success,
+                          let label = valueRef as? String else {
+                        continue
+                    }
+
+                    if targetAction == nil || targetAction == .mic,
+                       let classified = classifyCallMuteControlLabel(
+                           label,
+                           isMenuItem: false,
+                           allowBareMuteWord: allowBareMuteWord
+                       ) {
+                        var effectiveMuted = classified
                         if !classified && (role == "AXCheckBox" || role == "AXSwitch" || role == "AXRadioButton") {
                             var controlValRef: CFTypeRef?
                             if AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &controlValRef) == .success {
                                 if let intVal = controlValRef as? Int, intVal != 0 {
-                                    return true
-                                }
-                                if let boolVal = controlValRef as? Bool, boolVal {
-                                    return true
+                                    effectiveMuted = true
+                                } else if let boolVal = controlValRef as? Bool, boolVal {
+                                    effectiveMuted = true
                                 }
                             }
                         }
-                        return classified
+                        result.muteState = effectiveMuted
+                        if targetAction == .mic || targetAction == nil {
+                            result.matchingElement = element
+                            return result
+                        }
+                    }
+
+                    if targetAction == nil || targetAction == .video,
+                       classifyCallVideoControlLabel(label) != nil {
+                        result.hasVideoControl = true
+                        if targetAction == .video {
+                            result.matchingElement = element
+                            return result
+                        }
                     }
                 }
             }
         }
 
-        if role == "AXMenuBar" {
-            return nil
-        }
-
         var childrenRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
               let children = childrenRef as? [AXUIElement] else {
-            return nil
+            return result
         }
         for child in children {
-            if let found = searchWindowForMuteState(child, depthRemaining: depthRemaining - 1, nodeBudget: &nodeBudget) {
-                return found
+            let childResult = searchWindowForCallControl(
+                child,
+                targetAction: targetAction,
+                inWebArea: nowInWebArea,
+                requireWebArea: requireWebArea,
+                allowBareMuteWord: allowBareMuteWord,
+                depthRemaining: depthRemaining - 1,
+                nodeBudget: &nodeBudget
+            )
+            if childResult.hasVideoControl {
+                result.hasVideoControl = true
+            }
+            if let childMute = childResult.muteState {
+                result.muteState = childMute
+                result.matchingElement = childResult.matchingElement
+                return result
+            }
+            if let match = childResult.matchingElement {
+                result.matchingElement = match
+                return result
             }
             if nodeBudget <= 0 { break }
         }
-        return nil
+        return result
     }
 
     static func inspectOrPressMenuItem(
         pid: pid_t,
         shortcut: ShortcutSpec,
+        action: CallActionKind,
         performPress: Bool
     ) -> AXMenuTriggerOutcome {
         guard !shortcut.isEmpty else { return .notFound }
@@ -1318,8 +1689,10 @@ final class CallShortcutRemapper: @unchecked Sendable {
 
         if let outcome = searchMenuContainer(
             mb as! AXUIElement,
+            pathPrefix: [],
             targetKey: targetKey,
             targetModifiers: targetMods,
+            requiredAction: action,
             depthRemaining: 3,
             performPress: performPress
         ) {
@@ -1328,10 +1701,16 @@ final class CallShortcutRemapper: @unchecked Sendable {
         return .notFound
     }
 
+    private static func isCallControlMenuItem(title: String, menuPath: String, action: CallActionKind) -> Bool {
+        classifyControlKind(title: title, menuPath: menuPath)?.kind == action
+    }
+
     private static func searchMenuContainer(
         _ container: AXUIElement,
+        pathPrefix: [String],
         targetKey: String,
         targetModifiers: Set<KeyModifier>,
+        requiredAction: CallActionKind,
         depthRemaining: Int,
         performPress: Bool
     ) -> AXMenuTriggerOutcome? {
@@ -1343,6 +1722,16 @@ final class CallShortcutRemapper: @unchecked Sendable {
         }
 
         for child in children {
+            var titleRef: CFTypeRef?
+            AXUIElementCopyAttributeValue(child, kAXTitleAttribute as CFString, &titleRef)
+            let title = (titleRef as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if pathPrefix.isEmpty && title == "Apple" {
+                continue
+            }
+
+            let fullPath = title.isEmpty ? pathPrefix : pathPrefix + [title]
+            let pathString = fullPath.joined(separator: " > ")
+
             var cmdRef: CFTypeRef?
             if AXUIElementCopyAttributeValue(child, kAXMenuItemCmdCharAttribute as CFString, &cmdRef) == .success,
                let cmdStr = (cmdRef as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
@@ -1350,7 +1739,8 @@ final class CallShortcutRemapper: @unchecked Sendable {
                 var modRef: CFTypeRef?
                 AXUIElementCopyAttributeValue(child, kAXMenuItemCmdModifiersAttribute as CFString, &modRef)
                 let axMods = (modRef as? Int) ?? 0
-                if axMenuModifiersMatch(axMods, expected: targetModifiers) {
+                if axMenuModifiersMatch(axMods, expected: targetModifiers),
+                   isCallControlMenuItem(title: title, menuPath: pathString, action: requiredAction) {
                     var enRef: CFTypeRef?
                     AXUIElementCopyAttributeValue(child, kAXEnabledAttribute as CFString, &enRef)
                     let isEnabled = (enRef as? Bool) ?? true
@@ -1367,8 +1757,10 @@ final class CallShortcutRemapper: @unchecked Sendable {
 
             if let nested = searchMenuContainer(
                 child,
+                pathPrefix: title.isEmpty ? pathPrefix : fullPath,
                 targetKey: targetKey,
                 targetModifiers: targetModifiers,
+                requiredAction: requiredAction,
                 depthRemaining: depthRemaining - 1,
                 performPress: performPress
             ) {
@@ -1445,19 +1837,30 @@ final class CallShortcutRemapper: @unchecked Sendable {
     static func classifyControlKind(title: String, menuPath: String) -> (kind: CallActionKind, score: Int)? {
         let lowTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !lowTitle.isEmpty else { return nil }
-        let excludedSubstrings = ["notification", "alert", "do not disturb", "mute site", "mute tab", "zoom", "quit"]
+        let lowPath = menuPath.lowercased()
+        let nonCallMenuPrefixes = ["bookmarks >", "history >"]
+        if nonCallMenuPrefixes.contains(where: { lowPath.hasPrefix($0) }) {
+            return nil
+        }
+        let excludedSubstrings = [
+            "notification", "alert", "do not disturb", "mute site", "mute tab", "zoom", "quit",
+            "bookmark", "use selection", "find", "minimize", "history", "download",
+            "mute all", "all participants", "others", "everyone", "audience", "incoming",
+            "deafen", "channel", "thread", "chat", "speaker", "ringtone", "volume", "sound",
+            "preview", "effect", "background", "filter", "settings", "layout", "install"
+        ]
         if excludedSubstrings.contains(where: { lowTitle.contains($0) }) {
             return nil
         }
-        let lowPath = menuPath.lowercased()
         let inCallMenuBonus = (lowPath.contains("meeting") || lowPath.contains("call") || lowPath.contains("video") || lowPath.contains("audio") || lowPath.contains("huddle")) ? 2 : 0
 
+        let titleTokens = Set(lowTitle.components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty })
         if lowTitle.contains("video") || lowTitle.contains("camera") || lowTitle.contains("webcam") {
             let exactBonus = (lowTitle.contains("toggle") || lowTitle.contains("start") || lowTitle.contains("stop") || lowTitle.contains("turn")) ? 4 : 2
             return (.video, exactBonus + inCallMenuBonus)
         }
-        if lowTitle == "mute" || lowTitle.contains("mute") || lowTitle.contains("microphone") || lowTitle.contains("mic") || lowTitle.contains("audio") {
-            let exactBonus = (lowTitle == "mute" || lowTitle.contains("mute audio") || lowTitle.contains("microphone") || lowTitle.contains("mic")) ? 4 : 2
+        if lowTitle == "mute" || lowTitle.contains("mute") || lowTitle.contains("microphone") || titleTokens.contains("mic") || lowTitle.contains("audio") {
+            let exactBonus = (lowTitle == "mute" || lowTitle.contains("mute audio") || lowTitle.contains("microphone") || titleTokens.contains("mic")) ? 4 : 2
             return (.mic, exactBonus + inCallMenuBonus)
         }
         return nil

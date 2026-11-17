@@ -13,6 +13,12 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 - **Screen OCR (`⌃ ⌥ ⌘ O`)** — drag-select any area of the screen to copy unselectable text or decode QR/barcodes using on-device Apple Vision OCR, with fast/accurate modes, line-break and toast options, and a session-only recent-captures list in Settings
 - **Support Links** — added GitHub Sponsors and Ko-fi links under **Settings → About Toolbox**
 
+### Changed
+- **Call Controls** — camera on/off is now tracked alongside mic mute so the floating pill and the call session stay consistent when video toggles (e.g. Google Meet keeps the call open after the camera turns off), all mapped call apps are monitored at once instead of a single target, and the pill shows a short app name for the video target
+
+### Fixed
+- **Call Controls** — browser-hosted web calls (Google Meet, Zoom web, etc.) no longer press the browser's own menu items (Bookmark This Tab, Use Selection for Find, Minimize, Dynamic Island) by mistake, with a short focus-settle delay before web-call toggles, and the floating pill lands on the correct screen when pinned near a shared monitor boundary
+
 ## [1.3] - 2026-11-16
 
 ### Added

@@ -2690,6 +2690,101 @@ enum SelfTestRunner {
             "Active Slack Huddle owning mic input must receive .mic even if idle Teams precedes it in snapshot list"
         )
 
+        // Browser / Google Meet safety: browser menu bar items (Bookmark This Tab Cmd+D, Use Selection Cmd+E) must never match call controls
+        expect(
+            CallShortcutRemapper.classifyControlKind(title: "Bookmark This Tab…", menuPath: "Bookmarks > Bookmark This Tab…") == nil,
+            "Browser 'Bookmark This Tab…' must not classify as a call control"
+        )
+        expect(
+            CallShortcutRemapper.classifyControlKind(title: "Use Selection for Find", menuPath: "Edit > Find > Use Selection for Find") == nil,
+            "Browser 'Use Selection for Find' must not classify as a call control"
+        )
+        expect(
+            CallShortcutRemapper.classifyControlKind(title: "Minimize", menuPath: "Window > Minimize") == nil,
+            "Window 'Minimize' must not classify as a call control"
+        )
+        expect(
+            CallShortcutRemapper.classifyControlKind(title: "Dynamic Island", menuPath: "View > Dynamic Island") == nil,
+            "Unrelated word containing 'mic' substring must not classify as .mic"
+        )
+        expect(
+            CallShortcutRemapper.classifyControlKind(title: "Mute All", menuPath: "Participants > Mute All") == nil,
+            "Host 'Mute All' must not classify as personal mic mute"
+        )
+        expect(
+            CallShortcutRemapper.classifyControlKind(title: "Mute", menuPath: "Video > Mute")?.kind == .mic,
+            "FaceTime 'Video > Mute' must classify as .mic"
+        )
+        expect(
+            CallShortcutRemapper.classifyControlKind(title: "Stop Video", menuPath: "Meeting > Stop Video")?.kind == .video,
+            "Zoom 'Meeting > Stop Video' must classify as .video"
+        )
+
+        if let meetMapping = CallAppShortcutMapping.defaults.first(where: { $0.id == "google_meet" }),
+           let zoomMapping = CallAppShortcutMapping.defaults.first(where: { $0.id == "zoom" }) {
+            expect(CallShortcutRemapper.isBrowserMapping(meetMapping), "Google Meet preset must be identified as a browser mapping")
+            expect(!CallShortcutRemapper.isBrowserMapping(zoomMapping), "Zoom preset must not be treated as a browser mapping")
+        }
+        expect(CallShortcutRemapper.isBrowserBundleID("com.google.Chrome"), "Chrome must be recognized as a browser bundle ID")
+        expect(!CallShortcutRemapper.isBrowserBundleID("com.apple.FaceTime"), "FaceTime must not be recognized as a browser bundle ID")
+
+        // Web-area mute classification rejects bare video-player "Mute"/"Unmute" while keeping Google Meet mic labels
+        expect(
+            CallShortcutRemapper.classifyCallMuteControlLabel("Mute (m)", isMenuItem: false, allowBareMuteWord: false) == nil,
+            "Browser web-area inspection must ignore bare video-player 'Mute (m)' controls"
+        )
+        expect(
+            CallShortcutRemapper.classifyCallMuteControlLabel("Turn off microphone (⌘ + d)", isMenuItem: false, allowBareMuteWord: false) == false,
+            "Google Meet 'Turn off microphone' must classify as live (false) inside browser web area"
+        )
+        expect(
+            CallShortcutRemapper.classifyCallMuteControlLabel("Turn on microphone", isMenuItem: false, allowBareMuteWord: false) == true,
+            "Google Meet 'Turn on microphone' must classify as muted (true) inside browser web area"
+        )
+
+        // Video control classification for in-page Google Meet camera buttons
+        expect(CallShortcutRemapper.classifyCallVideoControlLabel("Turn off camera (⌘ + e)") == true, "'Turn off camera' means camera is active (true)")
+        expect(CallShortcutRemapper.classifyCallVideoControlLabel("Turn on camera") == false, "'Turn on camera' means camera is off (false)")
+        expect(CallShortcutRemapper.classifyCallVideoControlLabel("Blur background") == nil, "'Blur background' must return nil")
+        expect(CallShortcutRemapper.classifyCallVideoControlLabel("Video settings") == nil, "'Video settings' must return nil")
+
+        // Floating pill stays visible when camera is turned off if active call app session remains open (e.g. muted Google Meet)
+        expect(
+            CallControlsModule.resolveCallOrMediaActive(isCameraActive: false, isMicStreamActive: false, hasActiveCallAppSession: true),
+            "Active call app session must keep floating pill visible even when camera is off and mic stream is idle"
+        )
+        expect(
+            !CallControlsModule.resolveCallOrMediaActive(isCameraActive: false, isMicStreamActive: false, hasActiveCallAppSession: false),
+            "Floating pill must hide once camera, mic stream, and active call app session are all inactive"
+        )
+
+        // Both Ctrl+Opt+Cmd+M and Cmd+Shift+Space route to Google Meet when Meet tab is active in Chrome
+        let slackStyleMic = ShortcutSpec(key: "space", modifiers: [.command, .shift])
+        let slackSpaceCode = UInt16(slackStyleMic.carbonKeyCode ?? 49)
+        for (label, testShortcut, code) in [("Ctrl+Opt+Cmd+M", micShortcut, mCode), ("Cmd+Shift+Space", slackStyleMic, slackSpaceCode)] {
+            let meetFront = CallShortcutRemapper.resolveDecision(
+                keyCode: code,
+                modifiers: testShortcut.modifiers,
+                eventUserData: 0,
+                micShortcut: testShortcut,
+                videoShortcut: videoShortcut,
+                overrideScope: .everywhere,
+                mappings: CallAppShortcutMapping.defaults,
+                frontmostBundleID: "com.google.Chrome",
+                frontmostPID: 707,
+                frontmostWindowTitle: "Meet – qgs-xoum-qzq – Camera and microphone recording - Google Chrome",
+                runningApps: []
+            )
+            if case .remap(let action, let app, _, let targetShortcut, _) = meetFront {
+                expect(
+                    action == .mic && app.id == "google_meet" && targetShortcut == ShortcutSpec(key: "d", modifiers: [.command]),
+                    "\(label) on active Google Meet Chrome tab must remap to google_meet Cmd+D"
+                )
+            } else {
+                failures.append("\(label) on active Google Meet Chrome tab should return .remap (got: \(meetFront))")
+            }
+        }
+
         // 5. Live Clipboard panel navigation: Down x12, Up x12, Right preview, Left back
         let liveClipboard = ClipboardModule()
         var clipCfg = ToolboxConfig()

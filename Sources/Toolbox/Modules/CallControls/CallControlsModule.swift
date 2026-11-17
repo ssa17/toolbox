@@ -238,6 +238,7 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
     @Published private(set) var isInputMuted: Bool = false
     @Published private(set) var isTypingMuted: Bool = false
     @Published private(set) var isMicStreamActive: Bool = false
+    @Published private(set) var hasActiveCallAppSession: Bool = false
     @Published private(set) var isCameraActive: Bool = false
     @Published private(set) var activeCameraName: String? = nil
     @Published private(set) var hasCameraDevice: Bool = false
@@ -266,6 +267,8 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
     private var callAppPollTimer: Timer?
     private let callAppInspectionQueue = DispatchQueue(label: "app.toolbox.call-app-ax-poll", qos: .utility)
     private var lastCallRelayUptime: TimeInterval = 0
+    private var consecutiveNilCallAppPolls: Int = 0
+    private var pendingSmartUnmuteOnly: Bool = false
     private var simulatedTypingBurstTask: Task<Void, Never>?
 
     init() {
@@ -461,6 +464,9 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
         stopCallAppPollTimer()
 
         callAppMutedState = nil
+        hasActiveCallAppSession = false
+        consecutiveNilCallAppPolls = 0
+        pendingSmartUnmuteOnly = false
         isTypingMuted = false
         isRunning = false
         updateEffectiveMuteState()
@@ -498,6 +504,7 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
         registerHotKeys()
         syncCallShortcutRemapper()
         syncTypingMicGuard()
+        syncCallAppPollTimer()
         syncFloatingIndicator()
     }
 
@@ -1151,11 +1158,23 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
 
     // MARK: - User Actions (Hardware Mic Mute, Device Switching, Call Relay)
 
+    static func resolveCallOrMediaActive(
+        isCameraActive: Bool,
+        isMicStreamActive: Bool,
+        hasActiveCallAppSession: Bool
+    ) -> Bool {
+        isCameraActive || isMicStreamActive || hasActiveCallAppSession
+    }
+
     var isCallOrMediaActive: Bool {
         if let sim = developerSimulation {
             return sim.isMicStreamActive || sim.isCameraActive
         }
-        return isCameraActive || isMicStreamActive
+        return Self.resolveCallOrMediaActive(
+            isCameraActive: isCameraActive,
+            isMicStreamActive: isMicStreamActive,
+            hasActiveCallAppSession: hasActiveCallAppSession
+        )
     }
 
     func refreshMicStreamActivity() {
@@ -1163,7 +1182,7 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
         if isMicStreamActive != active {
             isMicStreamActive = active
         }
-        if !active && callAppMutedState != nil {
+        if !active && !isCameraActive && !hasActiveCallAppSession && callAppMutedState != nil {
             callAppMutedState = nil
         }
         callRemapper.updateCallActivity(isCallOrMediaActive)
@@ -1179,7 +1198,11 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
         hasCameraDevice = cam.hasCamera
         isCameraActive = cam.isCameraActive
         activeCameraName = cam.activeCameraName
+        if !isCameraActive && !isMicStreamActive && !hasActiveCallAppSession && callAppMutedState != nil {
+            callAppMutedState = nil
+        }
         callRemapper.updateCallActivity(isCallOrMediaActive)
+        syncCallAppPollTimer()
         syncFloatingIndicator()
     }
 
@@ -1226,28 +1249,31 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
         }
         // Fallback summary before/without tap install so UI still accurately reflects what would match.
         let front = NSWorkspace.shared.frontmostApplication
-        let activeInputBundles = CoreAudioController.activeInputProcessBundleIDs()
-        let snapshots: [RunningCallAppSnapshot] = NSWorkspace.shared.runningApplications.compactMap { app in
+        let enabledMappings = config.appShortcutMappings.filter(\.enabled)
+        let frontTitle = CallShortcutRemapper.frontmostWindowTitleIfNeeded(
+            frontPID: front?.processIdentifier,
+            frontBundle: front?.bundleIdentifier,
+            enabledMappings: enabledMappings
+        )
+        let runningApps: [(bundleID: String, pid: pid_t)] = NSWorkspace.shared.runningApplications.compactMap { app in
             guard !app.isTerminated, let bundleID = app.bundleIdentifier else { return nil }
-            let matched = config.appShortcutMappings.filter { $0.enabled && $0.matches(bundleID: bundleID) }
-            guard !matched.isEmpty else { return nil }
-            let needsTitle = matched.contains { !($0.requiredWindowTitleSubstring ?? "").isEmpty }
-            let titles = needsTitle ? CallShortcutRemapper.allWindowTitles(for: app.processIdentifier) : []
-            let hasAudio = CoreAudioController.bundleID(bundleID, matchesActiveInputProcessBundleIDs: activeInputBundles)
-            return RunningCallAppSnapshot(
-                bundleIdentifier: bundleID,
-                pid: app.processIdentifier,
-                windowTitles: titles,
-                hasActiveAudioInput: hasAudio
-            )
+            return (bundleID, app.processIdentifier)
         }
+        let snapshots = CallShortcutRemapper.buildRunningCallAppSnapshots(
+            runningApps: runningApps,
+            enabledMappings: enabledMappings,
+            frontmostPID: front?.processIdentifier,
+            mruOrder: [:],
+            isCallActivityActive: isCallOrMediaActive,
+            probeAX: false
+        )
         guard let target = CallShortcutRemapper.resolveTargetPreview(
             action: action,
             overrideScope: config.overrideScope,
             mappings: config.appShortcutMappings,
             frontmostBundleID: front?.bundleIdentifier,
             frontmostPID: front?.processIdentifier,
-            frontmostWindowTitle: front?.localizedName,
+            frontmostWindowTitle: frontTitle,
             runningApps: snapshots,
             isCallActivityActive: isCallOrMediaActive
         ) else {
@@ -1256,12 +1282,25 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
         return (target.app.appName, target.pid, target.shortcut)
     }
 
+    private func mappingForTargetAppName(_ appName: String) -> CallAppShortcutMapping? {
+        config.appShortcutMappings.first(where: { $0.appName == appName })
+    }
+
     func targetReadinessNote(for action: CallActionKind) -> (appName: String, isMenuReady: Bool?)? {
         guard let summary = currentTargetSummary(for: action) else { return nil }
         guard let pid = summary.pid, PermissionsManager.shared.isAccessibilityGranted else {
             return (summary.appName, nil)
         }
-        switch CallShortcutRemapper.inspectOrPressMenuItem(pid: pid, shortcut: summary.shortcut, performPress: false) {
+        if let mapping = mappingForTargetAppName(summary.appName),
+           CallShortcutRemapper.isBrowserMapping(mapping) {
+            return (summary.appName, true)
+        }
+        switch CallShortcutRemapper.inspectOrPressMenuItem(
+            pid: pid,
+            shortcut: summary.shortcut,
+            action: action,
+            performPress: false
+        ) {
         case .pressed:
             return (summary.appName, true)
         case .menuItemDisabled:
@@ -1427,19 +1466,30 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
     /// Context-aware mic toggle used by the Floating Pill and Menu Bar button:
     /// reads the live app mute status first so hardware and in-app mute stay aligned.
     func toggleSmartMicMute() {
-        guard isMicStreamActive,
-              PermissionsManager.shared.isAccessibilityGranted,
+        guard PermissionsManager.shared.isAccessibilityGranted,
               let target = currentTargetSummary(for: .mic),
               let pid = target.pid else {
             toggleHardwareMicMute()
             return
         }
 
+        let requiredTitle = mappingForTargetAppName(target.appName)?.requiredWindowTitleSubstring
         callAppInspectionQueue.async { [weak self] in
-            let freshObserved = CallShortcutRemapper.inspectCallAppMuteState(pid: pid)
+            let inspected = CallShortcutRemapper.inspectCallAppState(
+                pid: pid,
+                requiredWindowTitleSubstring: requiredTitle
+            )
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                if let freshObserved {
+                if inspected.hasActiveControl {
+                    self.hasActiveCallAppSession = true
+                    self.consecutiveNilCallAppPolls = 0
+                }
+                if !self.isCallOrMediaActive && !inspected.hasActiveControl {
+                    self.toggleHardwareMicMute()
+                    return
+                }
+                if let freshObserved = inspected.isMuted {
                     self.callAppMutedState = freshObserved
                     self.updateEffectiveMuteState()
                 }
@@ -1457,15 +1507,19 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
                 _ = setHardwareMicMuted(false, announceToast: false)
             }
             if callAppMutedState == true || !hadHardwareMute || callAppMutedState == nil {
+                pendingSmartUnmuteOnly = hadHardwareMute
                 let sent = callRemapper.triggerManualAction(
                     .mic,
                     mappings: config.appShortcutMappings,
                     overrideScope: config.overrideScope,
                     isCallActivityActive: isCallOrMediaActive
                 )
-                if !sent && hadHardwareMute {
-                    let micName = defaultInputDevice?.name ?? "Microphone"
-                    showToast(title: "Mic Live - \(micName)", symbol: "mic.fill", tint: .green)
+                if !sent {
+                    pendingSmartUnmuteOnly = false
+                    if hadHardwareMute {
+                        let micName = defaultInputDevice?.name ?? "Microphone"
+                        showToast(title: "Mic Live - \(micName)", symbol: "mic.fill", tint: .green)
+                    }
                 }
             } else {
                 let micName = defaultInputDevice?.name ?? "Microphone"
@@ -1473,6 +1527,7 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
             }
         } else {
             // User wants to MUTE.
+            pendingSmartUnmuteOnly = false
             let sent = callRemapper.triggerManualAction(
                 .mic,
                 mappings: config.appShortcutMappings,
@@ -1712,7 +1767,11 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
     private func handleNativeAppMicShortcutPressed(mapping: CallAppShortcutMapping, pid: pid_t) {
         guard isRunning, developerSimulation == nil else { return }
         lastCallRelayUptime = ProcessInfo.processInfo.systemUptime
-        scheduleCallAppMuteStateRefresh(pid: pid, appName: mapping.appName)
+        scheduleCallAppMuteStateRefresh(
+            pid: pid,
+            appName: mapping.appName,
+            requiredWindowTitleSubstring: mapping.requiredWindowTitleSubstring
+        )
     }
 
     private func handleCallShortcutRelayed(
@@ -1723,7 +1782,18 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
         preRelayAppMuted: Bool?
     ) {
         if action == .mic {
+            let wasPendingSmartUnmuteOnly = pendingSmartUnmuteOnly
+            pendingSmartUnmuteOnly = false
+
             if !deliveredToCallApp {
+                if wasPendingSmartUnmuteOnly {
+                    let micName = defaultInputDevice?.name ?? "Microphone"
+                    let title = "Mic Live - \(micName)"
+                    lastRelayedActionLabel = title
+                    DeveloperEventLog.shared.record(.callControls, title, detail: "\(mapping.appName) idle")
+                    showToast(title: title, symbol: "mic.fill", tint: .green)
+                    return
+                }
                 if config.overrideScope == .everywhere, defaultInputDevice != nil {
                     let nextMuted = !hardwareInputMuted
                     if setHardwareMicMuted(nextMuted, announceToast: false) {
@@ -1756,6 +1826,10 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
             }
 
             lastCallRelayUptime = ProcessInfo.processInfo.systemUptime
+            if preRelayAppMuted != nil {
+                hasActiveCallAppSession = true
+                consecutiveNilCallAppPolls = 0
+            }
             callAppMutedState = targetMuted
             if config.syncHardwareMuteWithAppMicToggle && defaultInputDevice != nil {
                 if hardwareInputMuted != targetMuted {
@@ -1770,6 +1844,8 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
                     updateEffectiveMuteState()
                 }
             }
+            callRemapper.updateCallActivity(isCallOrMediaActive)
+            syncCallAppPollTimer()
 
             let stateLabel = targetMuted ? "Mic Muted" : "Mic Live"
             let title = "\(stateLabel) · \(mapping.appName)"
@@ -1786,7 +1862,11 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
             )
 
             if let pid = currentTargetSummary(for: .mic)?.pid {
-                scheduleCallAppMuteStateRefresh(pid: pid, appName: mapping.appName)
+                scheduleCallAppMuteStateRefresh(
+                    pid: pid,
+                    appName: mapping.appName,
+                    requiredWindowTitleSubstring: mapping.requiredWindowTitleSubstring
+                )
             }
             return
         }
@@ -1809,10 +1889,24 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
             symbol: expectedCameraOn ? "video.fill" : "video.slash.fill",
             tint: expectedCameraOn ? .green : .red
         )
+        // Refresh call-app AX state promptly so turning camera off keeps the floating pill
+        // visible while the call session (e.g. Google Meet) remains open.
+        pollActiveCallAppMuteState()
+    }
+
+    private func hasRunningTitleGatedCallBrowser() -> Bool {
+        config.appShortcutMappings.contains { mapping in
+            mapping.enabled
+                && !(mapping.requiredWindowTitleSubstring ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && isAppRunning(for: mapping)
+        }
     }
 
     private func syncCallAppPollTimer() {
-        let shouldPoll = isRunning && isMicStreamActive && PermissionsManager.shared.isAccessibilityGranted && developerSimulation == nil
+        let shouldPoll = isRunning
+            && PermissionsManager.shared.isAccessibilityGranted
+            && developerSimulation == nil
+            && (isMicStreamActive || isCameraActive || hasActiveCallAppSession || hasRunningTitleGatedCallBrowser())
         guard shouldPoll else {
             stopCallAppPollTimer()
             return
@@ -1833,41 +1927,122 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
         callAppPollTimer = nil
     }
 
-    private func activeCallAppTargetForPolling() -> (pid: pid_t, appName: String)? {
+    private func callAppPollCandidates() -> [(pid: pid_t, appName: String, requiredWindowTitleSubstring: String?, checkTitleGate: Bool)] {
+        var candidates: [(pid: pid_t, appName: String, requiredWindowTitleSubstring: String?, checkTitleGate: Bool)] = []
+        var seenKeys = Set<String>()
+
         if let summary = currentTargetSummary(for: .mic), let pid = summary.pid {
-            return (pid, summary.appName)
-        }
-        for mapping in config.appShortcutMappings where mapping.enabled && !mapping.micShortcut.isEmpty {
-            if let running = NSWorkspace.shared.runningApplications.first(where: { app in
-                !app.isTerminated && mapping.matches(bundleID: app.bundleIdentifier)
-            }) {
-                return (running.processIdentifier, mapping.appName)
+            let mapping = mappingForTargetAppName(summary.appName)
+            let req = mapping?.requiredWindowTitleSubstring
+            let key = "\(pid)::\(req ?? "")"
+            if seenKeys.insert(key).inserted {
+                candidates.append((pid, summary.appName, req, !(req ?? "").isEmpty))
             }
         }
-        return nil
+
+        let allowNonGatedIdleCheck = isMicStreamActive || isCameraActive || hasActiveCallAppSession
+        let runningApps = NSWorkspace.shared.runningApplications.filter { !$0.isTerminated && $0.bundleIdentifier != nil }
+        for mapping in config.appShortcutMappings where mapping.enabled && !mapping.micShortcut.isEmpty {
+            let req = mapping.requiredWindowTitleSubstring?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let isTitleGated = !(req ?? "").isEmpty
+            guard isTitleGated || allowNonGatedIdleCheck else { continue }
+            for app in runningApps where mapping.matches(bundleID: app.bundleIdentifier) {
+                let key = "\(app.processIdentifier)::\(req ?? "")"
+                if seenKeys.insert(key).inserted {
+                    candidates.append((app.processIdentifier, mapping.appName, req, isTitleGated))
+                }
+            }
+        }
+        return candidates
     }
 
     private func pollActiveCallAppMuteState() {
-        guard isRunning, isMicStreamActive, PermissionsManager.shared.isAccessibilityGranted, developerSimulation == nil,
-              let target = activeCallAppTargetForPolling() else {
+        guard isRunning, PermissionsManager.shared.isAccessibilityGranted, developerSimulation == nil else {
             return
         }
-        let pid = target.pid
-        let appName = target.appName
+        let candidates = callAppPollCandidates()
+        guard !candidates.isEmpty else {
+            handlePollNoActiveCallControl()
+            return
+        }
+
         callAppInspectionQueue.async { [weak self] in
-            let observed = CallShortcutRemapper.inspectCallAppMuteState(pid: pid)
+            let streamActive = CoreAudioController.isDefaultInputRunningSomewhere()
+            var matchedAppName: String? = nil
+            var matchedState: (isMuted: Bool?, hasActiveControl: Bool) = (nil, false)
+
+            for candidate in candidates {
+                if candidate.checkTitleGate, let needle = candidate.requiredWindowTitleSubstring, !needle.isEmpty {
+                    let titles = CallShortcutRemapper.allWindowTitles(for: candidate.pid)
+                    guard titles.contains(where: { $0.localizedCaseInsensitiveContains(needle) }) else {
+                        continue
+                    }
+                }
+                let inspected = CallShortcutRemapper.inspectCallAppState(
+                    pid: candidate.pid,
+                    requiredWindowTitleSubstring: candidate.requiredWindowTitleSubstring
+                )
+                if inspected.hasActiveControl {
+                    matchedAppName = candidate.appName
+                    matchedState = inspected
+                    break
+                }
+            }
+
             Task { @MainActor [weak self] in
-                self?.applyObservedCallAppMuteState(observed, appName: appName)
+                guard let self, self.isRunning, self.developerSimulation == nil else { return }
+                if self.isMicStreamActive != streamActive {
+                    self.isMicStreamActive = streamActive
+                    self.callRemapper.updateCallActivity(self.isCallOrMediaActive)
+                }
+                if matchedState.hasActiveControl {
+                    self.consecutiveNilCallAppPolls = 0
+                    let sessionChanged = !self.hasActiveCallAppSession
+                    self.hasActiveCallAppSession = true
+                    if sessionChanged {
+                        self.callRemapper.updateCallActivity(self.isCallOrMediaActive)
+                        self.callRemapper.refreshContextIfInstalled()
+                    }
+                    if let observed = matchedState.isMuted {
+                        self.applyObservedCallAppMuteState(observed, appName: matchedAppName)
+                    } else if sessionChanged {
+                        self.syncFloatingIndicator()
+                    }
+                } else {
+                    self.handlePollNoActiveCallControl()
+                }
             }
         }
     }
 
-    private func scheduleCallAppMuteStateRefresh(pid: pid_t, appName: String) {
+    private func handlePollNoActiveCallControl() {
+        consecutiveNilCallAppPolls += 1
+        guard consecutiveNilCallAppPolls >= 2 else { return }
+        let changed = hasActiveCallAppSession
+        hasActiveCallAppSession = false
+        if !isMicStreamActive && !isCameraActive && callAppMutedState != nil {
+            callAppMutedState = nil
+        }
+        if changed {
+            callRemapper.updateCallActivity(isCallOrMediaActive)
+        }
+        updateEffectiveMuteState()
+        syncCallAppPollTimer()
+    }
+
+    private func scheduleCallAppMuteStateRefresh(
+        pid: pid_t,
+        appName: String,
+        requiredWindowTitleSubstring: String? = nil
+    ) {
         for delay in [0.18, 0.48] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 guard let self, self.isRunning, self.developerSimulation == nil else { return }
                 self.callAppInspectionQueue.async { [weak self] in
-                    let observed = CallShortcutRemapper.inspectCallAppMuteState(pid: pid)
+                    let observed = CallShortcutRemapper.inspectCallAppMuteState(
+                        pid: pid,
+                        requiredWindowTitleSubstring: requiredWindowTitleSubstring
+                    )
                     Task { @MainActor [weak self] in
                         self?.applyObservedCallAppMuteState(observed, appName: appName)
                     }
@@ -1912,7 +2087,7 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
     }
 
     private func applyObservedCallAppMuteState(_ observedMuted: Bool?, appName: String?) {
-        guard isRunning, isMicStreamActive, developerSimulation == nil else {
+        guard isRunning, isCallOrMediaActive, developerSimulation == nil else {
             return
         }
         let elapsedSinceRelay = ProcessInfo.processInfo.systemUptime - lastCallRelayUptime
@@ -1991,7 +2166,12 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
     private func installAppLifecycleObservers() {
         removeAppLifecycleObservers()
         let nc = NSWorkspace.shared.notificationCenter
-        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
+        let names: [NSNotification.Name] = [
+            NSWorkspace.didLaunchApplicationNotification,
+            NSWorkspace.didTerminateApplicationNotification,
+            NSWorkspace.didActivateApplicationNotification
+        ]
+        for name in names {
             let obs = nc.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
                     self?.refreshRunningApplications()
@@ -2015,6 +2195,7 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
                 app.isTerminated ? nil : app.bundleIdentifier
             }
         )
+        syncCallAppPollTimer()
         syncFloatingIndicator()
     }
 }

@@ -343,8 +343,12 @@ final class FloatingMicIndicatorPanel {
 
     private func screenForCustomAnchor() -> NSScreen? {
         guard let anchor = customAnchor else { return nil }
-        let probe = NSPoint(x: anchor.anchorX, y: anchor.topY - 10)
-        return NSScreen.screens.first { $0.frame.insetBy(dx: -40, dy: -40).contains(probe) }
+        // Step 1pt inward from the pinned edge so an anchor near a shared monitor boundary
+        // resolves strictly to the screen containing the pill rather than an adjacent screen.
+        let inwardX = anchor.pinTrailing ? (anchor.anchorX - 1) : (anchor.anchorX + 1)
+        let probe = NSPoint(x: inwardX, y: anchor.topY - 10)
+        return NSScreen.screens.first { $0.frame.contains(probe) }
+            ?? NSScreen.screens.first { $0.frame.insetBy(dx: -40, dy: -40).contains(probe) }
     }
 
     private func loadSavedAnchor() {
@@ -645,7 +649,7 @@ struct FloatingMicIndicatorView: View {
                 return state.cameraDeviceName ?? "Camera On"
             }
             if let appName = state.videoTargetAppName {
-                return "Toggle \(appName)"
+                return "Toggle \(CallControlsModule.shortCallAppName(appName))"
             }
             return "Click to Toggle"
         }
