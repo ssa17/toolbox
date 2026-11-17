@@ -18,6 +18,7 @@ enum ToolboxConfigSection: String, CaseIterable, Identifiable, Sendable {
     case cleanLock
     case customCommands
     case scrollDirection
+    case screenOCR
     case callControls
 
     var id: String { rawValue }
@@ -32,6 +33,7 @@ enum ToolboxConfigSection: String, CaseIterable, Identifiable, Sendable {
         case .cleanLock: return "Keyboard Lock"
         case .customCommands: return "Custom Commands"
         case .scrollDirection: return "Scroll Direction"
+        case .screenOCR: return "Screen OCR"
         case .callControls: return "Call Controls"
         }
     }
@@ -83,6 +85,8 @@ final class ConfigCheckpointStore: ObservableObject {
             next.customCommands = CustomCommandsConfig()
         case .scrollDirection:
             next.scrollDirection = ScrollDirectionConfig()
+        case .screenOCR:
+            next.screenOCR = ScreenOCRConfig()
         case .callControls:
             next.callControls = CallControlsConfig()
         }

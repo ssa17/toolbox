@@ -70,6 +70,35 @@ enum SnapshotRunner {
             to: outURL.appendingPathComponent("module_port_killer.png")
         )
 
+        // Seed a couple of recent captures so the Screen OCR settings page renders richly.
+        let ocrModule = registry.screenOCR
+        ocrModule.replaceRecentCaptures([
+            RecentOCRCapture(
+                id: "snap-qr",
+                text: "https://github.com/toolbox/releases",
+                lineCount: 1,
+                isQR: true,
+                createdAt: Date()
+            ),
+            RecentOCRCapture(
+                id: "snap-text",
+                text: "EADDRINUSE: address already in use 127.0.0.1:5173\nnode:events:1796\n(Use `node --trace-uncaught` to show where the code was most likely originated)",
+                lineCount: 3,
+                isQR: false,
+                createdAt: Date()
+            )
+        ])
+
+        let navScreenOCR = NavigationState()
+        navScreenOCR.selection = .module("screen_ocr")
+        navScreenOCR.isSidebarVisible = true
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navScreenOCR),
+            size: NSSize(width: 940, height: 860),
+            to: outURL.appendingPathComponent("module_screen_ocr.png")
+        )
+        ocrModule.replaceRecentCaptures([])
+
         let navCommands = NavigationState()
         navCommands.selection = .module("custom_commands")
         navCommands.isSidebarVisible = true

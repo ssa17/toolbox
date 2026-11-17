@@ -28,6 +28,8 @@ let package = Package(
                 .linkedFramework("Carbon"),
                 .linkedFramework("CoreAudio"),
                 .linkedFramework("CoreMediaIO"),
+                .linkedFramework("ImageIO"),
+                .linkedFramework("Vision"),
                 .linkedFramework("IOKit"),
                 .linkedFramework("ServiceManagement"),
                 .unsafeFlags([

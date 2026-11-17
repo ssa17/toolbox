@@ -94,6 +94,7 @@ struct GeneralConfig: Codable, Equatable, Sendable {
         "dock_minimize",
         "clipboard",
         "port_killer",
+        "screen_ocr",
         "keep_awake",
         "custom_commands",
         "scroll_direction",
@@ -453,6 +454,40 @@ struct PortKillerConfig: Codable, Equatable, Sendable {
     }
 }
 
+enum OCRRecognitionLevel: String, Codable, CaseIterable, Sendable {
+    case accurate = "accurate"
+    case fast = "fast"
+
+    var label: String {
+        switch self {
+        case .accurate: return "Accurate"
+        case .fast: return "Fast"
+        }
+    }
+}
+
+struct ScreenOCRConfig: Codable, Equatable, Sendable {
+    var enabled: Bool = false
+    var shortcut: ShortcutSpec = ShortcutSpec(key: "o", modifiers: [.control, .option, .command])
+    var recognitionLevel: OCRRecognitionLevel = .accurate
+    var preserveLineBreaks: Bool = true
+    var detectQRCodes: Bool = true
+    var showToast: Bool = true
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        shortcut = try c.decodeIfPresent(ShortcutSpec.self, forKey: .shortcut)
+            ?? ShortcutSpec(key: "o", modifiers: [.control, .option, .command])
+        recognitionLevel = try c.decodeIfPresent(OCRRecognitionLevel.self, forKey: .recognitionLevel) ?? .accurate
+        preserveLineBreaks = try c.decodeIfPresent(Bool.self, forKey: .preserveLineBreaks) ?? true
+        detectQRCodes = try c.decodeIfPresent(Bool.self, forKey: .detectQRCodes) ?? true
+        showToast = try c.decodeIfPresent(Bool.self, forKey: .showToast) ?? true
+    }
+}
+
 struct CleanLockConfig: Codable, Equatable, Sendable {
     static let minDurationSeconds = 10
     static let maxDurationSeconds = 300
@@ -681,11 +716,12 @@ struct ToolboxConfig: Codable, Equatable, Sendable {
         case audioGuard
     }
 
-    var schemaVersion: Int = 9
+    var schemaVersion: Int = 10
     var general: GeneralConfig = GeneralConfig()
     var dockMinimize: DockMinimizeConfig = DockMinimizeConfig()
     var clipboard: ClipboardConfig = ClipboardConfig()
     var portKiller: PortKillerConfig = PortKillerConfig()
+    var screenOCR: ScreenOCRConfig = ScreenOCRConfig()
     var keepAwake: KeepAwakeConfig = KeepAwakeConfig()
     var cleanLock: CleanLockConfig = CleanLockConfig()
     var customCommands: CustomCommandsConfig = CustomCommandsConfig()
@@ -702,6 +738,7 @@ struct ToolboxConfig: Codable, Equatable, Sendable {
         dockMinimize = try c.decodeIfPresent(DockMinimizeConfig.self, forKey: .dockMinimize) ?? DockMinimizeConfig()
         clipboard = try c.decodeIfPresent(ClipboardConfig.self, forKey: .clipboard) ?? ClipboardConfig()
         portKiller = try c.decodeIfPresent(PortKillerConfig.self, forKey: .portKiller) ?? PortKillerConfig()
+        screenOCR = try c.decodeIfPresent(ScreenOCRConfig.self, forKey: .screenOCR) ?? ScreenOCRConfig()
         keepAwake = try c.decodeIfPresent(KeepAwakeConfig.self, forKey: .keepAwake) ?? KeepAwakeConfig()
         cleanLock = try c.decodeIfPresent(CleanLockConfig.self, forKey: .cleanLock) ?? CleanLockConfig()
         customCommands = try c.decodeIfPresent(CustomCommandsConfig.self, forKey: .customCommands) ?? CustomCommandsConfig()
@@ -722,7 +759,7 @@ struct ToolboxConfig: Codable, Equatable, Sendable {
         if decodedSchema < 8 {
             decodedCallControls.showFloatingPillOnlyDuringCalls = true
         }
-        schemaVersion = max(decodedSchema, 9)
+        schemaVersion = max(decodedSchema, 10)
         callControls = decodedCallControls
         extensions = try c.decodeIfPresent([String: JSONValue].self, forKey: .extensions) ?? [:]
     }

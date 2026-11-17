@@ -250,6 +250,12 @@ final class HotKeyManager: ObservableObject {
            config.portKiller.shortcut == shortcut {
             matches.append("Port Killer")
         }
+        if excludingSourceID != "screen_ocr",
+           config.screenOCR.enabled,
+           !config.screenOCR.shortcut.isEmpty,
+           config.screenOCR.shortcut == shortcut {
+            matches.append("Screen OCR")
+        }
         if excludingSourceID != "keep_awake",
            config.keepAwake.enabled,
            !config.keepAwake.shortcut.isEmpty,
@@ -305,6 +311,11 @@ final class HotKeyManager: ObservableObject {
            config.portKiller.enabled,
            config.portKiller.shortcut == shortcut {
             config.portKiller.shortcut = .none
+        }
+        if excludingSourceID != "screen_ocr",
+           config.screenOCR.enabled,
+           config.screenOCR.shortcut == shortcut {
+            config.screenOCR.shortcut = .none
         }
         if excludingSourceID != "keep_awake",
            config.keepAwake.enabled,

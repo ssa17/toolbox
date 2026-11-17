@@ -8,6 +8,7 @@ enum DeveloperEventCategory: String, CaseIterable, Identifiable, Sendable {
     case keepAwake = "Keep Awake"
     case cleanLock = "Keyboard Lock"
     case callControls = "Call Controls"
+    case ocr = "Screen OCR"
     case config = "Config"
     case updates = "Updates"
 

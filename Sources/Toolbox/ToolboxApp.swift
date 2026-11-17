@@ -77,6 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         ModuleRegistry.shared.cleanLock.stop()
         ModuleRegistry.shared.callControls.stop()
+        ModuleRegistry.shared.screenOCR.stop()
     }
 
     private func applyGeneralPreferences(_ general: GeneralConfig) {

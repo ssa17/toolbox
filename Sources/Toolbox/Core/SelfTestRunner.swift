@@ -41,10 +41,12 @@ enum SelfTestRunner {
         testCallControlsTypingMicStateMachine()
         testCallControlsHotKeyConflictsAndLifecycle()
         testCallControlsDeveloperSimulation()
+        testScreenOCRConfigAndLifecycle()
+        testScreenOCREngineRecognition()
         testMultiScreenOnboardingClipboardScrollAndMicSync()
 
         if failures.isEmpty {
-            print("All 29 self-test suites passed.")
+            print("All 31 self-test suites passed.")
             return 0
         } else {
             for f in failures {
@@ -198,6 +200,9 @@ enum SelfTestRunner {
         expect(cfg.general.openDashboardOnDockClick, "Toolbox should reopen Dashboard on Dock click by default")
         expect(cfg.general.dockQuitBehavior == .closeWindow, "Dock Quit behavior should default to closeWindow")
         expect(!cfg.keepAwake.enabled, "KeepAwake should default to disabled (off by default)")
+        expect(!cfg.screenOCR.enabled, "ScreenOCR should default to disabled (off by default)")
+        expect(cfg.screenOCR.recognitionLevel == .accurate, "ScreenOCR should default to accurate recognition")
+        expect(cfg.screenOCR.shortcut == ShortcutSpec(key: "o", modifiers: [.control, .option, .command]), "ScreenOCR default shortcut should be ⌃ ⌥ ⌘ O")
         expect(!cfg.customCommands.enabled, "CustomCommands should default to disabled (off by default)")
         expect(!cfg.scrollDirection.enabled, "ScrollDirection should default to disabled (off by default)")
         expect(cfg.dockMinimize.excludedBundleIDs.isEmpty, "No apps should be excluded by default")
@@ -449,6 +454,7 @@ enum SelfTestRunner {
                 ("keep_awake", .module("keep_awake"), NSPoint(x: 500, y: 600)),
                 ("custom_commands", .module("custom_commands"), NSPoint(x: 500, y: 600)),
                 ("scroll_direction", .module("scroll_direction"), NSPoint(x: 500, y: 600)),
+                ("screen_ocr", .module("screen_ocr"), NSPoint(x: 500, y: 600)),
                 ("call_controls", .module("call_controls"), NSPoint(x: 500, y: 600)),
             ]
             for (label, dest, emptyPt) in destinations {
@@ -492,7 +498,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(cfg),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.scrollDirection == cfg.scrollDirection, "ScrollDirectionConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 9, "ToolboxConfig schemaVersion should be 9")
+            expect(decoded.schemaVersion == 10, "ToolboxConfig schemaVersion should be 10")
         } else {
             failures.append("ToolboxConfig Codable encode/decode failed")
         }
@@ -724,7 +730,7 @@ enum SelfTestRunner {
     private static func testMenuBarCustomizationOrderAndVisibility() {
         var cfg = ToolboxConfig()
         let registry = ModuleRegistry.shared
-        let expectedDefaultOrder = ["dock_minimize", "clipboard", "port_killer", "keep_awake", "custom_commands", "scroll_direction", "call_controls"]
+        let expectedDefaultOrder = ["dock_minimize", "clipboard", "port_killer", "screen_ocr", "keep_awake", "custom_commands", "scroll_direction", "call_controls"]
 
         expect(!cfg.general.hasCustomMenuBarLayout, "Default config should not report custom menu bar layout")
         expect(cfg.general.showQuickActionsInMenuBar, "Quick actions should be shown in menu bar by default")
@@ -735,32 +741,32 @@ enum SelfTestRunner {
         )
         expect(
             registry.visibleMenuBarModules(for: cfg).map(\.id) == expectedDefaultOrder,
-            "All 7 menu-bar-eligible modules should be visible in menu bar by default"
+            "All 8 menu-bar-eligible modules should be visible in menu bar by default"
         )
 
         cfg.general.moveModuleInMenuBar(id: "keep_awake", direction: -1)
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["dock_minimize", "clipboard", "keep_awake", "port_killer", "custom_commands", "scroll_direction", "call_controls"],
-            "Moving keep_awake up by 1 should place it before port_killer"
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["dock_minimize", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "scroll_direction", "call_controls"],
+            "Moving keep_awake up by 1 should place it before screen_ocr"
         )
         expect(cfg.general.hasCustomMenuBarLayout, "Reordering should mark hasCustomMenuBarLayout = true")
 
         cfg.general.moveModuleInMenuBar(fromId: "scroll_direction", toId: "dock_minimize")
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "dock_minimize", "clipboard", "keep_awake", "port_killer", "custom_commands", "call_controls"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "dock_minimize", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "call_controls"],
             "Dragging scroll_direction to dock_minimize should place it first"
         )
 
         cfg.general.setModuleVisibleInMenuBar("dock_minimize", visible: false)
         expect(
-            registry.visibleMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "clipboard", "keep_awake", "port_killer", "custom_commands", "call_controls"],
+            registry.visibleMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "call_controls"],
             "Hiding dock_minimize from menu bar should omit it from visibleMenuBarModules"
         )
         expect(cfg.dockMinimize.enabled, "Hiding dock_minimize from status bar menu must not disable the module itself")
 
         cfg.general.menuBarModuleOrder = ["keep_awake", "clean_lock", "keep_awake", "unknown_id"]
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["keep_awake", "dock_minimize", "clipboard", "port_killer", "custom_commands", "scroll_direction", "call_controls"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["keep_awake", "dock_minimize", "clipboard", "port_killer", "screen_ocr", "custom_commands", "scroll_direction", "call_controls"],
             "Partial, non-menu-bar, or unknown menuBarModuleOrder must normalize with remaining eligible modules and no duplicates"
         )
 
@@ -1314,7 +1320,7 @@ enum SelfTestRunner {
 
     private static func testCallControlsConfigAndCoreAudioEnumeration() {
         let cfg = ToolboxConfig()
-        expect(cfg.schemaVersion == 9, "ToolboxConfig schemaVersion should be 9")
+        expect(cfg.schemaVersion == 10, "ToolboxConfig schemaVersion should be 10")
         expect(!cfg.callControls.enabled, "Call Controls should default to disabled")
         expect(cfg.callControls.overrideScope == .everywhere, "Default overrideScope should be everywhere")
         expect(cfg.callControls.typingUnmuteDelayMs == 450, "Default typingUnmuteDelayMs should be 450")
@@ -1349,7 +1355,7 @@ enum SelfTestRunner {
         let legacyJSON = "{\"schemaVersion\": 5, \"general\": {\"appEnabled\": true}}"
         if let data = legacyJSON.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 9, "Legacy config should upgrade to schemaVersion 9")
+            expect(migrated.schemaVersion == 10, "Legacy config should upgrade to schemaVersion 10")
             expect(!migrated.callControls.enabled, "Legacy config must migrate callControls.enabled = false")
             expect(migrated.callControls.overrideScope == .everywhere, "Migrated default overrideScope should be everywhere")
             expect(migrated.callControls.showFloatingPillOnlyDuringCalls, "Legacy config must migrate showFloatingPillOnlyDuringCalls = true")
@@ -1364,7 +1370,7 @@ enum SelfTestRunner {
         """
         if let data = v6JSON.data(using: .utf8),
            let upgraded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgraded.schemaVersion == 9, "v6 config should migrate to schemaVersion 9")
+            expect(upgraded.schemaVersion == 10, "v6 config should migrate to schemaVersion 10")
             expect(upgraded.callControls.overrideScope == .everywhere, "v6 active_call_app_only should upgrade to everywhere")
             expect(upgraded.callControls.showFloatingPillOnlyDuringCalls, "v6 config should upgrade showFloatingPillOnlyDuringCalls to true")
         } else {
@@ -1377,7 +1383,7 @@ enum SelfTestRunner {
         """
         if let data = v7JSON.data(using: .utf8),
            let upgradedV7 = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgradedV7.schemaVersion == 9, "v7 config should migrate to schemaVersion 9")
+            expect(upgradedV7.schemaVersion == 10, "v7 config should migrate to schemaVersion 10")
             expect(upgradedV7.callControls.showFloatingPillOnlyDuringCalls, "v7 showFloatingPillOnlyDuringCalls should upgrade to true")
         } else {
             failures.append("Failed to migrate v7 audioGuard config")
@@ -1389,7 +1395,7 @@ enum SelfTestRunner {
         """
         if let data = v8JSON.data(using: .utf8),
            let upgradedV8 = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgradedV8.schemaVersion == 9, "v8 config should migrate to schemaVersion 9")
+            expect(upgradedV8.schemaVersion == 10, "v8 config should migrate to schemaVersion 10")
             expect(upgradedV8.callControls.enabled, "v8 audioGuard.enabled must migrate to callControls.enabled")
             expect(upgradedV8.callControls.typingUnmuteDelayMs == 725, "v8 audioGuard fields must be preserved in callControls")
             expect(
@@ -2153,6 +2159,297 @@ enum SelfTestRunner {
             "ConfigCheckpointStore.diff should detect callControls changes cleanly (got: \(diffs))"
         )
         DeveloperEventLog.shared.clear()
+    }
+
+    private static func testScreenOCRConfigAndLifecycle() {
+        // Defaults
+        let cfg = ToolboxConfig()
+        expect(!cfg.screenOCR.enabled, "ScreenOCR should default to disabled")
+        expect(cfg.screenOCR.recognitionLevel == .accurate, "ScreenOCR should default to accurate recognition")
+        expect(cfg.screenOCR.preserveLineBreaks, "ScreenOCR should default to preserving line breaks")
+        expect(cfg.screenOCR.detectQRCodes, "ScreenOCR should default to detecting QR/barcodes")
+        expect(cfg.screenOCR.showToast, "ScreenOCR should default to showing toasts")
+        expect(
+            cfg.screenOCR.shortcut == ShortcutSpec(key: "o", modifiers: [.control, .option, .command]),
+            "ScreenOCR default shortcut should be ⌃ ⌥ ⌘ O"
+        )
+
+        // Codable round-trip
+        var customCfg = ToolboxConfig()
+        customCfg.screenOCR.enabled = true
+        customCfg.screenOCR.recognitionLevel = .fast
+        customCfg.screenOCR.preserveLineBreaks = false
+        customCfg.screenOCR.detectQRCodes = false
+        customCfg.screenOCR.showToast = false
+        customCfg.screenOCR.shortcut = ShortcutSpec(key: "s", modifiers: [.control, .option, .command])
+        if let data = try? JSONEncoder().encode(customCfg),
+           let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
+            expect(decoded.screenOCR == customCfg.screenOCR, "ScreenOCRConfig Codable round-trip mismatch")
+            expect(decoded.schemaVersion == 10, "ToolboxConfig schemaVersion should be 10")
+        } else {
+            failures.append("ToolboxConfig with screenOCR failed Codable encode/decode")
+        }
+
+        // A config written by the previous build (schema 9, no screenOCR key) must decode
+        // with the safe defaults and upgrade the schema.
+        let legacyJSON = "{\"schemaVersion\": 9, \"general\": {\"appEnabled\": true}}"
+        if let data = legacyJSON.data(using: .utf8),
+           let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
+            expect(migrated.schemaVersion == 10, "Legacy v9 config should upgrade to schemaVersion 10")
+            expect(!migrated.screenOCR.enabled, "Legacy config must migrate screenOCR.enabled = false")
+        } else {
+            failures.append("Failed to decode pre-ScreenOCR JSON config")
+        }
+
+        // A partial screenOCR object must fill missing keys with safe defaults.
+        let partialJSON = "{\"schemaVersion\": 10, \"screenOCR\": {\"enabled\": true, \"recognitionLevel\": \"fast\"}}"
+        if let data = partialJSON.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
+            expect(decoded.screenOCR.enabled && decoded.screenOCR.recognitionLevel == .fast, "Partial screenOCR decode mismatch")
+            expect(
+                decoded.screenOCR.preserveLineBreaks && decoded.screenOCR.detectQRCodes && decoded.screenOCR.showToast,
+                "Partial screenOCR should fill missing fields with defaults"
+            )
+            expect(
+                decoded.screenOCR.shortcut == ShortcutSpec(key: "o", modifiers: [.control, .option, .command]),
+                "Partial screenOCR shortcut should default to ⌃ ⌥ ⌘ O"
+            )
+        } else {
+            failures.append("Failed to decode partial screenOCR JSON")
+        }
+
+        // In-app hotkey conflict detection & one-click resolution
+        let manager = HotKeyManager.shared
+        var conflictCfg = ToolboxConfig()
+        conflictCfg.screenOCR.enabled = true
+        conflictCfg.clipboard.enabled = true
+        conflictCfg.clipboard.shortcut = conflictCfg.screenOCR.shortcut
+        let conflict = manager.inAppConflictDescription(
+            for: conflictCfg.screenOCR.shortcut,
+            excludingSourceID: "screen_ocr",
+            in: conflictCfg
+        )
+        expect(conflict != nil, "HotKeyManager should detect collision between Screen OCR and Clipboard")
+        manager.clearConflictingShortcuts(
+            matching: conflictCfg.screenOCR.shortcut,
+            excludingSourceID: "screen_ocr",
+            in: &conflictCfg
+        )
+        expect(conflictCfg.clipboard.shortcut.isEmpty, "clearConflictingShortcuts should clear colliding Clipboard shortcut")
+        expect(!conflictCfg.screenOCR.shortcut.isEmpty, "clearConflictingShortcuts must preserve excluded Screen OCR shortcut")
+
+        // Registry & lifecycle (shortcut .none so no global hotkey is armed in the test process)
+        let module = ModuleRegistry.shared.screenOCR
+        expect(ModuleRegistry.shared.module(withID: "screen_ocr") === module, "Registry must resolve screen_ocr")
+        expect(!module.requiresAccessibility, "ScreenOCR must not require Accessibility")
+        expect(module.category == .developer, "ScreenOCR should be in the Developer Tools category")
+        expect(module.supportsEnableToggle, "ScreenOCR should expose an enable toggle")
+
+        var moduleCfg = ToolboxConfig()
+        moduleCfg.screenOCR.enabled = true
+        moduleCfg.screenOCR.shortcut = .none
+        module.reload(with: moduleCfg)
+        expect(module.isRunning, "Module should start when enabled")
+
+        moduleCfg.screenOCR.enabled = false
+        module.reload(with: moduleCfg)
+        expect(!module.isRunning, "Module should stop when disabled")
+
+        moduleCfg.screenOCR.enabled = true
+        moduleCfg.general.appEnabled = false
+        module.reload(with: moduleCfg)
+        expect(!module.isRunning, "Module must stop when the whole app is paused")
+
+        module.stop()
+        expect(!module.isRunning, "stop() should clear isRunning")
+
+        // Deterministic status text across permission states
+        var statusCfg = ToolboxConfig()
+        expect(module.statusText(in: statusCfg, accessibilityGranted: true) == "Disabled", "Disabled statusText mismatch")
+        statusCfg.screenOCR.enabled = true
+        statusCfg.general.appEnabled = false
+        expect(module.statusText(in: statusCfg, accessibilityGranted: true) == "Paused", "Paused statusText mismatch")
+        statusCfg.general.appEnabled = true
+        module.setScreenRecordingGrantedForTesting(false)
+        expect(
+            module.statusText(in: statusCfg, accessibilityGranted: true) == "Needs Screen Access",
+            "Enabled module without Screen Recording permission must report Needs Screen Access"
+        )
+        module.setScreenRecordingGrantedForTesting(true)
+        moduleCfg.general.appEnabled = true
+        module.reload(with: moduleCfg)
+        expect(module.statusText(in: moduleCfg, accessibilityGranted: true) == "Active", "Running module with permission must report Active")
+        module.stop()
+
+        // shortcutText formatting
+        expect(
+            module.shortcutText(in: statusCfg) == ShortcutSpec(key: "o", modifiers: [.control, .option, .command]).displayString,
+            "shortcutText should format the default shortcut"
+        )
+        statusCfg.screenOCR.shortcut = .none
+        expect(module.shortcutText(in: statusCfg) == nil, "shortcutText should be nil for .none")
+
+        // Recent captures: newest first, capped at 10, clearable
+        module.replaceRecentCaptures([])
+        for idx in 0..<12 {
+            module.appendRecent(OCRResult(text: "line \(idx)", qrPayloads: []))
+        }
+        expect(module.recentCaptures.count == ScreenOCRModule.maxRecentCaptures, "Recent captures should cap at 10")
+        expect(module.recentCaptures.first?.text == "line 11", "Newest capture should be first")
+        expect(module.recentCaptures.first?.lineCount == 1, "Single-line capture should report 1 line")
+        module.clearRecentCaptures()
+        expect(module.recentCaptures.isEmpty, "clearRecentCaptures should empty the session list")
+    }
+
+    private static func testScreenOCREngineRecognition() {
+        // 1. Pure formatting: top-to-bottom ordering, same-row grouping, line-break joining
+        let lines = [
+            RecognizedTextLine(text: "right", normalizedY: 0.80, normalizedX: 0.60, confidence: 0.9),
+            RecognizedTextLine(text: "alpha", normalizedY: 0.90, normalizedX: 0.10, confidence: 0.9),
+            RecognizedTextLine(text: "bottom", normalizedY: 0.20, normalizedX: 0.30, confidence: 0.9),
+            RecognizedTextLine(text: "left", normalizedY: 0.805, normalizedX: 0.05, confidence: 0.9)
+        ]
+        let lineBreaks = ScreenOCREngine.formattedText(from: lines, preserveLineBreaks: true)
+        expect(lineBreaks == "alpha\nleft right\nbottom", "formattedText top-to-bottom + same-row grouping mismatch: \(lineBreaks)")
+        let joined = ScreenOCREngine.formattedText(from: lines, preserveLineBreaks: false)
+        expect(joined == "alpha left right bottom", "formattedText with preserveLineBreaks=false must join rows with spaces: \(joined)")
+        expect(ScreenOCREngine.formattedText(from: [], preserveLineBreaks: true) == "", "Empty input must format to an empty string")
+
+        // 2. Pure text + QR combination
+        expect(ScreenOCREngine.combinedOutput(text: "", qrPayloads: []) == "", "Empty text + empty QR must produce empty output")
+        expect(ScreenOCREngine.combinedOutput(text: "  hello ", qrPayloads: []) == "hello", "Text-only output should be trimmed")
+        expect(
+            ScreenOCREngine.combinedOutput(text: "", qrPayloads: ["https://toolbox.dev", "https://toolbox.dev", " "]) == "https://toolbox.dev",
+            "QR-only output should trim and dedupe payloads"
+        )
+        expect(
+            ScreenOCREngine.combinedOutput(text: "hello", qrPayloads: ["https://x.dev", "https://y.dev"]) == "hello\nhttps://x.dev\nhttps://y.dev",
+            "Combined text + QR output mismatch"
+        )
+
+        // 3. OCRResult helpers
+        let multiLine = OCRResult(text: "A\nB\n\nC", qrPayloads: [])
+        expect(multiLine.lineCount == 3, "lineCount should ignore blank lines (got \(multiLine.lineCount))")
+        expect(multiLine.toastSummary == "Copied 3 lines", "toastSummary for multi-line text mismatch: \(multiLine.toastSummary)")
+        let singleLine = OCRResult(text: "one", qrPayloads: [])
+        expect(singleLine.toastSummary == "Copied 1 line", "toastSummary for single line mismatch: \(singleLine.toastSummary)")
+        let qrOnly = OCRResult(text: "", qrPayloads: ["https://a.dev", "https://b.dev"])
+        expect(qrOnly.toastSummary == "Copied 2 QR codes", "QR toastSummary mismatch: \(qrOnly.toastSummary)")
+        expect(qrOnly.clipboardString == "https://a.dev\nhttps://b.dev", "QR-only clipboardString mismatch")
+        expect(OCRResult(text: "  ", qrPayloads: []).isEmpty, "Whitespace-only result must count as empty")
+
+        // 4. Small-region upscaling (spec: heights < 32 px get a 2x render)
+        if let small = Self.drawTestImage(width: 120, height: 20, lines: ["tiny"], fontSize: 12) {
+            let prepared = ScreenOCREngine.prepareImage(small)
+            expect(prepared.width == 240 && prepared.height == 40, "prepareImage must upscale sub-32px images 2x (got \(prepared.width)x\(prepared.height))")
+        } else {
+            failures.append("Could not render small test bitmap")
+        }
+        if let normal = Self.drawTestImage(width: 400, height: 200, lines: ["normal"], fontSize: 40) {
+            expect(ScreenOCREngine.prepareImage(normal) === normal, "prepareImage must leave >= 32px images untouched")
+        }
+
+        // 5. Real on-device Vision OCR over an offscreen-rendered bitmap
+        if let image = Self.drawTestImage(
+            width: 900,
+            height: 300,
+            lines: ["Toolbox Vision OCR 42", "second line here", "third line here"],
+            fontSize: 64
+        ) {
+            let result = ScreenOCREngine.recognize(in: image, recognitionLevel: .accurate, preserveLineBreaks: true, detectBarcodes: false)
+            expect(result.text.contains("Toolbox Vision OCR 42"), "Vision OCR must recognize the rendered headline (got: \(result.text))")
+            expect(result.text.contains("second line here"), "Vision OCR must recognize the second line (got: \(result.text))")
+            expect(result.lineCount == 3, "Vision OCR should produce 3 lines (got: \(result.lineCount): \(result.text))")
+            expect(!result.text.contains("third line here") || result.lineCount == 3, "Recognized output should stay on 3 lines")
+
+            let joinedResult = ScreenOCREngine.recognize(in: image, recognitionLevel: .accurate, preserveLineBreaks: false, detectBarcodes: false)
+            expect(
+                !joinedResult.text.contains("\n") && joinedResult.text.contains("Toolbox Vision OCR 42"),
+                "preserveLineBreaks=false must join lines with spaces (got: \(joinedResult.text))"
+            )
+
+            // Empty image (blank white bitmap) must recognize as empty, not crash
+            if let blank = Self.drawTestImage(width: 300, height: 200, lines: [""], fontSize: 40) {
+                let blankResult = ScreenOCREngine.recognize(in: blank, recognitionLevel: .fast, preserveLineBreaks: true, detectBarcodes: true)
+                expect(blankResult.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, "Blank image must produce no text (got: \(blankResult.text))")
+                expect(blankResult.isEmpty, "Blank image must produce an empty result")
+            }
+        } else {
+            failures.append("Could not render offscreen OCR test bitmap")
+        }
+
+        // 6. Missing / cancelled capture file handling
+        let missingURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toolbox-ocr-selftest-missing-\(UUID().uuidString).png")
+        let cancelled = ScreenOCREngine.loadCapturedImage(at: missingURL)
+        expect(cancelled.kind == .cancelled && cancelled.image == nil, "Missing capture file must map to .cancelled")
+        expect(
+            ScreenOCREngine.recognizeFile(at: missingURL, recognitionLevel: .accurate, preserveLineBreaks: true, detectBarcodes: true) == nil,
+            "recognizeFile on a missing file must return nil (clean Esc cancellation)"
+        )
+
+        // 7. Full file round-trip: render -> PNG on disk -> loadCapturedImage -> recognizeFile
+        if let image = Self.drawTestImage(width: 700, height: 200, lines: ["toolbox file round trip"], fontSize: 56) {
+            let rep = NSBitmapImageRep(cgImage: image)
+            let fileURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("toolbox-ocr-selftest-\(UUID().uuidString).png")
+            defer { try? FileManager.default.removeItem(at: fileURL) }
+            guard let pngData = rep.representation(using: .png, properties: [:]) else {
+                failures.append("Could not encode test bitmap as PNG")
+                return
+            }
+            do {
+                try pngData.write(to: fileURL)
+            } catch {
+                failures.append("Could not write test PNG: \(error)")
+                return
+            }
+
+            let loaded = ScreenOCREngine.loadCapturedImage(at: fileURL)
+            expect(loaded.kind == .loaded && loaded.image != nil, "Valid capture PNG must map to .loaded")
+
+            let fileResult = ScreenOCREngine.recognizeFile(
+                at: fileURL,
+                recognitionLevel: .accurate,
+                preserveLineBreaks: true,
+                detectBarcodes: true
+            )
+            expect(fileResult?.text.contains("toolbox file round trip") == true, "recognizeFile must OCR the on-disk capture (got: \(fileResult?.text ?? "nil"))")
+        } else {
+            failures.append("Could not build round-trip test bitmap")
+        }
+    }
+
+    /// Renders high-contrast text lines into an offscreen bitmap for engine tests.
+    private static func drawTestImage(width: Int, height: Int, lines: [String], fontSize: CGFloat) -> CGImage? {
+        let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: width,
+            pixelsHigh: height,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        )
+        guard let rep, let context = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        NSColor.white.setFill()
+        NSRect(x: 0, y: 0, width: width, height: height).fill()
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: fontSize, weight: .semibold),
+            .foregroundColor: NSColor.black
+        ]
+        let lineHeight = fontSize * 1.7
+        for (idx, line) in lines.enumerated() where !line.isEmpty {
+            let y = CGFloat(height) - lineHeight * CGFloat(idx + 1) + fontSize * 0.25
+            (line as NSString).draw(at: NSPoint(x: CGFloat(width) * 0.1, y: y), withAttributes: attributes)
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        return rep.cgImage
     }
 
     private static func testMultiScreenOnboardingClipboardScrollAndMicSync() {

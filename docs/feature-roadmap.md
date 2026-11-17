@@ -15,7 +15,7 @@ Features are ordered from zero-permission, self-contained utilities to modules t
 | 1 | **Localhost Port Killer** | `port_killer` | Developer Tools | `⌃ ⌥ ⌘ P` | None | `Foundation`, `Darwin` (`libproc`), `Network` (tests) | Done |
 | 2 | **Color Picker & Swatch History** | `color_picker` | Developer Tools | `⌃ ⌥ ⌘ C` | None | `AppKit` (`NSColorSampler`, `NSColorSpace`) | Planned |
 | 3 | **Dev Converter & Scratchpad** | `dev_tools` | Developer Tools | `⌃ ⌥ ⌘ B` | None | `Foundation`, `CryptoKit` | Planned |
-| 4 | **Screen OCR (Text Grabber)** | `screen_ocr` | Developer Tools | `⌃ ⌥ ⌘ O` | Screen Recording (OS-managed via `screencapture`) | `Vision`, `CoreGraphics`, `AppKit` | Planned |
+| 4 | **Screen OCR (Text Grabber)** | `screen_ocr` | Developer Tools | `⌃ ⌥ ⌘ O` | Screen Recording (OS-managed via `screencapture`) | `Vision`, `CoreGraphics`, `AppKit` | Done |
 | 5 | **Keyboard & Trackpad Clean Lock** | `clean_lock` | System & Power | None *(Button / Menu Bar only)* | Accessibility (required) | `CoreGraphics` (`CGEventTap`), `AppKit` | Done |
 | 6 | **Call Controls** | `call_controls` | System & Power | `⌃ ⌥ ⌘ M` (Mic) & `⌃ ⌥ ⌘ V` (Video), customizable per user | Accessibility (optional: Unified Call Keybind Override & Auto-Mute While Typing) | `CoreAudio`, `AudioToolbox`, `CoreMediaIO`, `CoreGraphics`, `ApplicationServices` | Done |
 
@@ -317,7 +317,7 @@ struct DevToolsConfig: Codable, Equatable, Sendable {
 
 ---
 
-## 5. Feature 4: Screen OCR / Text Grabber (`Modules/ScreenOCR/`)
+## 5. Feature 4: Screen OCR / Text Grabber (`Modules/ScreenOCR/`) — Done
 
 ### Purpose & User Value
 Often you need text locked inside a screenshot, YouTube tutorial, PDF scan, simulator screenshot, error dialog, or screen-share video call. **Screen OCR** binds a global shortcut (`⌃ ⌥ ⌘ O`) to drag-select any screen region, runs Apple's on-device `Vision` text & QR/barcode recognizer completely offline, and drops the extracted text straight onto your clipboard.

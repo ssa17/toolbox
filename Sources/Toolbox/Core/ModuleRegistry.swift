@@ -10,6 +10,7 @@ final class ModuleRegistry: ObservableObject {
     let dockMinimize = DockMinimizeModule()
     let clipboard = ClipboardModule()
     let portKiller = PortKillerModule()
+    let screenOCR = ScreenOCRModule()
     let keepAwake = KeepAwakeModule()
     let cleanLock = CleanLockModule()
     let customCommands = CustomCommandsModule()
@@ -20,6 +21,7 @@ final class ModuleRegistry: ObservableObject {
         dockMinimize,
         clipboard,
         portKiller,
+        screenOCR,
         keepAwake,
         cleanLock,
         customCommands,
