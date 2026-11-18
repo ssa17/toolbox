@@ -454,22 +454,9 @@ struct PortKillerConfig: Codable, Equatable, Sendable {
     }
 }
 
-enum OCRRecognitionLevel: String, Codable, CaseIterable, Sendable {
-    case accurate = "accurate"
-    case fast = "fast"
-
-    var label: String {
-        switch self {
-        case .accurate: return "Accurate"
-        case .fast: return "Fast"
-        }
-    }
-}
-
 struct ScreenOCRConfig: Codable, Equatable, Sendable {
     var enabled: Bool = false
     var shortcut: ShortcutSpec = ShortcutSpec(key: "0", modifiers: [.command, .shift])
-    var recognitionLevel: OCRRecognitionLevel = .accurate
     var preserveLineBreaks: Bool = true
     var detectQRCodes: Bool = true
     var showToast: Bool = true
@@ -481,7 +468,6 @@ struct ScreenOCRConfig: Codable, Equatable, Sendable {
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
         shortcut = try c.decodeIfPresent(ShortcutSpec.self, forKey: .shortcut)
             ?? ShortcutSpec(key: "0", modifiers: [.command, .shift])
-        recognitionLevel = try c.decodeIfPresent(OCRRecognitionLevel.self, forKey: .recognitionLevel) ?? .accurate
         preserveLineBreaks = try c.decodeIfPresent(Bool.self, forKey: .preserveLineBreaks) ?? true
         detectQRCodes = try c.decodeIfPresent(Bool.self, forKey: .detectQRCodes) ?? true
         showToast = try c.decodeIfPresent(Bool.self, forKey: .showToast) ?? true

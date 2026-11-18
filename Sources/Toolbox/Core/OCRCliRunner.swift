@@ -71,7 +71,6 @@ enum OCRCliRunner {
 
         let result = ScreenOCREngine.recognize(
             in: prepared,
-            recognitionLevel: .accurate,
             preserveLineBreaks: true,
             detectBarcodes: true
         )

@@ -71,13 +71,54 @@ struct OCRPipelineReport: Equatable, Sendable {
 /// so no custom `CGWindowListCreateImage` capture loop is needed.
 @MainActor
 enum ScreenCapturePermission {
-    /// `CGPreflightScreenCaptureAccess` is macOS 10.15+; before that there was no
-    /// Screen Recording gate, so treat older systems as granted.
+    /// Holds the most recent uncached `--check-screen-recording` child probe result once available.
+    /// `TCC.framework` caches the first `TCCAccessPreflight("kTCCServiceScreenCapture")` call per
+    /// process lifetime in its internal dictionary, and `SkyLight` caches via `std::call_once`, so
+    /// a fresh `Toolbox --check-screen-recording` subprocess is used to detect live grants/revocations.
+    private static var liveProbedValue: Bool? = nil
+    private static var isProbeInFlight: Bool = false
+
     static var isGranted: Bool {
+        if let liveProbedValue {
+            return liveProbedValue
+        }
         if #available(macOS 10.15, *) {
             return CGPreflightScreenCaptureAccess()
         }
         return true
+    }
+
+    static func probeUncachedAsync(completion: @escaping @MainActor (Bool) -> Void) {
+        guard !PermissionsManager.isRunningInDiagnosticMode,
+              let executableURL = Bundle.main.executableURL else {
+            let current = isGranted
+            completion(current)
+            return
+        }
+        guard !isProbeInFlight else { return }
+        isProbeInFlight = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let proc = Process()
+            proc.executableURL = executableURL
+            proc.arguments = ["--check-screen-recording"]
+            proc.standardOutput = FileHandle.nullDevice
+            proc.standardError = FileHandle.nullDevice
+            let granted: Bool
+            do {
+                try proc.run()
+                proc.waitUntilExit()
+                granted = (proc.terminationStatus == 0)
+            } catch {
+                granted = false
+            }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    isProbeInFlight = false
+                    liveProbedValue = granted
+                    completion(granted)
+                }
+            }
+        }
     }
 
     /// Triggers the system "Toolbox would like to record this computer's screen" prompt.
@@ -90,9 +131,10 @@ enum ScreenCapturePermission {
     }
 
     static func openSystemSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-            NSWorkspace.shared.open(url)
-        }
+        PermissionsManager.openSystemSettings(
+            primaryURL: PermissionsManager.screenRecordingSettingsURL,
+            fallbackURL: PermissionsManager.legacyScreenRecordingSettingsURL
+        )
     }
 }
 
@@ -125,6 +167,7 @@ final class ScreenOCRModule: NSObject, ToolboxModule, ObservableObject {
     @Published private(set) var pipelineReport: OCRPipelineReport?
     @Published private(set) var recentCaptures: [RecentOCRCapture] = []
     @Published private(set) var screenRecordingGranted: Bool = false
+    @Published private(set) var isAwaitingScreenPermission: Bool = false
 
     /// The last capture whose recognition came back empty/failed. Kept on disk (never
     /// deleted on failure) so Developer Tools can re-run the engine on the exact file,
@@ -142,8 +185,47 @@ final class ScreenOCRModule: NSObject, ToolboxModule, ObservableObject {
 
     let hotKeyName = "screen_ocr.capture"
 
+    static let pendingReopenToastKey = "toolbox.pendingScreenRecordingReadyToastAt"
+
     private var captureProcess: Process?
     private var pipelineTestProcess: Process?
+    private var captureGeneration: UInt64 = 0
+    private var pipelineTestGeneration: UInt64 = 0
+    private var awaitingScreenGrantDeadline: Date?
+    private var recentScreenGrantUntil: Date = .distantPast
+    private var screenPermissionPollTask: Task<Void, Never>?
+    private var sheetWaitTask: Task<Void, Never>?
+    private var hasPromptedScreenThisSession: Bool = false
+    private var isScreenRequestInFlight: Bool = false
+    nonisolated(unsafe) private var activeObserver: NSObjectProtocol?
+
+    /// True while awaiting or right after granting Screen Recording so macOS System Settings'
+    /// "Quit & Reopen" button can terminate and relaunch Toolbox even when `dockQuitBehavior == .closeWindow`.
+    var shouldAllowSystemQuitAndReopen: Bool {
+        isAwaitingScreenPermission || Date() <= recentScreenGrantUntil
+    }
+
+    override init() {
+        super.init()
+        screenRecordingGranted = ScreenCapturePermission.isGranted
+        activeObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.probeLiveScreenPermission()
+            }
+        }
+    }
+
+    deinit {
+        screenPermissionPollTask?.cancel()
+        sheetWaitTask?.cancel()
+        if let activeObserver {
+            NotificationCenter.default.removeObserver(activeObserver)
+        }
+    }
 
     // MARK: - ToolboxModule
 
@@ -221,14 +303,12 @@ final class ScreenOCRModule: NSObject, ToolboxModule, ObservableObject {
 
         refreshScreenPermission()
         guard screenRecordingGranted else {
-            _ = ScreenCapturePermission.requestAccess()
-            if config.showToast {
-                HUDToast.shared.show(
-                    title: "Screen Recording permission is required",
-                    symbol: "record.circle",
-                    tint: .orange
-                )
-            }
+            requestScreenAccess()
+            HUDToast.shared.show(
+                title: "Screen Recording permission is required",
+                symbol: "record.circle",
+                tint: .orange
+            )
             return
         }
 
@@ -240,15 +320,24 @@ final class ScreenOCRModule: NSObject, ToolboxModule, ObservableObject {
             .appendingPathComponent("toolbox-ocr-\(UUID().uuidString).png")
         try? FileManager.default.removeItem(at: tempURL)
 
+        captureGeneration &+= 1
+        let generation = captureGeneration
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
         // -i = interactive region selection, -x = no camera shutter sound
         process.arguments = ["-i", "-x", tempURL.path]
 
-        process.terminationHandler = { [weak self] _ in
+        process.terminationHandler = { [weak self] proc in
             let fileURL = tempURL
+            let exitCode = proc.terminationStatus
             Task { @MainActor [weak self] in
-                self?.handleCaptureFinished(fileURL: fileURL)
+                self?.handleCaptureFinished(
+                    process: proc,
+                    generation: generation,
+                    exitCode: exitCode,
+                    fileURL: fileURL
+                )
             }
         }
 
@@ -269,7 +358,17 @@ final class ScreenOCRModule: NSObject, ToolboxModule, ObservableObject {
         }
     }
 
-    private func handleCaptureFinished(fileURL: URL) {
+    private func handleCaptureFinished(
+        process: Process,
+        generation: UInt64,
+        exitCode: Int32,
+        fileURL: URL
+    ) {
+        guard generation == captureGeneration, captureProcess === process else {
+            try? FileManager.default.removeItem(at: fileURL)
+            return
+        }
+
         captureProcess = nil
         isCapturing = false
         ModuleRegistry.shared.notifyChanged()
@@ -282,10 +381,25 @@ final class ScreenOCRModule: NSObject, ToolboxModule, ObservableObject {
             return
         }
 
-        // When the user pressed Esc, screencapture exits without writing the file:
-        // treat that as a quiet cancellation (no toast, no error).
+        // When the user pressed Esc, screencapture exits 0 without writing the file:
+        // treat that as a quiet cancellation (no toast, no error). A non-zero exit
+        // without a file is logged so failures aren't mistaken for Esc.
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             try? FileManager.default.removeItem(at: fileURL)
+            if exitCode != 0 {
+                DeveloperEventLog.shared.record(
+                    .ocr,
+                    "Screen capture exited with status \(exitCode)",
+                    detail: "No file written"
+                )
+                if config.showToast {
+                    HUDToast.shared.show(
+                        title: "Screen capture failed (exit \(exitCode))",
+                        symbol: "exclamationmark.triangle.fill",
+                        tint: .orange
+                    )
+                }
+            }
             return
         }
 
@@ -294,6 +408,7 @@ final class ScreenOCRModule: NSObject, ToolboxModule, ObservableObject {
         guard let image = outcome.image else {
             // Decoding failed: KEEP the file as evidence and surface it in Developer Tools.
             lastFailedCapturePath = fileURL.path
+            lastFailedCaptureNote = nil
             isRecognizing = false
             DeveloperEventLog.shared.record(
                 .ocr,
@@ -312,7 +427,6 @@ final class ScreenOCRModule: NSObject, ToolboxModule, ObservableObject {
         // Note: the file is deliberately NOT deleted here anymore — the recognition
         // outcome decides. Empty/failed results keep it for diagnosis; success removes it.
 
-        let level = config.recognitionLevel
         let preserveLineBreaks = config.preserveLineBreaks
         let detectBarcodes = config.detectQRCodes
         let showToast = config.showToast
@@ -322,16 +436,20 @@ final class ScreenOCRModule: NSObject, ToolboxModule, ObservableObject {
         lastImageSize = CGSize(width: image.width, height: image.height)
         let imageBox = ImageBox(image: image)
 
-        Task.detached(priority: .userInitiated) { [weak self] in
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let prepared = ScreenOCREngine.prepareImage(imageBox.image)
             let result = ScreenOCREngine.recognize(
                 in: prepared,
-                recognitionLevel: level,
                 preserveLineBreaks: preserveLineBreaks,
                 detectBarcodes: detectBarcodes
             )
-            await MainActor.run { [weak self] in
-                self?.handleRecognitionResult(result, captureFile: fileURL, showToast: showToast)
+            Task { @MainActor [weak self] in
+                self?.handleRecognitionResult(
+                    result,
+                    generation: generation,
+                    captureFile: fileURL,
+                    showToast: showToast
+                )
             }
         }
     }
@@ -339,6 +457,7 @@ final class ScreenOCRModule: NSObject, ToolboxModule, ObservableObject {
     /// Diagnostic: re-run the recognition engine on the last retained (failed) capture so
     /// the exact file can be re-inspected from Developer Tools without re-capturing.
     func reanalyzeFailedCapture() {
+        guard !isReanalyzing else { return }
         guard let path = lastFailedCapturePath,
               FileManager.default.fileExists(atPath: path) else {
             lastFailedCaptureNote = "No retained capture available — run the hotkey and let it fail first."
@@ -346,18 +465,16 @@ final class ScreenOCRModule: NSObject, ToolboxModule, ObservableObject {
         }
         isReanalyzing = true
         ModuleRegistry.shared.notifyChanged()
-        let level = config.recognitionLevel
         let preserveLineBreaks = config.preserveLineBreaks
         let detectBarcodes = config.detectQRCodes
         let fileURL = URL(fileURLWithPath: path)
-        Task.detached(priority: .userInitiated) { [weak self] in
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let outcome = ScreenOCREngine.loadCapturedImage(at: fileURL)
             let note: String
             if let image = outcome.image {
                 let fraction = ScreenOCREngine.imageBlackFraction(image)
                 let result = ScreenOCREngine.recognize(
                     in: ScreenOCREngine.prepareImage(image),
-                    recognitionLevel: level,
                     preserveLineBreaks: preserveLineBreaks,
                     detectBarcodes: detectBarcodes
                 )
@@ -368,7 +485,7 @@ final class ScreenOCRModule: NSObject, ToolboxModule, ObservableObject {
             } else {
                 note = "could not decode retained file (\(outcome.failureMessage ?? "unknown"))"
             }
-            await MainActor.run { [weak self] in
+            Task { @MainActor [weak self] in
                 self?.isReanalyzing = false
                 self?.lastFailedCaptureNote = note
                 ModuleRegistry.shared.notifyChanged()
@@ -378,7 +495,17 @@ final class ScreenOCRModule: NSObject, ToolboxModule, ObservableObject {
     }
 
 
-    private func handleRecognitionResult(_ result: OCRResult, captureFile: URL, showToast: Bool) {
+    private func handleRecognitionResult(
+        _ result: OCRResult,
+        generation: UInt64,
+        captureFile: URL,
+        showToast: Bool
+    ) {
+        guard generation == captureGeneration else {
+            try? FileManager.default.removeItem(at: captureFile)
+            return
+        }
+
         isRecognizing = false
         ModuleRegistry.shared.notifyChanged()
 
@@ -401,6 +528,7 @@ final class ScreenOCRModule: NSObject, ToolboxModule, ObservableObject {
             // evidence that pins down exactly what the system returned, and Developer
             // Tools (Reveal / Re-analyze) plus `Toolbox --ocr-file` act on it.
             lastFailedCapturePath = captureFile.path
+            lastFailedCaptureNote = nil
             let engineFailed = result.engineError != nil
             DeveloperEventLog.shared.record(
                 .ocr,
@@ -446,6 +574,7 @@ final class ScreenOCRModule: NSObject, ToolboxModule, ObservableObject {
 
     /// Tears down any in-flight capture (used when the module stops or the app pauses).
     func cancelActiveCapture() {
+        captureGeneration &+= 1
         captureProcess?.terminate()
         captureProcess = nil
         isCapturing = false
@@ -460,19 +589,141 @@ final class ScreenOCRModule: NSObject, ToolboxModule, ObservableObject {
     // MARK: - Screen Recording Permission
 
     func refreshScreenPermission() {
-        let granted = ScreenCapturePermission.isGranted
+        applyScreenPermission(ScreenCapturePermission.isGranted)
+    }
+
+    func probeLiveScreenPermission() {
+        ScreenCapturePermission.probeUncachedAsync { [weak self] granted in
+            self?.applyScreenPermission(granted)
+        }
+    }
+
+    private func applyScreenPermission(_ granted: Bool) {
+        let wasGranted = screenRecordingGranted
         if granted != screenRecordingGranted {
             screenRecordingGranted = granted
+        }
+        if granted {
+            let awaiting = awaitingScreenGrantDeadline.map { Date() <= $0 } ?? false
+            stopAwaitingScreenGrant()
+            if awaiting && !wasGranted && !PermissionsManager.isRunningInDiagnosticMode {
+                recentScreenGrantUntil = Date().addingTimeInterval(60)
+                UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.pendingReopenToastKey)
+                waitForSystemSettingsSheetAndReturnToApp()
+            }
+        } else if let deadline = awaitingScreenGrantDeadline, Date() > deadline {
+            stopAwaitingScreenGrant()
+        }
+    }
+
+    /// Waits for macOS System Settings' "Quit & Reopen / Later" sheet to be dismissed before
+    /// focusing Toolbox, so Toolbox never jumps in front of the macOS dialog while the user is
+    /// choosing "Quit & Reopen" or "Later".
+    private func waitForSystemSettingsSheetAndReturnToApp() {
+        sheetWaitTask?.cancel()
+        sheetWaitTask = Task { @MainActor [weak self] in
+            // Give System Settings ~350ms to present its post-toggle "Quit & Reopen / Later" sheet.
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            if Task.isCancelled { return }
+
+            let deadline = Date().addingTimeInterval(30)
+            while !Task.isCancelled && Date() <= deadline {
+                let hasSheet = PermissionsManager.hasSystemSettingsAlertSheet()
+                    || PermissionsManager.hasSystemPermissionPromptWindow()
+                if !hasSheet {
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+            if Task.isCancelled { return }
+            guard let self, self.screenRecordingGranted else { return }
+            UserDefaults.standard.removeObject(forKey: Self.pendingReopenToastKey)
+            MainWindowController.shared.show(destination: nil)
+            HUDToast.shared.show(
+                title: "Screen Recording granted — Screen OCR is ready",
+                symbol: "checkmark.shield.fill",
+                tint: .green
+            )
         }
     }
 
     func requestScreenAccess() {
-        _ = ScreenCapturePermission.requestAccess()
         refreshScreenPermission()
+        guard !screenRecordingGranted else { return }
+        guard !isScreenRequestInFlight else { return }
+
+        beginAwaitingScreenGrant()
+
+        guard !PermissionsManager.isRunningInDiagnosticMode else { return }
+
+        if hasPromptedScreenThisSession {
+            openScreenSettings()
+            return
+        }
+
+        hasPromptedScreenThisSession = true
+        isScreenRequestInFlight = true
+        if PermissionsManager.hasSystemPermissionPromptWindow() {
+            isScreenRequestInFlight = false
+            return
+        }
+        _ = ScreenCapturePermission.requestAccess()
+
+        let appearDeadline = Date().addingTimeInterval(1.1)
+        func checkPromptAppearance() {
+            MainActor.assumeIsolated {
+                self.probeLiveScreenPermission()
+                if self.screenRecordingGranted || PermissionsManager.hasSystemPermissionPromptWindow() {
+                    self.isScreenRequestInFlight = false
+                    return
+                }
+                if Date() >= appearDeadline {
+                    self.isScreenRequestInFlight = false
+                    self.openScreenSettings()
+                } else {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                        checkPromptAppearance()
+                    }
+                }
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            checkPromptAppearance()
+        }
     }
 
     func openScreenSettings() {
+        beginAwaitingScreenGrant()
         ScreenCapturePermission.openSystemSettings()
+    }
+
+    private func beginAwaitingScreenGrant() {
+        isAwaitingScreenPermission = true
+        awaitingScreenGrantDeadline = Date().addingTimeInterval(120)
+        screenPermissionPollTask?.cancel()
+        screenPermissionPollTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 450_000_000)
+                if Task.isCancelled { return }
+                guard let self,
+                      let deadline = self.awaitingScreenGrantDeadline,
+                      Date() <= deadline else {
+                    self?.stopAwaitingScreenGrant()
+                    return
+                }
+                self.probeLiveScreenPermission()
+                if self.screenRecordingGranted {
+                    return
+                }
+            }
+        }
+    }
+
+    private func stopAwaitingScreenGrant() {
+        isAwaitingScreenPermission = false
+        awaitingScreenGrantDeadline = nil
+        screenPermissionPollTask?.cancel()
+        screenPermissionPollTask = nil
     }
 
     /// Test hook to force the Screen Recording permission UI state.
@@ -529,12 +780,11 @@ final class ScreenOCRModule: NSObject, ToolboxModule, ObservableObject {
         ModuleRegistry.shared.notifyChanged()
         DeveloperEventLog.shared.record(.ocr, "Developer OCR self-check started")
 
-        let level = config.recognitionLevel
         let preserveLineBreaks = config.preserveLineBreaks
         let detectBarcodes = config.detectQRCodes
-        Task.detached(priority: .userInitiated) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let sample = ScreenOCREngine.makeSelfCheckSample() else {
-                await MainActor.run { [weak self] in
+                Task { @MainActor [weak self] in
                     self?.finishSelfCheckFailed("Could not render the sample image")
                 }
                 return
@@ -543,12 +793,11 @@ final class ScreenOCRModule: NSObject, ToolboxModule, ObservableObject {
             let start = DispatchTime.now()
             let result = ScreenOCREngine.recognize(
                 in: prepared,
-                recognitionLevel: level,
                 preserveLineBreaks: preserveLineBreaks,
                 detectBarcodes: detectBarcodes
             )
             let durationMs = Int(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000
-            await MainActor.run { [weak self] in
+            Task { @MainActor [weak self] in
                 self?.finishSelfCheck(result, durationMs: durationMs)
             }
         }
@@ -593,7 +842,10 @@ final class ScreenOCRModule: NSObject, ToolboxModule, ObservableObject {
     /// - `interactive: true` reproduces the hotkey flow (crosshair drag, Esc cancels);
     ///   `false` runs a non-interactive full-main-screen control capture.
     func runPipelineTest(interactive: Bool) {
-        guard !isRunningPipelineTest else { return }
+        guard !isRunningPipelineTest, !isCaptureInFlight else { return }
+
+        pipelineTestGeneration &+= 1
+        let generation = pipelineTestGeneration
 
         // Clear artifacts from previous test runs so the temp dir doesn't accumulate.
         let tempDir = FileManager.default.temporaryDirectory
@@ -656,10 +908,15 @@ final class ScreenOCRModule: NSObject, ToolboxModule, ObservableObject {
             return
         }
 
-        process.terminationHandler = { [weak self] _ in
-            let exitCode = process.terminationStatus
-            Task { @MainActor in
-                self?.handlePipelineTestProcessFinished(exitCode: exitCode, fileURL: fileURL)
+        process.terminationHandler = { [weak self] proc in
+            let exitCode = proc.terminationStatus
+            Task { @MainActor [weak self] in
+                self?.handlePipelineTestProcessFinished(
+                    process: proc,
+                    generation: generation,
+                    exitCode: exitCode,
+                    fileURL: fileURL
+                )
             }
         }
     }
@@ -683,7 +940,15 @@ final class ScreenOCRModule: NSObject, ToolboxModule, ObservableObject {
         pipelineReport = report
     }
 
-    private func handlePipelineTestProcessFinished(exitCode: Int32, fileURL: URL) {
+    private func handlePipelineTestProcessFinished(
+        process: Process,
+        generation: UInt64,
+        exitCode: Int32,
+        fileURL: URL
+    ) {
+        guard generation == pipelineTestGeneration, pipelineTestProcess === process else {
+            return
+        }
         pipelineTestProcess = nil
         let fm = FileManager.default
 
@@ -725,20 +990,19 @@ final class ScreenOCRModule: NSObject, ToolboxModule, ObservableObject {
         )
 
         // Stages 7–9: recognition off the main thread, exactly like production.
-        let level = config.recognitionLevel
+        let preserveLineBreaks = config.preserveLineBreaks
         let detectBarcodes = config.detectQRCodes
         let imageBox = ImageBox(image: prepared)
-        Task.detached(priority: .userInitiated) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let start = DispatchTime.now()
             let result = ScreenOCREngine.recognize(
                 in: imageBox.image,
-                recognitionLevel: level,
-                preserveLineBreaks: true,
+                preserveLineBreaks: preserveLineBreaks,
                 detectBarcodes: detectBarcodes
             )
             let durationMs = Int(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000
-            await MainActor.run { [weak self] in
-                guard let self else { return }
+            Task { @MainActor [weak self] in
+                guard let self, self.pipelineTestGeneration == generation else { return }
                 if let engineError = result.engineError {
                     self.updatePipelineStage("vision", .fail, "engine error: \(engineError)")
                 } else {
@@ -782,6 +1046,7 @@ final class ScreenOCRModule: NSObject, ToolboxModule, ObservableObject {
     /// Tears down an in-flight pipeline test (used when the module stops).
     func cancelPipelineTest() {
         guard isRunningPipelineTest || pipelineTestProcess != nil else { return }
+        pipelineTestGeneration &+= 1
         pipelineTestProcess?.terminate()
         pipelineTestProcess = nil
         isRunningPipelineTest = false

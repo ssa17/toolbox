@@ -12,6 +12,7 @@ struct SettingsView: View {
     @ObservedObject private var permissions = PermissionsManager.shared
     @ObservedObject private var updateManager = UpdateManager.shared
     @ObservedObject private var registry = ModuleRegistry.shared
+    @ObservedObject private var screenOCR = ModuleRegistry.shared.screenOCR
     @ObservedObject private var developerMode = DeveloperModeManager.shared
     @StateObject private var dragState = MenuBarCustomizationDragState()
 
@@ -118,39 +119,89 @@ struct SettingsView: View {
                 }
 
                 FeatureSection("Permissions", subtitle: "System access used locally on your Mac.") {
-                    HStack {
+                    HStack(alignment: .center, spacing: 14) {
                         VStack(alignment: .leading, spacing: 4) {
                             HStack(spacing: 8) {
-                                Text("Accessibility Access")
+                                Text("Accessibility (Device Control & Data Access)")
                                     .font(.callout.weight(.semibold))
                                 StatusBadge(
-                                    text: permissions.isAccessibilityGranted ? "Granted" : "Not Granted",
+                                    text: permissions.isAccessibilityGranted
+                                        ? "Granted"
+                                        : (permissions.isAwaitingAccessibilityGrant ? "Waiting for permission…" : "Not Granted"),
                                     color: permissions.isAccessibilityGranted ? .green : .orange
                                 )
                             }
                             Text(
                                 permissions.isAccessibilityGranted
-                                    ? "All Accessibility-powered modules (Dock Minimize, Auto-Paste, and Scroll Direction) are authorized."
-                                    : "Used only for Dock Click to Minimize, auto-pasting (⌘ V), and Scroll Direction inversion."
+                                    ? "All Accessibility-powered modules (Dock Minimize, Auto-Paste, Call Keybinds, Keyboard Lock, and Scroll Direction) are authorized."
+                                    : "Used locally for Dock Click to Minimize, auto-pasting (⌘ V), Unified Call Keybinds, Keyboard Lock, and Scroll Direction inversion."
                             )
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         }
                         Spacer()
-                        if !permissions.isAccessibilityGranted {
-                            HStack(spacing: 8) {
-                                Button("Reset Entry") {
-                                    permissions.resetAndRegrantAccessibility()
-                                }
-                                .buttonStyle(.bordered)
-                                .pointerCursor()
-                                Button("Grant Access…") {
+                        HStack(spacing: 8) {
+                            Button(permissions.isResettingAccessibility ? "Resetting…" : "Reset Entry") {
+                                permissions.resetAndRegrantAccessibility()
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.large)
+                            .disabled(permissions.isResettingAccessibility)
+                            .pointerCursor(!permissions.isResettingAccessibility)
+                            if !permissions.isAccessibilityGranted {
+                                Button(permissions.isAwaitingAccessibilityGrant ? "Open Settings…" : "Grant Access…") {
                                     permissions.promptAndOpenSettings()
                                 }
                                 .buttonStyle(.borderedProminent)
+                                .controlSize(.large)
                                 .tint(.orange)
                                 .pointerCursor()
                             }
+                        }
+                    }
+
+                    Divider()
+
+                    HStack(alignment: .center, spacing: 14) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 8) {
+                                Text("Screen Recording (Screen OCR)")
+                                    .font(.callout.weight(.semibold))
+                                StatusBadge(
+                                    text: screenOCR.screenRecordingGranted
+                                        ? "Granted"
+                                        : (screenOCR.isAwaitingScreenPermission ? "Waiting for permission…" : "Not Granted"),
+                                    color: screenOCR.screenRecordingGranted ? .green : .orange
+                                )
+                            }
+                            Text(
+                                screenOCR.screenRecordingGranted
+                                    ? "Screen OCR is authorized to capture selected regions for on-device text and QR recognition."
+                                    : "Used locally by Screen OCR (⇧ ⌘ 0) to capture the region you drag-select for offline Vision recognition."
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if !screenOCR.screenRecordingGranted {
+                            Button(screenOCR.isAwaitingScreenPermission ? "Open Settings…" : "Grant Screen Access…") {
+                                if screenOCR.isAwaitingScreenPermission {
+                                    screenOCR.openScreenSettings()
+                                } else {
+                                    screenOCR.requestScreenAccess()
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.large)
+                            .tint(.orange)
+                            .pointerCursor()
+                        } else {
+                            Button("Open Settings…") {
+                                screenOCR.openScreenSettings()
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.large)
+                            .pointerCursor()
                         }
                     }
                 }
@@ -242,51 +293,6 @@ struct SettingsView: View {
                                 .controlSize(.small)
                                 .pointerCursor()
                             }
-                        }
-                    }
-
-                    Divider()
-
-                    HStack(alignment: .center, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Support Toolbox")
-                                .font(.callout.weight(.semibold))
-                            Text("Toolbox is free and open-source with no ads or tracking. If it saves you time, consider supporting development.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-
-                        Spacer(minLength: 12)
-
-                        HStack(spacing: 8) {
-                            Button {
-                                SupportLinks.open(SupportLinks.githubSponsors)
-                            } label: {
-                                Label {
-                                    Text("GitHub Sponsors")
-                                } icon: {
-                                    Image(systemName: "heart.fill")
-                                        .foregroundStyle(.pink)
-                                }
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            .pointerCursor()
-
-                            Button {
-                                SupportLinks.open(SupportLinks.koFi)
-                            } label: {
-                                Label {
-                                    Text("Ko-fi")
-                                } icon: {
-                                    Image(systemName: "cup.and.saucer.fill")
-                                        .foregroundStyle(.orange)
-                                }
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            .pointerCursor()
                         }
                     }
                 }

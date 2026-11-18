@@ -2,13 +2,13 @@
 
 Lightweight, native macOS utilities for Dock window toggling, clipboard history, port management, call mic/video controls, keyboard-lock mode, display sleep control, independent mouse scroll direction, and global shortcuts.
 
-**[Download .dmg](https://github.com/ssa17/toolbox/releases/latest/download/Toolbox.dmg)** · [All releases](https://github.com/ssa17/toolbox/releases) · [Sponsor on GitHub](https://github.com/sponsors/ssa17) · [Support on Ko-fi](https://ko-fi.com/ssa17)
+**[Download .dmg](https://github.com/ssa17/toolbox/releases/latest/download/Toolbox.dmg)** · [Sponsor on GitHub](https://github.com/sponsors/ssa17) · [Support on Ko-fi](https://ko-fi.com/ssa17)
 
 ![Toolbox dashboard](docs/screenshots/dashboard.png)
 
 ## Install
 
-1. Download the latest **Toolbox.dmg** (the link above, or the [releases page](https://github.com/ssa17/toolbox/releases))
+1. Download the latest **[Toolbox.dmg](https://github.com/ssa17/toolbox/releases/latest/download/Toolbox.dmg)**
 2. Open it and drag **Toolbox** into your **Applications** folder
 3. Launch Toolbox from Applications
 

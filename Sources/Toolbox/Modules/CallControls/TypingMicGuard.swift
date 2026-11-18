@@ -282,8 +282,12 @@ final class TypingMicGuard: @unchecked Sendable {
     private func handle(type: CGEventType, event: CGEvent) {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             let (shouldRearm, currentTap) = withLock { (isActive, tap) }
-            if shouldRearm, let currentTap {
+            if shouldRearm, PermissionsManager.shouldRearmEventTap(for: type), let currentTap {
                 CGEvent.tapEnable(tap: currentTap, enable: true)
+            } else {
+                Task { @MainActor in
+                    PermissionsManager.shared.refresh()
+                }
             }
             return
         }

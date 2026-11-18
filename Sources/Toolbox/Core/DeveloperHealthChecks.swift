@@ -1006,7 +1006,7 @@ final class DeveloperHealthCheckRunner: ObservableObject {
 
     private func checkModuleLifecycleConsistency() -> HealthCheckItem {
         let cfg = ConfigManager.shared.config
-        let actualAX = PermissionsManager.shared.actualAccessibilityGranted
+        let actualAX = PermissionsManager.isProcessTrusted()
         let modules = ModuleRegistry.shared.modules
 
         var mismatches: [String] = []

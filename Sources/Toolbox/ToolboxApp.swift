@@ -48,13 +48,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // not accumulate across launches).
         ScreenOCRModule.sweepStaleTempFiles()
 
-        if configManager.config.general.openDashboardOnLaunch {
+        let pendingReopenAt = UserDefaults.standard.double(forKey: ScreenOCRModule.pendingReopenToastKey)
+        let didReopenAfterScreenGrant = pendingReopenAt > 0
+            && (Date().timeIntervalSince1970 - pendingReopenAt) <= 30
+            && registry.screenOCR.screenRecordingGranted
+        if pendingReopenAt > 0 {
+            UserDefaults.standard.removeObject(forKey: ScreenOCRModule.pendingReopenToastKey)
+        }
+
+        if configManager.config.general.openDashboardOnLaunch || didReopenAfterScreenGrant {
             MainWindowController.shared.show(destination: .dashboard)
-            let isDiagnosticMode = CommandLine.arguments.contains("--self-test") || CommandLine.arguments.contains("--snapshot-ui")
-            if !isDiagnosticMode,
+            if !PermissionsManager.isRunningInDiagnosticMode,
                !configManager.config.general.hasSeenAccessibilityOnboarding,
-               !permissions.isAccessibilityGranted {
+               !permissions.actualAccessibilityGranted {
                 permissions.presentOnboardingModal()
+            } else if didReopenAfterScreenGrant && !PermissionsManager.isRunningInDiagnosticMode {
+                HUDToast.shared.show(
+                    title: "Screen Recording granted — Screen OCR is ready",
+                    symbol: "checkmark.shield.fill",
+                    tint: .green
+                )
             }
         }
     }
@@ -67,7 +80,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if Self.allowImmediateTermination {
+        if Self.allowImmediateTermination
+            || ModuleRegistry.shared.screenOCR.shouldAllowSystemQuitAndReopen
+            || PermissionsManager.shared.isAwaitingAccessibilityGrant
+            || Self.isExternalSystemQuitRequest() {
             return .terminateNow
         }
         if ConfigManager.shared.config.general.dockQuitBehavior == .closeWindow,
@@ -77,6 +93,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return .terminateCancel
         }
         return .terminateNow
+    }
+
+    /// Returns `true` when an external process other than the Dock (such as System Settings'
+    /// "Quit & Reopen" button after granting Screen Recording) sends `kAEQuitApplication`.
+    private static func isExternalSystemQuitRequest() -> Bool {
+        guard let event = NSAppleEventManager.shared().currentAppleEvent else {
+            return false
+        }
+        guard let pidDesc = event.attributeDescriptor(forKeyword: AEKeyword(keySenderPIDAttr)) else {
+            return false
+        }
+        let senderPID = pidDesc.int32Value
+        guard senderPID > 0, senderPID != ProcessInfo.processInfo.processIdentifier else {
+            return false
+        }
+        let senderBundleID = NSRunningApplication(processIdentifier: senderPID)?.bundleIdentifier
+        return senderBundleID != "com.apple.dock"
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -123,6 +156,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 enum ToolboxMain {
     static func main() {
+        if CommandLine.arguments.contains("--check-screen-recording") {
+            if #available(macOS 10.15, *) {
+                exit(CGPreflightScreenCaptureAccess() ? 0 : 1)
+            }
+            exit(0)
+        }
+
         if CommandLine.arguments.contains("--version") || CommandLine.arguments.contains("-v") {
             let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
             print("Toolbox \(version)")
@@ -165,11 +205,23 @@ enum ToolboxMain {
             exit(OCRCliRunner.runCapture())
         }
 
-        // Single-instance guard: focus an already-running Toolbox.app instead of spawning duplicates.
+        // Single-instance guard: focus an already-running Toolbox.app instead of spawning duplicates,
+        // while allowing a brief overlap window if macOS "Quit & Reopen" is replacing a terminating instance.
         if let bundleID = Bundle.main.bundleIdentifier {
-            let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
             let currentPID = ProcessInfo.processInfo.processIdentifier
-            if let existing = running.first(where: { $0.processIdentifier != currentPID }) {
+            var otherInstance = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+                .first(where: { $0.processIdentifier != currentPID && !$0.isTerminated })
+            if otherInstance != nil {
+                for _ in 0..<20 {
+                    usleep(40_000)
+                    otherInstance = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+                        .first(where: { $0.processIdentifier != currentPID && !$0.isTerminated })
+                    if otherInstance == nil {
+                        break
+                    }
+                }
+            }
+            if let existing = otherInstance {
                 existing.activate()
                 return
             }

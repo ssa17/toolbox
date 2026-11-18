@@ -232,8 +232,12 @@ final class InputLockTap: @unchecked Sendable {
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             let (shouldRearm, currentTap) = withLock { (isLockActive, tap) }
-            if shouldRearm, let currentTap {
+            if shouldRearm, PermissionsManager.shouldRearmEventTap(for: type), let currentTap {
                 CGEvent.tapEnable(tap: currentTap, enable: true)
+            } else {
+                Task { @MainActor in
+                    PermissionsManager.shared.refresh()
+                }
             }
             return Unmanaged.passUnretained(event)
         }

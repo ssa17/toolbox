@@ -217,9 +217,12 @@ final class ScrollInversionTap: @unchecked Sendable {
     /// Runs on the dedicated background tap thread's CFRunLoop for every scroll wheel event.
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            let current = withLock { tap }
-            if let current {
+            if PermissionsManager.shouldRearmEventTap(for: type), let current = withLock({ tap }) {
                 CGEvent.tapEnable(tap: current, enable: true)
+            } else {
+                Task { @MainActor in
+                    PermissionsManager.shared.refresh()
+                }
             }
             return Unmanaged.passUnretained(event)
         }

@@ -638,7 +638,7 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
             return
         }
 
-        guard AXIsProcessTrusted() else {
+        guard PermissionsManager.isProcessTrusted() else {
             HUDToast.shared.show(title: "Copied (grant Accessibility for auto-paste)", symbol: "doc.on.clipboard", tint: .orange)
             return
         }

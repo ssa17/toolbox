@@ -116,6 +116,37 @@ final class PointerCursorNSView: NSView {
     private static func syncCursorOrReset(_ window: NSWindow?) {
         if let window, window.isVisible {
             syncCursor(in: window)
+        } else {
+            syncVisibleWindowUnderMouseOrResetCursor()
+        }
+    }
+
+    /// Syncs the hover cursor against whichever visible non-popup window currently contains the pointer,
+    /// or resets a stale pointing-hand cursor back to `.arrow`. Safe to call after a sheet/window deallocates.
+    static func syncVisibleWindowUnderMouseOrResetCursor() {
+        let mouse = NSEvent.mouseLocation
+        let candidate: NSWindow? = {
+            if let key = NSApp.keyWindow,
+               key.isVisible,
+               key.level.rawValue < NSWindow.Level.popUpMenu.rawValue,
+               key.frame.contains(mouse) {
+                return key
+            }
+            if let ordered = NSApp.orderedWindows.first(where: {
+                $0.isVisible &&
+                $0.level.rawValue < NSWindow.Level.popUpMenu.rawValue &&
+                $0.frame.contains(mouse)
+            }) {
+                return ordered
+            }
+            return NSApp.windows.first(where: {
+                $0.isVisible &&
+                $0.level.rawValue < NSWindow.Level.popUpMenu.rawValue &&
+                $0.frame.contains(mouse)
+            })
+        }()
+        if let candidate {
+            syncCursor(in: candidate)
         } else if NSCursor.currentSystem?.hotSpot == NSCursor.pointingHand.hotSpot {
             NSCursor.arrow.set()
         }
@@ -174,11 +205,14 @@ final class PointerCursorNSView: NSView {
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
-        if newWindow == nil, let oldWindow = window, isHovered {
+        // Never capture `self.window` (not even weakly) when `newWindow == nil`:
+        // `NSWindow.dealloc` (e.g. closing SwiftUI sheets) tears down subviews with `_setWindow: nil`
+        // after deallocation has started, where `objc_initWeak` aborts with SIGABRT.
+        if newWindow == nil, isHovered {
             isHovered = false
-            RunLoop.main.perform(inModes: [.common]) { [weak oldWindow] in
+            RunLoop.main.perform(inModes: [.common]) {
                 MainActor.assumeIsolated {
-                    Self.syncCursorOrReset(oldWindow)
+                    Self.syncVisibleWindowUnderMouseOrResetCursor()
                 }
             }
         }
@@ -248,7 +282,7 @@ final class PointerCursorNSView: NSView {
     }
 
     func reapplyCursorIfHovered() {
-        guard let window else { return }
+        guard let window, window.isVisible else { return }
         let ptInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
         let nowHovered = Self.isPoint(ptInWindow, inside: self)
         let wasHovered = isHovered
@@ -257,7 +291,7 @@ final class PointerCursorNSView: NSView {
             Self.forcePointingHandCursor()
             RunLoop.main.perform(inModes: [.eventTracking, .common]) { [weak self] in
                 MainActor.assumeIsolated {
-                    guard let self, let win = self.window else { return }
+                    guard let self, let win = self.window, win.isVisible else { return }
                     let pt = win.convertPoint(fromScreen: NSEvent.mouseLocation)
                     if Self.isPoint(pt, inside: self) {
                         Self.forcePointingHandCursor()
@@ -270,9 +304,11 @@ final class PointerCursorNSView: NSView {
     }
 
     override func cursorUpdate(with event: NSEvent) {
-        if let window {
+        if let window, window.isVisible {
             let ptInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
             isHovered = Self.isPoint(ptInWindow, inside: self)
+        } else {
+            isHovered = false
         }
         if isHovered {
             Self.forcePointingHandCursor()
@@ -282,7 +318,7 @@ final class PointerCursorNSView: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        guard let window else { return }
+        guard let window, window.isVisible else { return }
         let ptInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
         isHovered = Self.isPoint(ptInWindow, inside: self)
         guard isHovered else { return }
@@ -290,7 +326,7 @@ final class PointerCursorNSView: NSView {
         // Re-apply on the next tracking-loop turn in case NSMenu resets the cursor upon initial window entry.
         RunLoop.main.perform(inModes: [.eventTracking, .common]) { [weak self] in
             MainActor.assumeIsolated {
-                guard let self, let win = self.window else { return }
+                guard let self, let win = self.window, win.isVisible else { return }
                 let pt = win.convertPoint(fromScreen: NSEvent.mouseLocation)
                 if Self.isPoint(pt, inside: self) {
                     Self.forcePointingHandCursor()
@@ -300,7 +336,7 @@ final class PointerCursorNSView: NSView {
     }
 
     override func mouseExited(with event: NSEvent) {
-        if let window {
+        if let window, window.isVisible {
             let ptInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
             if Self.isPoint(ptInWindow, inside: self) {
                 return
@@ -309,7 +345,7 @@ final class PointerCursorNSView: NSView {
             Self.syncCursor(in: window)
         } else {
             isHovered = false
-            NSCursor.arrow.set()
+            Self.syncVisibleWindowUnderMouseOrResetCursor()
         }
     }
 }

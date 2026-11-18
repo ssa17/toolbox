@@ -124,7 +124,7 @@ final class ScrollDirectionModule: ToolboxModule, ObservableObject {
     private func syncTap() {
         let wasInstalled = tap.isInstalled
         tap.setTarget(config.target)
-        if AXIsProcessTrusted() {
+        if PermissionsManager.isProcessTrusted() {
             if !tap.isInstalled {
                 tap.install()
             }

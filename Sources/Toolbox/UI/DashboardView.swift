@@ -4,6 +4,7 @@ struct DashboardView: View {
     @ObservedObject private var configManager = ConfigManager.shared
     @ObservedObject private var permissions = PermissionsManager.shared
     @ObservedObject private var registry = ModuleRegistry.shared
+    @ObservedObject private var screenOCR = ModuleRegistry.shared.screenOCR
 
     let onSelectModule: (String) -> Void
 
@@ -32,6 +33,8 @@ struct DashboardView: View {
 
                     if !permissions.isAccessibilityGranted {
                         accessibilityBanner
+                    } else if configManager.config.screenOCR.enabled && !screenOCR.screenRecordingGranted {
+                        screenRecordingBanner
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
@@ -118,54 +121,158 @@ struct DashboardView: View {
 
     private var accessibilityBanner: some View {
         SectionCard {
-            HStack(alignment: .center, spacing: 14) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color.orange.opacity(0.16))
-                        .frame(width: 40, height: 40)
-                    Image(systemName: "hand.raised.fill")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(.orange)
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Enable Accessibility for Input & Window Shortcuts")
-                        .font(.headline)
-                    Text("Optional: needed for Dock Minimize, Scroll Direction, Unified Call Keybinds, Keyboard Lock, and Auto-Paste. Runs 100% locally on your Mac.")
-                        .font(.system(size: 12.5))
-                        .foregroundStyle(Color.primary.opacity(0.76))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .textSelection(.enabled)
-
-                Spacer(minLength: 12)
-
-                VStack(alignment: .trailing, spacing: 6) {
-                    Button("Grant Access…") {
-                        permissions.promptAndOpenSettings()
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 14) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.orange.opacity(0.16))
+                            .frame(width: 42, height: 42)
+                        Image(systemName: "hand.raised.fill")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.orange)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.orange)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 8) {
+                            Text("Enable Accessibility for Input & Window Shortcuts")
+                                .font(.headline)
+                            if configManager.config.screenOCR.enabled && !screenOCR.screenRecordingGranted {
+                                StatusBadge(text: "Step 1 of 2", color: .orange)
+                            }
+                            if permissions.isAwaitingAccessibilityGrant {
+                                StatusBadge(text: "Waiting for permission…", color: .orange)
+                            }
+                        }
+                        Text("In System Settings → Privacy & Security → Device Control and Data Access (Accessibility), turn on Toolbox.app for Dock Minimize, Scroll Direction, Unified Call Keybinds, Keyboard Lock, and Auto-Paste. Runs 100% locally on your Mac.")
+                            .font(.system(size: 13))
+                            .foregroundStyle(Color.primary.opacity(0.78))
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        if permissions.isAdHocSigned || permissions.hasAttemptedGrantWithoutSuccess {
+                            Text("Already enabled in System Settings? Click Reset Permission to clear any stale entry from an earlier build and re-authorize this app.")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.top, 2)
+                        }
+                    }
+                    .textSelection(.enabled)
+                }
+
+                HStack(spacing: 10) {
+                    Spacer(minLength: 0)
+
+                    if permissions.isAdHocSigned || permissions.hasAttemptedGrantWithoutSuccess {
+                        Button {
+                            permissions.resetAndRegrantAccessibility()
+                        } label: {
+                            Label(
+                                permissions.isResettingAccessibility ? "Resetting…" : "Reset Permission",
+                                systemImage: "arrow.counterclockwise"
+                            )
+                            .font(.callout.weight(.medium))
+                            .padding(.horizontal, 4)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                        .disabled(permissions.isResettingAccessibility)
+                        .help("Re-bind Accessibility permission if already enabled in System Settings from an earlier build.")
+                        .pointerCursor(!permissions.isResettingAccessibility)
+                    }
+
+                    Button {
+                        permissions.presentOnboardingModal()
+                    } label: {
+                        Label("Why This Is Needed", systemImage: "questionmark.circle")
+                            .font(.callout.weight(.medium))
+                            .padding(.horizontal, 4)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
                     .pointerCursor()
 
-                    HStack(spacing: 6) {
-                        Button("Why?") {
-                            permissions.presentOnboardingModal()
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .pointerCursor()
-
-                        Button("Reset") {
-                            permissions.resetAndRegrantAccessibility()
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .help("Re-bind Accessibility permission if already enabled in System Settings from an earlier build.")
-                        .pointerCursor()
+                    Button {
+                        permissions.promptAndOpenSettings()
+                    } label: {
+                        Label(
+                            permissions.isAwaitingAccessibilityGrant ? "Open Settings…" : "Grant Access…",
+                            systemImage: "hand.raised.fill"
+                        )
+                        .font(.callout.weight(.semibold))
+                        .padding(.horizontal, 6)
                     }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .tint(.orange)
+                    .pointerCursor()
                 }
-                .fixedSize(horizontal: true, vertical: false)
+            }
+        }
+    }
+
+    private var screenRecordingBanner: some View {
+        SectionCard {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 14) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.orange.opacity(0.16))
+                            .frame(width: 42, height: 42)
+                        Image(systemName: "text.viewfinder")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.orange)
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 8) {
+                            Text("Enable Screen Recording for Screen OCR")
+                                .font(.headline)
+                            StatusBadge(
+                                text: screenOCR.isAwaitingScreenPermission ? "Waiting for permission…" : "Step 2 of 2",
+                                color: .orange
+                            )
+                        }
+                        Text("Accessibility is active. Next, in System Settings → Privacy & Security → Screen & System Audio Recording, turn on Toolbox.app so Screen OCR can capture screen regions offline.")
+                            .font(.system(size: 13))
+                            .foregroundStyle(Color.primary.opacity(0.78))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .textSelection(.enabled)
+                }
+
+                HStack(spacing: 10) {
+                    Spacer(minLength: 0)
+
+                    Button {
+                        onSelectModule("screen_ocr")
+                    } label: {
+                        Label("Screen OCR Settings", systemImage: "slider.horizontal.3")
+                            .font(.callout.weight(.medium))
+                            .padding(.horizontal, 4)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .pointerCursor()
+
+                    Button {
+                        if screenOCR.isAwaitingScreenPermission {
+                            screenOCR.openScreenSettings()
+                        } else {
+                            screenOCR.requestScreenAccess()
+                        }
+                    } label: {
+                        Label(
+                            screenOCR.isAwaitingScreenPermission ? "Open Settings…" : "Grant Screen Access…",
+                            systemImage: "text.viewfinder"
+                        )
+                        .font(.callout.weight(.semibold))
+                        .padding(.horizontal, 6)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .tint(.orange)
+                    .pointerCursor()
+                }
             }
         }
     }
@@ -173,10 +280,12 @@ struct DashboardView: View {
     private func moduleCard(_ module: any ToolboxModule) -> some View {
         let isEnabled = module.isEnabled(in: configManager.config)
         let status = module.statusText(in: configManager.config, accessibilityGranted: permissions.isAccessibilityGranted)
+        let missingScreenPermission = (module as? ScreenOCRModule).map { !$0.screenRecordingGranted } ?? false
         let badgeColor: Color = {
             if !isEnabled { return .secondary }
             if !configManager.config.general.appEnabled { return .orange }
             if module.requiresAccessibility && !permissions.isAccessibilityGranted { return .orange }
+            if missingScreenPermission { return .orange }
             return module.isRunning ? .green : .blue
         }()
 
@@ -311,9 +420,24 @@ struct AccessibilityOnboardingModalView: View {
                     .padding(.vertical, 3)
                     .background(Color.green.opacity(0.12), in: Capsule())
                 }
+
+                Spacer(minLength: 8)
+
+                Button {
+                    permissions.dismissOnboardingModal(markSeen: true)
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 24, height: 24)
+                        .background(Color.primary.opacity(0.08), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Close")
+                .pointerCursor()
             }
 
-            Text("Toolbox uses macOS Accessibility only when you enable features that react to Dock clicks, scroll events, or global shortcuts:")
+            Text("In System Settings → Privacy & Security → Device Control and Data Access (Accessibility), toggle on Toolbox.app to enable features that react to Dock clicks, scroll events, or global shortcuts:")
                 .font(.callout)
                 .foregroundStyle(Color.primary.opacity(0.84))
                 .fixedSize(horizontal: false, vertical: true)
@@ -347,16 +471,17 @@ struct AccessibilityOnboardingModalView: View {
                     .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
             )
 
-            Text("Keep Awake, Clipboard history capture, Port Killer, and Audio Device switching work right away without Accessibility.")
+            Text("One toggle covers all Accessibility & Input Monitoring shortcuts. If Screen OCR is enabled, Toolbox will guide you to Screen Recording next.")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 10) {
+            HStack(spacing: 12) {
                 Button("Skip for Now") {
                     permissions.dismissOnboardingModal(markSeen: true)
                 }
                 .buttonStyle(.bordered)
+                .controlSize(.large)
                 .keyboardShortcut(.cancelAction)
                 .pointerCursor()
 
@@ -367,6 +492,7 @@ struct AccessibilityOnboardingModalView: View {
                     permissions.promptAndOpenSettings()
                 }
                 .buttonStyle(.borderedProminent)
+                .controlSize(.large)
                 .tint(.orange)
                 .keyboardShortcut(.defaultAction)
                 .pointerCursor()

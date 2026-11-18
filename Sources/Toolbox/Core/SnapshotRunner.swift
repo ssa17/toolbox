@@ -34,6 +34,33 @@ enum SnapshotRunner {
             to: outURL.appendingPathComponent("dashboard_active.png")
         )
 
+        let prevSimAX = PermissionsManager.shared.simulatedAccessibilityGranted
+        PermissionsManager.shared.setSimulatedAccessibilityGranted(false)
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navDashboard),
+            size: NSSize(width: 940, height: 760),
+            to: outURL.appendingPathComponent("dashboard_needs_accessibility.png")
+        )
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navDashboard),
+            size: NSSize(width: 820, height: 560),
+            to: outURL.appendingPathComponent("dashboard_needs_accessibility_compact.png")
+        )
+        saveViewSnapshot(
+            AccessibilityOnboardingModalView(permissions: PermissionsManager.shared),
+            size: NSSize(width: 540, height: 470),
+            to: outURL.appendingPathComponent("accessibility_onboarding_modal.png")
+        )
+        let navModuleNeedsAX = NavigationState()
+        navModuleNeedsAX.selection = .module("dock_minimize")
+        navModuleNeedsAX.isSidebarVisible = true
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navModuleNeedsAX),
+            size: NSSize(width: 940, height: 660),
+            to: outURL.appendingPathComponent("module_dock_needs_accessibility.png")
+        )
+        PermissionsManager.shared.setSimulatedAccessibilityGranted(prevSimAX)
+
         let navModule = NavigationState()
         navModule.selection = .module("dock_minimize")
         navModule.isSidebarVisible = true
@@ -174,6 +201,15 @@ enum SnapshotRunner {
             MainWindowController.makeRootView(navState: navJSON),
             size: NSSize(width: 940, height: 660),
             to: outURL.appendingPathComponent("json_config.png")
+        )
+
+        let navSupport = NavigationState()
+        navSupport.selection = .support
+        navSupport.isSidebarVisible = true
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navSupport),
+            size: NSSize(width: 940, height: 840),
+            to: outURL.appendingPathComponent("support.png")
         )
 
         let navSettings = NavigationState()

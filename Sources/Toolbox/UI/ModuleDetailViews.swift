@@ -152,25 +152,42 @@ struct ModuleDetailContainerView: View {
 
                 if module.requiresAccessibility && !permissions.isAccessibilityGranted {
                     SectionCard {
-                        HStack(spacing: 12) {
+                        HStack(spacing: 14) {
                             Image(systemName: "lock.shield")
                                 .font(.title2)
                                 .foregroundStyle(.orange)
                             VStack(alignment: .leading, spacing: 3) {
-                                Text("Accessibility Required for This Module")
-                                    .font(.headline)
+                                HStack(spacing: 8) {
+                                    Text("Accessibility Required for This Module")
+                                        .font(.headline)
+                                    if permissions.isAwaitingAccessibilityGrant {
+                                        StatusBadge(text: "Waiting…", color: .orange)
+                                    }
+                                }
                                 Text(module.accessibilityReason)
-                                    .font(.caption)
+                                    .font(.callout)
                                     .foregroundStyle(.secondary)
                             }
                             .textSelection(.enabled)
                             Spacer()
-                            Button("Grant Permission…") {
-                                permissions.promptAndOpenSettings()
+                            HStack(spacing: 8) {
+                                if permissions.isAdHocSigned || permissions.hasAttemptedGrantWithoutSuccess {
+                                    Button(permissions.isResettingAccessibility ? "Resetting…" : "Reset Entry") {
+                                        permissions.resetAndRegrantAccessibility()
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.large)
+                                    .disabled(permissions.isResettingAccessibility)
+                                    .pointerCursor(!permissions.isResettingAccessibility)
+                                }
+                                Button(permissions.isAwaitingAccessibilityGrant ? "Open Settings…" : "Grant Permission…") {
+                                    permissions.promptAndOpenSettings()
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.large)
+                                .tint(.orange)
+                                .pointerCursor()
                             }
-                            .buttonStyle(.borderedProminent)
-                            .tint(.orange)
-                            .pointerCursor()
                         }
                     }
                 }

@@ -9,8 +9,12 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 
 ## [Unreleased]
 
+### Changed
+- **Support Toolbox** — moved support links to a dedicated **Support Toolbox** sidebar page featuring interactive fuel cards with copyable checkout notes, a high-five confetti button, an honor-system supporter badge, and free ways to help (GitHub star, share link, issues)
+
 ### Fixed
 - **Dock Click to Minimize** — Dock icons can be dragged to reorganise again; the click action now waits for the release and yields to the Dock whenever you drag, instead of firing on press and swallowing the gesture
+- **Accessibility & Permission Flow** — fixed a crash when closing the Accessibility explanation sheet (`PointerCursorNSView` forming a weak reference on a deallocating window), fixed a Mac-wide input freeze when revoking Accessibility in System Settings (`CGEventTap` handlers re-arming on `tapDisabledByUserInput`), guarded startup window-title checks so macOS does not trigger a duplicate Accessibility prompt before the onboarding modal, fixed stale in-process `TCC.framework` / `HIServices` / `SkyLight` permission caches using `TCCAccessCheckAuditToken` and live `--check-screen-recording` probes, and streamlined the Dashboard setup banner into a step-by-step Accessibility (Device Control and Data Access) → Screen Recording flow with automatic return to Toolbox
 
 ## [1.4] - 2026-11-17
 

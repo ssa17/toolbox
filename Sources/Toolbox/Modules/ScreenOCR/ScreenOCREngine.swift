@@ -299,17 +299,11 @@ enum ScreenOCREngine {
     /// Safe to call off the main thread. Returns an `OCRResult` (possibly empty).
     static func recognize(
         in image: CGImage,
-        recognitionLevel: OCRRecognitionLevel,
         preserveLineBreaks: Bool,
         detectBarcodes: Bool
     ) -> OCRResult {
         let textRequest = VNRecognizeTextRequest()
-        // Set via implicit member syntax: the nested enum's spelling moved in the modern
-        // Vision SDK interface, but the legacy 10.15+ property is unchanged.
-        switch recognitionLevel {
-        case .accurate: textRequest.recognitionLevel = .accurate
-        case .fast: textRequest.recognitionLevel = .fast
-        }
+        textRequest.recognitionLevel = .accurate
         textRequest.usesLanguageCorrection = true
         // Vision's built-in default drops text lines shorter than 1/40 of the image
         // height — on a full-screen Retina capture that's ~50 pt of text, silently
@@ -354,7 +348,6 @@ enum ScreenOCREngine {
         }
 
         let text = formattedText(from: allLines, preserveLineBreaks: preserveLineBreaks)
-        let hasOutput = !text.trimmed.isEmpty || !payloads.isEmpty
 
         return OCRResult(
             text: text,
@@ -388,6 +381,10 @@ enum ScreenOCREngine {
               ) else {
             return 0
         }
+        // Fill with white first so transparent pixels (alpha == 0, e.g. in --ocr-file PNGs)
+        // don't evaluate to luminance 0 and trip the uniform-black permission gate.
+        context.setFillColor(red: 1, green: 1, blue: 1, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: w, height: h))
         context.interpolationQuality = .low
         context.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
         guard let data = context.data else { return 0 }
@@ -440,7 +437,6 @@ enum ScreenOCREngine {
     /// cancelled (no file) or failed to load.
     static func recognizeFile(
         at url: URL,
-        recognitionLevel: OCRRecognitionLevel,
         preserveLineBreaks: Bool,
         detectBarcodes: Bool
     ) -> OCRResult? {
@@ -448,7 +444,6 @@ enum ScreenOCREngine {
         guard let image = load.image else { return nil }
         return recognize(
             in: image,
-            recognitionLevel: recognitionLevel,
             preserveLineBreaks: preserveLineBreaks,
             detectBarcodes: detectBarcodes
         )

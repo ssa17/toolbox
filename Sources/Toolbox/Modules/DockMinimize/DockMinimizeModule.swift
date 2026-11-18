@@ -213,7 +213,7 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
 
     func reload(with fullConfig: ToolboxConfig) {
         self.config = fullConfig.dockMinimize
-        if fullConfig.general.appEnabled && config.enabled && AXIsProcessTrusted() {
+        if fullConfig.general.appEnabled && config.enabled && PermissionsManager.isProcessTrusted() {
             if !isRunning { start() }
         } else {
             if isRunning { stop() }
@@ -243,7 +243,7 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
 
     func start() {
         guard !isRunning else { return }
-        guard AXIsProcessTrusted() else {
+        guard PermissionsManager.isProcessTrusted() else {
             lastError = "Waiting for Accessibility permission."
             return
         }
@@ -316,6 +316,9 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
         if let source = runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
         }
+        if let tap = eventTap {
+            CFMachPortInvalidate(tap)
+        }
         if let observer = dockLaunchObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
             dockLaunchObserver = nil
@@ -375,7 +378,7 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
 
     private func installExposeObserver() {
         teardownExposeObserver()
-        guard AXIsProcessTrusted(),
+        guard PermissionsManager.isProcessTrusted(),
               let dockPID = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first?.processIdentifier else {
             return
         }
@@ -427,8 +430,12 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
     private func handleEvent(type: CGEventType, location: CGPoint, flags: CGEventFlags, clickCount: Int64) -> Bool {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             pendingDockClick = nil
-            if let tap = eventTap {
+            if PermissionsManager.shouldRearmEventTap(for: type), let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
+            } else {
+                Task { @MainActor in
+                    PermissionsManager.shared.refresh()
+                }
             }
             return false
         }

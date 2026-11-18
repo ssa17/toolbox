@@ -98,7 +98,6 @@ struct ScreenOCRSettingsView: View {
                             module.requestScreenAccess()
                         }
                         .buttonStyle(.bordered)
-                        .controlSize(.small)
                         .disabled(module.screenRecordingGranted)
                         .focusEffectDisabled()
                         .pointerCursor(!module.screenRecordingGranted)
@@ -107,10 +106,10 @@ struct ScreenOCRSettingsView: View {
                             module.openScreenSettings()
                         }
                         .buttonStyle(.bordered)
-                        .controlSize(.small)
                         .focusEffectDisabled()
                         .pointerCursor()
                     }
+                    .fixedSize(horizontal: true, vertical: false)
                 }
             }
         }
@@ -124,23 +123,6 @@ struct ScreenOCRSettingsView: View {
             subtitle: "Tune how Apple Vision reads the selected region."
         ) {
             VStack(spacing: 0) {
-                SettingRow(
-                    "Recognition Level",
-                    subtitle: "Accurate is better for small or stylized text; Fast is snappier for quick grabs."
-                ) {
-                    Picker("", selection: $configManager.config.screenOCR.recognitionLevel) {
-                        ForEach(OCRRecognitionLevel.allCases, id: \.self) { level in
-                            Text(level.label).tag(level)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .frame(width: 220)
-                    .pointerCursor()
-                }
-
-                Divider()
-
                 SettingRow(
                     "Preserve Line Breaks",
                     subtitle: "Off joins wrapped paragraph lines with spaces instead of newlines."

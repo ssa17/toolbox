@@ -109,7 +109,7 @@ final class CustomCommandsModule: ToolboxModule, ObservableObject {
             let pb = NSPasteboard.general
             pb.clearContents()
             pb.setString(command.payload, forType: .string)
-            if AXIsProcessTrusted() {
+            if PermissionsManager.isProcessTrusted() {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
                     let source = CGEventSource(stateID: .hidSystemState)
                     let vDown = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: true)

@@ -80,7 +80,7 @@ final class CleanLockModule: ToolboxModule, ObservableObject {
 
     func reload(with fullConfig: ToolboxConfig) {
         self.config = fullConfig.cleanLock
-        if !fullConfig.general.appEnabled {
+        if !fullConfig.general.appEnabled || !PermissionsManager.isProcessTrusted() {
             stop()
         }
     }
@@ -96,7 +96,7 @@ final class CleanLockModule: ToolboxModule, ObservableObject {
         guard !isLocked else { return true }
         finishKillSwitchReleaseGrace()
 
-        guard AXIsProcessTrusted() else {
+        guard PermissionsManager.isProcessTrusted() else {
             PermissionsManager.shared.refresh()
             PermissionsManager.shared.promptAndOpenSettings()
             DeveloperEventLog.shared.record(.cleanLock, "Lock refused (Accessibility not granted)")

@@ -15,6 +15,9 @@ struct DeveloperScreenOCRView: View {
             failedCaptureSection
             selfCheckSection
         }
+        .onAppear {
+            module.refreshScreenPermission()
+        }
     }
 
     // MARK: - Failed Capture Evidence
@@ -129,7 +132,7 @@ struct DeveloperScreenOCRView: View {
                     "Recognition Settings",
                     subtitle: "What the pipeline will use (live from your Screen OCR settings)."
                 ) {
-                    Text("\(module.config.recognitionLevel.label) · QR \(module.config.detectQRCodes ? "on" : "off") · line breaks \(module.config.preserveLineBreaks ? "on" : "off") · toast \(module.config.showToast ? "on" : "off") · shortcut \(module.config.shortcut.isEmpty ? "unbound" : module.config.shortcut.displayString)")
+                    Text("Accurate · QR \(module.config.detectQRCodes ? "on" : "off") · line breaks \(module.config.preserveLineBreaks ? "on" : "off") · toast \(module.config.showToast ? "on" : "off") · shortcut \(module.config.shortcut.isEmpty ? "unbound" : module.config.shortcut.displayString)")
                         .font(.caption.monospaced())
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
@@ -147,7 +150,10 @@ struct DeveloperScreenOCRView: View {
         ) {
             VStack(spacing: 10) {
                 HStack(spacing: 8) {
-                    Button(module.isRunningPipelineTest ? "Capturing…" : "Interactive Region Test") {
+                    let isInteractiveRunning = module.isRunningPipelineTest && module.pipelineReport?.kind == .interactive
+                    let isFullScreenRunning = module.isRunningPipelineTest && module.pipelineReport?.kind == .fullScreen
+
+                    Button(isInteractiveRunning ? "Capturing…" : "Interactive Region Test") {
                         module.runPipelineTest(interactive: true)
                     }
                     .buttonStyle(.borderedProminent)
@@ -155,7 +161,7 @@ struct DeveloperScreenOCRView: View {
                     .disabled(module.isRunningPipelineTest || module.isCaptureInFlight)
                     .pointerCursor(!module.isRunningPipelineTest && !module.isCaptureInFlight)
 
-                    Button("Full-Screen Control") {
+                    Button(isFullScreenRunning ? "Capturing…" : "Full-Screen Control") {
                         module.runPipelineTest(interactive: false)
                     }
                     .buttonStyle(.bordered)
@@ -165,6 +171,12 @@ struct DeveloperScreenOCRView: View {
 
                     if module.isRunningPipelineTest {
                         ProgressView().controlSize(.small)
+                        Button("Cancel") {
+                            module.cancelPipelineTest()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .pointerCursor()
                     }
 
                     Spacer()
@@ -174,6 +186,12 @@ struct DeveloperScreenOCRView: View {
                             text: report.hasFailure ? "Failed" : "Passed",
                             color: report.hasFailure ? .red : .green
                         )
+                        Button("Clear") {
+                            module.clearPipelineReport()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .pointerCursor()
                     }
                 }
 
@@ -183,9 +201,13 @@ struct DeveloperScreenOCRView: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 if module.isRunningPipelineTest {
-                    Text("Wait for the crosshair, then drag a region over text you expect to be recognized.")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.blue)
+                    Text(
+                        module.pipelineReport?.kind == .interactive
+                            ? "Wait for the crosshair, then drag a region over text you expect to be recognized."
+                            : "Capturing full main screen…"
+                    )
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.blue)
                 }
 
                 if let report = module.pipelineReport {
@@ -311,7 +333,7 @@ struct DeveloperScreenOCRView: View {
             VStack(spacing: 0) {
                 SettingRow(
                     "Run OCR Self-Check",
-                    subtitle: "Uses your configured recognition level (\(module.config.recognitionLevel.label), QR \(module.config.detectQRCodes ? "on" : "off"))."
+                    subtitle: "Uses accurate recognition (QR \(module.config.detectQRCodes ? "on" : "off"))."
                 ) {
                     HStack(spacing: 8) {
                         if module.isRunningSelfCheck {

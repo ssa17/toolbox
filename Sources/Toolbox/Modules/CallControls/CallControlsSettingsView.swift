@@ -231,21 +231,20 @@ struct CallControlsSettingsView: View {
 
                 Spacer()
 
-                VStack(alignment: .trailing, spacing: 6) {
-                    Button("Grant Permission…") {
+                VStack(alignment: .trailing, spacing: 8) {
+                    Button(permissions.isAwaitingAccessibilityGrant ? "Open Settings…" : "Grant Permission…") {
                         permissions.promptAndOpenSettings()
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(.orange)
-                    .controlSize(.small)
                     .pointerCursor()
 
-                    Button("Reset Entry") {
+                    Button(permissions.isResettingAccessibility ? "Resetting…" : "Reset Entry") {
                         permissions.resetAndRegrantAccessibility()
                     }
                     .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .pointerCursor()
+                    .disabled(permissions.isResettingAccessibility)
+                    .pointerCursor(!permissions.isResettingAccessibility)
                 }
             }
         }

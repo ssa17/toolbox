@@ -6,6 +6,7 @@ enum SidebarDestination: Hashable {
     case module(String)
     case jsonConfig
     case settings
+    case support
     case developer(DeveloperSection)
 
     @MainActor
@@ -16,6 +17,7 @@ enum SidebarDestination: Hashable {
             return ModuleRegistry.shared.module(withID: id)?.name ?? "Module"
         case .jsonConfig: return "JSON Config"
         case .settings: return "Settings & About"
+        case .support: return "Support Toolbox"
         case .developer(let section): return section.title
         }
     }
@@ -235,6 +237,7 @@ struct MainSplitView: View {
     @ObservedObject private var hotKeys = HotKeyManager.shared
     @ObservedObject private var callControls = ModuleRegistry.shared.callControls
     @ObservedObject private var screenOCR = ModuleRegistry.shared.screenOCR
+    @ObservedObject private var supportState = SupportState.shared
 
     var body: some View {
         HStack(spacing: 0) {
@@ -273,6 +276,8 @@ struct MainSplitView: View {
                         ConfigEditorView()
                     case .settings:
                         SettingsView()
+                    case .support:
+                        SupportView()
                     case .developer(let section):
                         if developerMode.isUnlocked {
                             DeveloperToolsView(section: section)
@@ -309,9 +314,35 @@ struct MainSplitView: View {
                 .pointerCursor()
             }
         }
-        .sheet(isPresented: $permissions.isPresentingOnboardingModal) {
-            AccessibilityOnboardingModalView(permissions: permissions)
+        .overlay {
+            if permissions.isPresentingOnboardingModal {
+                ZStack {
+                    Color.black.opacity(0.45)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .ignoresSafeArea()
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            permissions.dismissOnboardingModal(markSeen: true)
+                        }
+
+                    AccessibilityOnboardingModalView(permissions: permissions)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(Color(nsColor: .windowBackgroundColor))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .strokeBorder(Color.primary.opacity(0.14), lineWidth: 1)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .shadow(color: .black.opacity(0.35), radius: 24, x: 0, y: 10)
+                        .padding(24)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .transition(.opacity)
+            }
         }
+        .animation(.easeInOut(duration: 0.15), value: permissions.isPresentingOnboardingModal)
     }
 
     private var sidebarView: some View {
@@ -373,7 +404,9 @@ struct MainSplitView: View {
                                     .fill(
                                         !module.isEnabled(in: configManager.config)
                                             ? Color.secondary.opacity(0.35)
-                                            : (!configManager.config.general.appEnabled || (module.requiresAccessibility && !permissions.isAccessibilityGranted)
+                                            : (!configManager.config.general.appEnabled
+                                                || (module.requiresAccessibility && !permissions.isAccessibilityGranted)
+                                                || (module as? ScreenOCRModule)?.screenRecordingGranted == false
                                                 ? Color.orange
                                                 : (!module.supportsEnableToggle
                                                     ? (module.isRunning ? Color.red : Color.blue)
@@ -413,6 +446,14 @@ struct MainSplitView: View {
                         destination: .settings,
                         badge: updateManager.pendingUpdateVersion.map { "v\($0)" }
                     )
+                    sidebarConfigItem(
+                        title: "Support Toolbox",
+                        symbol: "heart.fill",
+                        symbolColor: .pink,
+                        destination: .support,
+                        badge: supportState.isSupporterUnlocked ? "★" : nil,
+                        badgeColor: .pink
+                    )
                 }
 
                 if developerMode.isUnlocked {
@@ -445,6 +486,7 @@ struct MainSplitView: View {
     private func sidebarConfigItem(
         title: String,
         symbol: String,
+        symbolColor: Color = .secondary,
         destination: SidebarDestination,
         badge: String? = nil,
         badgeColor: Color = .blue
@@ -455,7 +497,7 @@ struct MainSplitView: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: symbol)
-                    .foregroundStyle(isSelected ? .white : .secondary)
+                    .foregroundStyle(isSelected ? .white : symbolColor)
                     .frame(width: 16)
                 Text(title)
                     .font(.callout)

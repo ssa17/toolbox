@@ -54,6 +54,11 @@ else
   BIN_PATH="$(swift build -c release --show-bin-path)/$APP_NAME"
 fi
 
+PREV_TEAM_ID=""
+if [[ -d "$APP_BUNDLE" ]]; then
+  PREV_TEAM_ID=$(codesign -dv "$APP_BUNDLE" 2>&1 | awk -F= '/^TeamIdentifier=/{print $2}' || true)
+fi
+
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS" \
          "$APP_BUNDLE/Contents/Resources" \
@@ -98,6 +103,9 @@ elif [[ "$NOTARIZE" == "1" ]]; then
   exit 1
 else
   echo "Warning: no Developer ID cert found — using ad-hoc signature"
+  if [[ -n "$PREV_TEAM_ID" && "$PREV_TEAM_ID" != "not set" ]]; then
+    echo "WARNING: Previous bundle was signed with TeamIdentifier=$PREV_TEAM_ID; ad-hoc signing changes the designated requirement and will break macOS Accessibility/Screen Recording TCC permissions." >&2
+  fi
   NOTARIZE=0
   codesign --force --deep -s - "$APP_BUNDLE"
 fi

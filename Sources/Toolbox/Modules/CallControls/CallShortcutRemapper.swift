@@ -457,7 +457,7 @@ final class CallShortcutRemapper: @unchecked Sendable {
                 && (!isCallActivityActive || runningApps.count > 1)
                 && !hasAudioInput
                 && app.pid != frontmostPID
-                && AXIsProcessTrusted()
+                && PermissionsManager.isProcessTrusted()
             let hasControl: Bool? = shouldProbeAX
                 ? inspectCallAppState(pid: app.pid, requiredWindowTitleSubstring: matchingTitleNeedles.first).hasActiveControl
                 : nil
@@ -647,8 +647,12 @@ final class CallShortcutRemapper: @unchecked Sendable {
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             let (shouldRearm, currentTap) = withLock { (isActive, tap) }
-            if shouldRearm, let currentTap {
+            if shouldRearm, PermissionsManager.shouldRearmEventTap(for: type), let currentTap {
                 CGEvent.tapEnable(tap: currentTap, enable: true)
+            } else {
+                Task { @MainActor in
+                    PermissionsManager.shared.refresh()
+                }
             }
             return Unmanaged.passUnretained(event)
         }
@@ -1111,13 +1115,15 @@ final class CallShortcutRemapper: @unchecked Sendable {
 
     @MainActor
     private static func activateApplicationForRelay(pid: pid_t, requiredTitleSubstring: String?) {
-        if let requiredTitleSubstring, !requiredTitleSubstring.isEmpty {
-            _ = raiseMatchingWindowIfNeeded(pid: pid, titleSubstring: requiredTitleSubstring)
-        } else {
-            raiseCallWindowIfNeeded(pid: pid)
+        if PermissionsManager.isProcessTrustedFast() {
+            if let requiredTitleSubstring, !requiredTitleSubstring.isEmpty {
+                _ = raiseMatchingWindowIfNeeded(pid: pid, titleSubstring: requiredTitleSubstring)
+            } else {
+                raiseCallWindowIfNeeded(pid: pid)
+            }
+            let appElem = AXUIElementCreateApplication(pid)
+            AXUIElementSetAttributeValue(appElem, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
         }
-        let appElem = AXUIElementCreateApplication(pid)
-        AXUIElementSetAttributeValue(appElem, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
         if let app = NSRunningApplication(processIdentifier: pid) {
             NSApp.yieldActivation(to: app)
             _ = app.activate()
@@ -1307,7 +1313,7 @@ final class CallShortcutRemapper: @unchecked Sendable {
         pid: pid_t,
         requiredWindowTitleSubstring: String? = nil
     ) -> (isMuted: Bool?, hasActiveControl: Bool) {
-        guard AXIsProcessTrusted() else { return (nil, false) }
+        guard PermissionsManager.isProcessTrusted() else { return (nil, false) }
         let appElem = AXUIElementCreateApplication(pid)
         AXUIElementSetAttributeValue(appElem, "AXManualAccessibility" as CFString, kCFBooleanTrue)
 
@@ -1378,7 +1384,7 @@ final class CallShortcutRemapper: @unchecked Sendable {
         action: CallActionKind,
         requiredTitleSubstring: String?
     ) -> Bool {
-        guard AXIsProcessTrusted() else { return false }
+        guard PermissionsManager.isProcessTrusted() else { return false }
         let appElem = AXUIElementCreateApplication(pid)
         AXUIElementSetAttributeValue(appElem, "AXManualAccessibility" as CFString, kCFBooleanTrue)
 
@@ -1416,7 +1422,7 @@ final class CallShortcutRemapper: @unchecked Sendable {
     }
 
     private static func focusWebAreaIfNeeded(pid: pid_t, requiredTitleSubstring: String?) -> Bool {
-        guard AXIsProcessTrusted() else { return false }
+        guard PermissionsManager.isProcessTrusted() else { return false }
         let windows = targetWindows(for: pid, requiredTitleSubstring: requiredTitleSubstring)
         guard let targetWin = windows.first else { return false }
 
@@ -1675,6 +1681,7 @@ final class CallShortcutRemapper: @unchecked Sendable {
         action: CallActionKind,
         performPress: Bool
     ) -> AXMenuTriggerOutcome {
+        guard PermissionsManager.isProcessTrustedFast() else { return .notFound }
         guard !shortcut.isEmpty else { return .notFound }
         let targetKey = shortcut.key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard targetKey.count == 1 else { return .notFound }
@@ -1870,7 +1877,7 @@ final class CallShortcutRemapper: @unchecked Sendable {
         let running = NSWorkspace.shared.runningApplications.first { app in
             !app.isTerminated && (app.bundleIdentifier?.caseInsensitiveCompare(bundleID) == .orderedSame)
         }
-        let axGranted = AXIsProcessTrusted()
+        let axGranted = PermissionsManager.isProcessTrusted()
         guard let running, axGranted else {
             return InspectedAppControls(
                 bundleIdentifier: bundleID,
@@ -1987,6 +1994,7 @@ final class CallShortcutRemapper: @unchecked Sendable {
     }
 
     private static func focusedWindowTitle(for pid: pid_t) -> String? {
+        guard PermissionsManager.isProcessTrustedFast() else { return nil }
         let appElem = AXUIElementCreateApplication(pid)
         var focusedWindowRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(appElem, kAXFocusedWindowAttribute as CFString, &focusedWindowRef) == .success,
@@ -1998,16 +2006,18 @@ final class CallShortcutRemapper: @unchecked Sendable {
 
     static func allWindowTitles(for pid: pid_t) -> [String] {
         var titles: [String] = []
-        let appElem = AXUIElementCreateApplication(pid)
-        if let focused = focusedWindowTitle(for: pid) {
-            titles.append(focused)
-        }
-        var windowsRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(appElem, kAXWindowsAttribute as CFString, &windowsRef) == .success,
-           let windows = windowsRef as? [AXUIElement] {
-            for win in windows.prefix(12) {
-                if let title = windowTitle(of: win), !titles.contains(title) {
-                    titles.append(title)
+        if PermissionsManager.isProcessTrustedFast() {
+            let appElem = AXUIElementCreateApplication(pid)
+            if let focused = focusedWindowTitle(for: pid) {
+                titles.append(focused)
+            }
+            var windowsRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(appElem, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+               let windows = windowsRef as? [AXUIElement] {
+                for win in windows.prefix(12) {
+                    if let title = windowTitle(of: win), !titles.contains(title) {
+                        titles.append(title)
+                    }
                 }
             }
         }

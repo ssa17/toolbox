@@ -45,9 +45,10 @@ enum SelfTestRunner {
         testScreenOCREngineRecognition()
         testMultiScreenOnboardingClipboardScrollAndMicSync()
         testSupportLinks()
+        testPermissionsFlowAndPointerCursorSheetDealloc()
 
         if failures.isEmpty {
-            print("All 32 self-test suites passed.")
+            print("All 33 self-test suites passed.")
             return 0
         } else {
             for f in failures {
@@ -202,7 +203,6 @@ enum SelfTestRunner {
         expect(cfg.general.dockQuitBehavior == .closeWindow, "Dock Quit behavior should default to closeWindow")
         expect(!cfg.keepAwake.enabled, "KeepAwake should default to disabled (off by default)")
         expect(!cfg.screenOCR.enabled, "ScreenOCR should default to disabled (off by default)")
-        expect(cfg.screenOCR.recognitionLevel == .accurate, "ScreenOCR should default to accurate recognition")
         expect(cfg.screenOCR.shortcut == ShortcutSpec(key: "0", modifiers: [.command, .shift]), "ScreenOCR default shortcut should be ⇧ ⌘ 0")
         expect(!cfg.customCommands.enabled, "CustomCommands should default to disabled (off by default)")
         expect(!cfg.scrollDirection.enabled, "ScrollDirection should default to disabled (off by default)")
@@ -449,6 +449,7 @@ enum SelfTestRunner {
             // 3. Verify all other destinations keep PointerCursorNSView tightly scoped to clickable controls (not empty areas).
             let destinations: [(String, SidebarDestination, NSPoint)] = [
                 ("settings", .settings, NSPoint(x: 350, y: 600)),
+                ("support", .support, NSPoint(x: 500, y: 600)),
                 ("jsonConfig", .jsonConfig, NSPoint(x: 500, y: 350)),
                 ("dock_minimize", .module("dock_minimize"), NSPoint(x: 500, y: 600)),
                 ("clipboard", .module("clipboard"), NSPoint(x: 500, y: 600)),
@@ -2178,7 +2179,6 @@ enum SelfTestRunner {
         // Defaults
         let cfg = ToolboxConfig()
         expect(!cfg.screenOCR.enabled, "ScreenOCR should default to disabled")
-        expect(cfg.screenOCR.recognitionLevel == .accurate, "ScreenOCR should default to accurate recognition")
         expect(cfg.screenOCR.preserveLineBreaks, "ScreenOCR should default to preserving line breaks")
         expect(cfg.screenOCR.detectQRCodes, "ScreenOCR should default to detecting QR/barcodes")
         expect(cfg.screenOCR.showToast, "ScreenOCR should default to showing toasts")
@@ -2190,7 +2190,6 @@ enum SelfTestRunner {
         // Codable round-trip
         var customCfg = ToolboxConfig()
         customCfg.screenOCR.enabled = true
-        customCfg.screenOCR.recognitionLevel = .fast
         customCfg.screenOCR.preserveLineBreaks = false
         customCfg.screenOCR.detectQRCodes = false
         customCfg.screenOCR.showToast = false
@@ -2214,11 +2213,12 @@ enum SelfTestRunner {
             failures.append("Failed to decode pre-ScreenOCR JSON config")
         }
 
-        // A partial screenOCR object must fill missing keys with safe defaults.
+        // A partial screenOCR object (including removed legacy keys like recognitionLevel)
+        // must decode cleanly and fill missing keys with safe defaults.
         let partialJSON = "{\"schemaVersion\": 10, \"screenOCR\": {\"enabled\": true, \"recognitionLevel\": \"fast\"}}"
         if let data = partialJSON.data(using: .utf8),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(decoded.screenOCR.enabled && decoded.screenOCR.recognitionLevel == .fast, "Partial screenOCR decode mismatch")
+            expect(decoded.screenOCR.enabled, "Partial screenOCR decode mismatch")
             expect(
                 decoded.screenOCR.preserveLineBreaks && decoded.screenOCR.detectQRCodes && decoded.screenOCR.showToast,
                 "Partial screenOCR should fill missing fields with defaults"
@@ -2319,7 +2319,6 @@ enum SelfTestRunner {
         var selfCheckCfg = ToolboxConfig()
         selfCheckCfg.screenOCR.enabled = true
         selfCheckCfg.screenOCR.shortcut = .none
-        selfCheckCfg.screenOCR.recognitionLevel = .accurate
         selfCheckCfg.screenOCR.detectQRCodes = true
         module.reload(with: selfCheckCfg)
         module.clearSelfCheckResults()
@@ -2500,13 +2499,13 @@ enum SelfTestRunner {
             lines: ["Toolbox Vision OCR 42", "second line here", "third line here"],
             fontSize: 64
         ) {
-            let result = ScreenOCREngine.recognize(in: image, recognitionLevel: .accurate, preserveLineBreaks: true, detectBarcodes: false)
+            let result = ScreenOCREngine.recognize(in: image, preserveLineBreaks: true, detectBarcodes: false)
             expect(result.text.contains("Toolbox Vision OCR 42"), "Vision OCR must recognize the rendered headline (got: \(result.text))")
             expect(result.text.contains("second line here"), "Vision OCR must recognize the second line (got: \(result.text))")
             expect(result.lineCount == 3, "Vision OCR should produce 3 lines (got: \(result.lineCount): \(result.text))")
             expect(!result.text.contains("third line here") || result.lineCount == 3, "Recognized output should stay on 3 lines")
 
-            let joinedResult = ScreenOCREngine.recognize(in: image, recognitionLevel: .accurate, preserveLineBreaks: false, detectBarcodes: false)
+            let joinedResult = ScreenOCREngine.recognize(in: image, preserveLineBreaks: false, detectBarcodes: false)
             expect(
                 !joinedResult.text.contains("\n") && joinedResult.text.contains("Toolbox Vision OCR 42"),
                 "preserveLineBreaks=false must join lines with spaces (got: \(joinedResult.text))"
@@ -2515,7 +2514,7 @@ enum SelfTestRunner {
             // Empty image (blank white bitmap) must recognize as empty, not crash — and a
             // bright blank is NOT the near-black permission signature.
             if let blank = Self.drawTestImage(width: 300, height: 200, lines: [""], fontSize: 40) {
-                let blankResult = ScreenOCREngine.recognize(in: blank, recognitionLevel: .fast, preserveLineBreaks: true, detectBarcodes: true)
+                let blankResult = ScreenOCREngine.recognize(in: blank, preserveLineBreaks: true, detectBarcodes: true)
                 expect(blankResult.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, "Blank image must produce no text (got: \(blankResult.text))")
                 expect(blankResult.isEmpty, "Blank image must produce an empty result")
                 expect(!blankResult.looksBlank, "Bright blank image must not flag looksBlank")
@@ -2524,7 +2523,7 @@ enum SelfTestRunner {
             // A near-black image is the classic Screen Recording permission failure
             // signature: empty result + looksBlank must both be true.
             if let black = Self.drawTestImage(width: 300, height: 200, lines: [""], fontSize: 40, background: .black) {
-                let blackResult = ScreenOCREngine.recognize(in: black, recognitionLevel: .fast, preserveLineBreaks: true, detectBarcodes: true)
+                let blackResult = ScreenOCREngine.recognize(in: black, preserveLineBreaks: true, detectBarcodes: true)
                 expect(blackResult.isEmpty, "Black image must produce an empty result")
                 expect(blackResult.looksBlank, "Near-black image must flag looksBlank")
             }
@@ -2538,7 +2537,7 @@ enum SelfTestRunner {
         let cancelled = ScreenOCREngine.loadCapturedImage(at: missingURL)
         expect(cancelled.kind == .cancelled && cancelled.image == nil, "Missing capture file must map to .cancelled")
         expect(
-            ScreenOCREngine.recognizeFile(at: missingURL, recognitionLevel: .accurate, preserveLineBreaks: true, detectBarcodes: true) == nil,
+            ScreenOCREngine.recognizeFile(at: missingURL, preserveLineBreaks: true, detectBarcodes: true) == nil,
             "recognizeFile on a missing file must return nil (clean Esc cancellation)"
         )
 
@@ -2564,7 +2563,6 @@ enum SelfTestRunner {
 
             let fileResult = ScreenOCREngine.recognizeFile(
                 at: fileURL,
-                recognitionLevel: .accurate,
                 preserveLineBreaks: true,
                 detectBarcodes: true
             )
@@ -2578,7 +2576,7 @@ enum SelfTestRunner {
         // combinedOutput helper was tested, never the barcode request itself.
         if let qr = ScreenOCREngine.qrCodeImage(payload: "https://toolbox.dev/self-test", targetSize: 240) {
             if let framed = Self.frameImage(qr, in: 320, margin: 16) {
-                let qrResult = ScreenOCREngine.recognize(in: framed, recognitionLevel: .fast, preserveLineBreaks: true, detectBarcodes: true)
+                let qrResult = ScreenOCREngine.recognize(in: framed, preserveLineBreaks: true, detectBarcodes: true)
                 expect(
                     qrResult.qrPayloads.contains("https://toolbox.dev/self-test"),
                     "Vision must decode the generated QR code (got: \(qrResult.qrPayloads))"
@@ -2599,7 +2597,6 @@ enum SelfTestRunner {
         if let sample = ScreenOCREngine.makeSelfCheckSample() {
             let sampleResult = ScreenOCREngine.recognize(
                 in: ScreenOCREngine.prepareImage(sample),
-                recognitionLevel: .fast,
                 preserveLineBreaks: true,
                 detectBarcodes: true
             )
@@ -2613,6 +2610,24 @@ enum SelfTestRunner {
             )
         } else {
             failures.append("Could not render the developer self-check sample")
+        }
+
+        // 10. Transparent images must not false-positive as uniform black.
+        if let srgb = CGColorSpace(name: CGColorSpace.sRGB),
+           let transparentCtx = CGContext(
+               data: nil,
+               width: 64,
+               height: 64,
+               bitsPerComponent: 8,
+               bytesPerRow: 0,
+               space: srgb,
+               bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+           ),
+           let transparentImage = transparentCtx.makeImage() {
+            expect(
+                !ScreenOCREngine.imageLooksBlank(transparentImage),
+                "Transparent image must not trip the uniform-black permission gate"
+            )
         }
     }
 
@@ -3099,5 +3114,185 @@ enum SelfTestRunner {
         expect(SupportLinks.koFi.scheme == "https", "Ko-fi URL must use https")
         expect(SupportLinks.koFi.host == "ko-fi.com", "Ko-fi URL host mismatch")
         expect(SupportLinks.koFi.path == "/ssa17", "Ko-fi URL path mismatch")
+        expect(SupportLinks.githubRepo.scheme == "https", "GitHub Repo URL must use https")
+        expect(SupportLinks.githubRepo.host == "github.com", "GitHub Repo URL host mismatch")
+        expect(SupportLinks.githubRepo.path == "/ssa17/toolbox", "GitHub Repo URL path mismatch")
+        expect(SupportLinks.githubIssues.scheme == "https", "GitHub Issues URL must use https")
+        expect(SupportLinks.githubIssues.host == "github.com", "GitHub Issues URL host mismatch")
+        expect(SupportLinks.githubIssues.path == "/ssa17/toolbox/issues", "GitHub Issues URL path mismatch")
+
+        expect(SupportFuelTier.allCases.count == 3, "SupportFuelTier must expose 3 fuel tiers")
+        for tier in SupportFuelTier.allCases {
+            expect(!tier.title.isEmpty && !tier.description.isEmpty && !tier.devReaction.isEmpty && !tier.checkoutNote.isEmpty,
+                   "SupportFuelTier \(tier.rawValue) fields must be non-empty")
+        }
+
+        let suiteName = "com.toolbox.selfTest.support.\(UUID().uuidString)"
+        guard let testDefaults = UserDefaults(suiteName: suiteName) else {
+            failures.append("Failed to allocate isolated UserDefaults suite for SupportState")
+            return
+        }
+        defer { testDefaults.removePersistentDomain(forName: suiteName) }
+
+        let state = SupportState(userDefaults: testDefaults)
+        expect(state.highFiveCount == 0, "Fresh SupportState highFiveCount must start at 0")
+        expect(state.highFiveStatusMessage == nil, "Fresh SupportState must have nil highFiveStatusMessage")
+        expect(!state.isSupporterUnlocked, "Fresh SupportState must start with supporter badge locked")
+        expect(state.selectedFuel == .espresso, "Fresh SupportState must default to espresso tier")
+
+        expect(state.sendHighFive() == 1, "First high-five must return 1")
+        expect(state.highFiveStatusMessage != nil, "High-five status message must appear after tapping")
+        state.toggleSupporterBadge()
+        expect(state.isSupporterUnlocked, "toggleSupporterBadge must unlock supporter badge")
+        state.selectedFuel = .notarization
+
+        let reloaded = SupportState(userDefaults: testDefaults)
+        expect(reloaded.highFiveCount == 1, "SupportState must persist highFiveCount")
+        expect(reloaded.isSupporterUnlocked, "SupportState must persist isSupporterUnlocked")
+        expect(reloaded.selectedFuel == .notarization, "SupportState must persist selectedFuel")
+    }
+
+    private static func testPermissionsFlowAndPointerCursorSheetDealloc() {
+        // 1. Direct Privacy & Security deep-link URLs
+        expect(
+            PermissionsManager.accessibilitySettingsURL.absoluteString == "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility",
+            "Accessibility settings URL must target PrivacySecurity extension Privacy_Accessibility anchor"
+        )
+        expect(
+            PermissionsManager.legacyAccessibilitySettingsURL.absoluteString == "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+            "Legacy Accessibility fallback URL mismatch"
+        )
+        expect(
+            PermissionsManager.screenRecordingSettingsURL.absoluteString == "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ScreenCapture",
+            "Screen Recording settings URL must target PrivacySecurity extension Privacy_ScreenCapture anchor"
+        )
+
+        // 2. Return-to-app decision helper only triggers on false -> true transition while awaiting in live mode
+        expect(
+            PermissionsManager.shouldReturnToAppOnGrant(
+                isAwaiting: true,
+                wasGranted: false,
+                nowGranted: true,
+                isDiagnosticMode: false,
+                simulatedOverride: nil
+            ),
+            "Must return to app when Accessibility flips false -> true while awaiting"
+        )
+        expect(
+            !PermissionsManager.shouldReturnToAppOnGrant(
+                isAwaiting: false,
+                wasGranted: false,
+                nowGranted: true,
+                isDiagnosticMode: false,
+                simulatedOverride: nil
+            ),
+            "Must NOT steal focus when not awaiting a permission grant"
+        )
+        expect(
+            !PermissionsManager.shouldReturnToAppOnGrant(
+                isAwaiting: true,
+                wasGranted: true,
+                nowGranted: true,
+                isDiagnosticMode: false,
+                simulatedOverride: nil
+            ),
+            "Must NOT return to app when permission was already granted"
+        )
+        expect(
+            !PermissionsManager.shouldReturnToAppOnGrant(
+                isAwaiting: true,
+                wasGranted: false,
+                nowGranted: true,
+                isDiagnosticMode: true,
+                simulatedOverride: nil
+            ),
+            "Diagnostic CLI runs must never activate the app window"
+        )
+        expect(
+            !PermissionsManager.shouldReturnToAppOnGrant(
+                isAwaiting: true,
+                wasGranted: false,
+                nowGranted: true,
+                isDiagnosticMode: false,
+                simulatedOverride: false
+            ),
+            "Simulated Accessibility override must not trigger return-to-app activation"
+        )
+
+        // 3. PointerCursorNSView must never crash (objc_initWeak on deallocating NSWindow)
+        // when a sheet/window with isReleasedWhenClosed = true closes while hovered.
+        let mouse = NSEvent.mouseLocation
+        autoreleasepool {
+            var sheetLikeWindow: NSWindow? = NSWindow(
+                contentRect: NSRect(x: mouse.x - 100, y: mouse.y - 100, width: 200, height: 200),
+                styleMask: [.borderless],
+                backing: .buffered,
+                defer: false
+            )
+            sheetLikeWindow?.isReleasedWhenClosed = false
+            let pointerView = PointerCursorNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+            sheetLikeWindow?.contentView = pointerView
+            sheetLikeWindow?.orderFrontRegardless()
+            pointerView.reapplyCursorIfHovered()
+            sheetLikeWindow?.close()
+            sheetLikeWindow = nil
+        }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        PointerCursorNSView.syncVisibleWindowUnderMouseOrResetCursor()
+
+        // 4. PermissionsManager live state guards
+        let perms = PermissionsManager.shared
+        let prevSim = perms.simulatedAccessibilityGranted
+        let prevReturnHook = perms.onReturnToAppRequested
+        defer {
+            perms.setSimulatedAccessibilityGranted(prevSim)
+            perms.onReturnToAppRequested = prevReturnHook
+            perms.setAwaitingGrantForTesting(false)
+            perms.markAttemptedGrantWithoutSuccessForTesting(false)
+            perms.refresh()
+        }
+
+        if perms.actualAccessibilityGranted {
+            perms.setSimulatedAccessibilityGranted(false)
+            perms.promptAndOpenSettings()
+            expect(!perms.isAwaitingAccessibilityGrant, "Must NOT enter awaiting/prompt flow when real Accessibility is already granted")
+        }
+
+        perms.markAttemptedGrantWithoutSuccessForTesting(true)
+        expect(perms.hasAttemptedGrantWithoutSuccess, "Attempted-grant diagnostic flag must update")
+        perms.applyAccessibilityStateForTesting(wasGranted: false, nowGranted: true)
+        expect(!perms.hasAttemptedGrantWithoutSuccess, "Granting Accessibility must clear stale-entry warning flag")
+        expect(!perms.isAwaitingAccessibilityGrant, "Granting Accessibility must stop fast awaiting poll")
+        // 5. Event tap re-arm guard must never re-enable on tapDisabledByUserInput or untrusted state
+        expect(
+            PermissionsManager.shouldRearmEventTap(for: .tapDisabledByTimeout, isTrusted: true),
+            "Event tap should re-arm on timeout when Accessibility is trusted"
+        )
+        expect(
+            !PermissionsManager.shouldRearmEventTap(for: .tapDisabledByTimeout, isTrusted: false),
+            "Event tap must NOT re-arm on timeout when Accessibility is revoked"
+        )
+        expect(
+            !PermissionsManager.shouldRearmEventTap(for: .tapDisabledByUserInput, isTrusted: true),
+            "Event tap must NEVER re-arm on tapDisabledByUserInput"
+        )
+        expect(
+            !PermissionsManager.shouldRearmEventTap(for: .tapDisabledByUserInput, isTrusted: false),
+            "Event tap must NEVER re-arm on tapDisabledByUserInput when untrusted"
+        )
+
+        // 6. Uncached TCCAccessCheckAuditToken symbol & HIServices cache synchronization
+        expect(
+            PermissionsManager.tccCheckAccessibilityGranted() != nil,
+            "TCCAccessCheckAuditToken must resolve from TCC.framework for kTCCServiceAccessibility"
+        )
+        expect(
+            PermissionsManager.tccCheckAccessibilityGranted() == PermissionsManager.isProcessTrusted(),
+            "isProcessTrusted() must match uncached TCCAccessCheckAuditToken for kTCCServiceAccessibility"
+        )
+        expect(
+            PermissionsManager.isProcessTrustedFast() == PermissionsManager.isProcessTrusted(),
+            "isProcessTrustedFast() must stay synchronized with isProcessTrusted()"
+        )
     }
 }
