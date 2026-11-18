@@ -14,6 +14,7 @@ struct SettingsView: View {
     @ObservedObject private var registry = ModuleRegistry.shared
     @ObservedObject private var screenOCR = ModuleRegistry.shared.screenOCR
     @ObservedObject private var developerMode = DeveloperModeManager.shared
+    @ObservedObject private var supportState = SupportState.shared
     @StateObject private var dragState = MenuBarCustomizationDragState()
 
     private var versionString: String {
@@ -256,6 +257,10 @@ struct SettingsView: View {
                                     .onTapGesture {
                                         developerMode.registerAboutHeaderTap()
                                     }
+
+                                if supportState.isSupporterUnlocked {
+                                    StatusBadge(text: "Supporter ♥", color: .pink)
+                                }
 
                                 if let hint = developerMode.unlockProgressHint {
                                     Text(hint)

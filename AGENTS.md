@@ -43,7 +43,11 @@ Instructions and conventions for human contributors and AI coding agents working
 
 ## Build, Signing, Notarization & Testing
 
-See **[`docs/testing.md`](docs/testing.md)** for the full iterative debugging, isolated configuration (`TOOLBOX_CONFIG_DIR`, `--self-test`), and visual UI snapshot (`--snapshot-ui`) workflow. Always verify changes before finishing:
+See **[`docs/testing.md`](docs/testing.md)** for the full iterative debugging, isolated configuration (`TOOLBOX_CONFIG_DIR`, `--self-test`), and visual UI snapshot (`--snapshot-ui`) workflow.
+
+> **Signing & TCC Permission Invariant:** Never overwrite `./build/Toolbox.app` with an ad-hoc build (`codesign -s -` or `--allow-adhoc`). Switching `./build/Toolbox.app` between `Developer ID Application` and ad-hoc changes its Designated Requirement (`TeamIdentifier` vs `cdhash`) and breaks macOS Accessibility/Screen Recording TCC permissions. If running in an environment without Keychain access, build into an isolated path instead: `APP_BUNDLE=.work/Toolbox-dev.app ./scripts/build-app.sh --fast --allow-adhoc`.
+
+Always verify changes before finishing:
 
 1. Iterate quickly with debug builds & visual snapshots:
    ```bash

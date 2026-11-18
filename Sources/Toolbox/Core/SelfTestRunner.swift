@@ -3145,6 +3145,21 @@ enum SelfTestRunner {
         let reloaded = SupportState(userDefaults: testDefaults)
         expect(reloaded.highFiveCount == 1, "SupportState must persist highFiveCount")
         expect(reloaded.isSupporterUnlocked, "SupportState must persist isSupporterUnlocked")
+
+        let sampleBase = NSImage(size: NSSize(width: 256, height: 256))
+        sampleBase.lockFocus()
+        NSColor(calibratedRed: 89/255.0, green: 176/255.0, blue: 1.0, alpha: 1.0).setFill()
+        NSRect(x: 0, y: 0, width: 256, height: 256).fill()
+        sampleBase.unlockFocus()
+        let badged = SupportState.makeSupporterDockIcon(from: sampleBase)
+        expect(badged.size == NSSize(width: 512, height: 512), "Supporter Dock icon must render at 512x512")
+        if let tiff = badged.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+           let center = rep.colorAt(x: 128, y: 128) {
+            expect(center.redComponent > center.blueComponent && center.greenComponent > center.blueComponent,
+                   "Supporter Dock icon must tint blue accent pixels toward warm gold (got r=\(center.redComponent), g=\(center.greenComponent), b=\(center.blueComponent))")
+        } else {
+            failures.append("Supporter Dock icon must produce valid bitmap representation")
+        }
     }
 
     private static func testPermissionsFlowAndPointerCursorSheetDealloc() {

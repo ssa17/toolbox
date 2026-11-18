@@ -181,7 +181,7 @@ struct SupportView: View {
                                 .font(.title3.weight(.semibold))
 
                             if supportState.isSupporterUnlocked {
-                                StatusBadge(text: "Supporter ★", color: .pink)
+                                StatusBadge(text: "Supporter ♥", color: .pink)
                             }
                         }
 

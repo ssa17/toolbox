@@ -55,6 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if pendingReopenAt > 0 {
             UserDefaults.standard.removeObject(forKey: ScreenOCRModule.pendingReopenToastKey)
         }
+        SupportState.shared.syncDockIconBadge()
 
         if configManager.config.general.openDashboardOnLaunch || didReopenAfterScreenGrant {
             MainWindowController.shared.show(destination: .dashboard)

@@ -212,6 +212,19 @@ enum SnapshotRunner {
             to: outURL.appendingPathComponent("support.png")
         )
 
+        if let icnsURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let baseIcon = NSImage(contentsOf: icnsURL) {
+            let supporterIcon = SupportState.makeSupporterDockIcon(from: baseIcon)
+            saveViewSnapshot(
+                Image(nsImage: supporterIcon)
+                    .resizable()
+                    .frame(width: 256, height: 256)
+                    .padding(16),
+                size: NSSize(width: 288, height: 288),
+                to: outURL.appendingPathComponent("supporter_dock_icon.png")
+            )
+        }
+
         let navSettings = NavigationState()
         navSettings.selection = .settings
         navSettings.isSidebarVisible = true

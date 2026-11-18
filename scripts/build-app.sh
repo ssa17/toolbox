@@ -8,7 +8,7 @@ APP_NAME="Toolbox"
 VERSION="$(tr -d '[:space:]' < "$ROOT_DIR/VERSION")"
 BUILD_NUMBER="${BUILD_NUMBER:-$VERSION}"
 BUILD_DIR="$ROOT_DIR/build"
-APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
+APP_BUNDLE="${APP_BUNDLE:-$BUILD_DIR/$APP_NAME.app}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-notary-profile}"
 
 NOTARIZE=2  # 2 = auto (re-notarize if previous build was notarized), 1 = force, 0 = skip
@@ -38,15 +38,25 @@ cd "$ROOT_DIR"
 
 # Resolve signing identity BEFORE touching the existing bundle so a locked/sandboxed Keychain
 # can never silently downgrade a Developer ID build to ad-hoc and break macOS TCC permissions.
+PREV_TEAM_ID=""
+if [[ -d "$APP_BUNDLE" ]]; then
+  PREV_TEAM_ID=$(codesign -dv "$APP_BUNDLE" 2>&1 | awk -F= '/^TeamIdentifier=/{print $2}' || true)
+fi
+
 CERT=$(security find-identity -v -p codesigning 2>/dev/null | grep -m1 "Developer ID Application" | awk -F'"' '{print $2}' || true)
 if [[ -z "$CERT" ]]; then
   if [[ "$NOTARIZE" == "1" ]]; then
     echo "error: --notarize requires a 'Developer ID Application' certificate in Keychain" >&2
     exit 1
+  elif [[ -n "$PREV_TEAM_ID" && "$PREV_TEAM_ID" != "not set" ]]; then
+    echo "error: refusing to overwrite Developer ID-signed bundle ($APP_BUNDLE, TeamIdentifier=$PREV_TEAM_ID) with an ad-hoc build." >&2
+    echo "Overwriting a signed bundle with ad-hoc changes the designated requirement and breaks macOS Accessibility/Screen Recording TCC permissions." >&2
+    echo "Either run with Keychain access, or build to an isolated path: APP_BUNDLE=.work/Toolbox-dev.app $0 --fast --allow-adhoc" >&2
+    exit 1
   elif [[ "$ALLOW_ADHOC" != "1" ]]; then
     echo "error: no 'Developer ID Application' certificate found in Keychain." >&2
     echo "Refusing to silently fall back to ad-hoc signing because changing the designated requirement breaks macOS Accessibility/Screen Recording TCC permissions." >&2
-    echo "Unlock your Keychain (or run outside a sandboxed shell), or pass --allow-adhoc explicitly." >&2
+    echo "Unlock your Keychain (or run outside a sandboxed shell), or build to an isolated path with: APP_BUNDLE=.work/Toolbox-dev.app $0 --fast --allow-adhoc" >&2
     exit 1
   fi
 fi
@@ -69,11 +79,6 @@ if [[ "$FAST" == "1" ]]; then
 else
   swift build -c release
   BIN_PATH="$(swift build -c release --show-bin-path)/$APP_NAME"
-fi
-
-PREV_TEAM_ID=""
-if [[ -d "$APP_BUNDLE" ]]; then
-  PREV_TEAM_ID=$(codesign -dv "$APP_BUNDLE" 2>&1 | awk -F= '/^TeamIdentifier=/{print $2}' || true)
 fi
 
 rm -rf "$APP_BUNDLE"

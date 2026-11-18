@@ -314,6 +314,38 @@ struct MainSplitView: View {
                 .help(navState.isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
                 .pointerCursor()
             }
+
+            if supportState.isSupporterUnlocked {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        navState.navigate(to: .support)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "heart.fill")
+                                .font(.caption2.weight(.bold))
+                            Text("Supporter")
+                                .font(.caption.weight(.semibold))
+                        }
+                        .foregroundStyle(.pink)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 3)
+                        .background(
+                            Color.pink.opacity(0.14),
+                            in: Capsule()
+                        )
+                        .overlay(
+                            Capsule()
+                                .strokeBorder(
+                                    Color.pink.opacity(0.35),
+                                    lineWidth: 1
+                                )
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Thank you for supporting Toolbox!")
+                    .pointerCursor()
+                }
+            }
         }
         .overlay {
             if permissions.isPresentingOnboardingModal {
@@ -452,7 +484,7 @@ struct MainSplitView: View {
                         symbol: "heart.fill",
                         symbolColor: .pink,
                         destination: .support,
-                        badge: supportState.isSupporterUnlocked ? "★" : nil,
+                        badge: supportState.isSupporterUnlocked ? "♥" : nil,
                         badgeColor: .pink
                     )
                 }

@@ -11,7 +11,7 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 
 ### Changed
 - **Main Window** — increased the default Dashboard window size (`1140 × 760`) so the 3-column module grid and detail pages fit comfortably on open
-- **Support Toolbox** — moved support links to a dedicated **Support Toolbox** sidebar page with prominent **Sponsor on GitHub** and **Support on Ko-fi** cards, a **Free Ways to Help** card grid, a high-five confetti button, and an honor-system supporter badge
+- **Support Toolbox** — moved support links to a dedicated **Support Toolbox** sidebar page with prominent **Sponsor on GitHub** and **Support on Ko-fi** cards, a **Free Ways to Help** card grid, a high-five confetti button, and an honor-system **Supporter ♥** badge (shown in the sidebar, Settings, window titlebar, and a custom gold-accented Dock icon)
 
 ### Fixed
 - **Dock Click to Minimize** — Dock icons can be dragged to reorganise again; the click action now waits for the release and yields to the Dock whenever you drag, instead of firing on press and swallowing the gesture
