@@ -107,12 +107,11 @@ private struct ConfettiBurstOverlay: View {
 private final class SupportViewUIState: ObservableObject {
     @Published var bursts: [ConfettiBurst] = []
     @Published var highFivePulse = false
-    @Published var copiedNote = false
     @Published var copiedShareLink = false
 }
 
 @MainActor
-private final class SupportFuelCardHoverState: ObservableObject {
+private final class SupportCardHoverState: ObservableObject {
     @Published var isHovered = false
 }
 
@@ -125,7 +124,7 @@ struct SupportView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     heroCard
-                    fuelSection
+                    donateSection
                     freeWaysSection
                 }
                 .padding(22)
@@ -137,7 +136,7 @@ struct SupportView: View {
 
     private var heroCard: some View {
         SectionCard {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .center, spacing: 14) {
                     Button {
                         triggerHighFive(origin: UnitPoint(x: 0.14, y: 0.18))
@@ -186,312 +185,227 @@ struct SupportView: View {
                             }
                         }
 
-                        Text("Built & maintained by one indie developer — free, local-first, with zero ads or tracking. If Toolbox saves you time, you can keep it fueled below.")
+                        Text("Built & maintained by one indie developer — free, local-first, with zero ads or tracking. If Toolbox saves you time every day, consider supporting its ongoing development.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     .textSelection(.enabled)
-
-                    Spacer(minLength: 10)
-
-                    VStack(alignment: .trailing, spacing: 6) {
-                        Button {
-                            triggerHighFive(origin: UnitPoint(x: 0.84, y: 0.16))
-                        } label: {
-                            Label(
-                                supportState.highFiveCount > 0
-                                    ? "High-Five · \(supportState.highFiveCount)"
-                                    : "High-Five",
-                                systemImage: "hands.clap.fill"
-                            )
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(
-                                LinearGradient(
-                                    colors: [Color.pink, Color.pink.opacity(0.84)],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                ),
-                                in: RoundedRectangle(cornerRadius: 6)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .focusEffectDisabled()
-                        .scaleEffect(uiState.highFivePulse ? 1.06 : 1.0)
-                        .pointerCursor()
-
-                        Button {
-                            let willUnlock = !supportState.isSupporterUnlocked
-                            supportState.toggleSupporterBadge()
-                            if willUnlock {
-                                launchConfetti(at: UnitPoint(x: 0.84, y: 0.22), count: 38)
-                                HUDToast.shared.show(
-                                    title: "Thank you for supporting Toolbox!",
-                                    symbol: "heart.fill",
-                                    tint: .pink
-                                )
-                            }
-                        } label: {
-                            Label(
-                                supportState.isSupporterUnlocked ? "Supporter Badge On" : "I Supported!",
-                                systemImage: supportState.isSupporterUnlocked ? "checkmark.seal.fill" : "sparkles"
-                            )
-                            .font(.caption2.weight(.medium))
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .help("Honor-system supporter badge — unlocks a thank-you badge in the sidebar.")
-                        .pointerCursor()
-                    }
-                    .fixedSize(horizontal: true, vertical: false)
                 }
 
-                if supportState.highFiveStatusMessage != nil || supportState.isSupporterUnlocked {
-                    Divider()
+                Divider()
 
-                    HStack(spacing: 8) {
-                        Image(systemName: supportState.isSupporterUnlocked ? "sparkles" : "hand.raised.fill")
-                            .font(.caption)
-                            .foregroundStyle(.pink)
-                        Text(
-                            supportState.highFiveStatusMessage
-                                ?? "Thank you for helping keep Toolbox free, signed, and open-source."
+                HStack(alignment: .center, spacing: 10) {
+                    Button {
+                        triggerHighFive(origin: UnitPoint(x: 0.24, y: 0.26))
+                    } label: {
+                        Label(
+                            supportState.highFiveCount > 0
+                                ? "High-Five · \(supportState.highFiveCount)"
+                                : "Send a High-Five",
+                            systemImage: "hands.clap.fill"
                         )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        Spacer()
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(
+                            LinearGradient(
+                                colors: [Color.pink, Color.pink.opacity(0.84)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            in: RoundedRectangle(cornerRadius: 8)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .focusEffectDisabled()
+                    .scaleEffect(uiState.highFivePulse ? 1.05 : 1.0)
+                    .pointerCursor()
+
+                    Button {
+                        let willUnlock = !supportState.isSupporterUnlocked
+                        supportState.toggleSupporterBadge()
+                        if willUnlock {
+                            launchConfetti(at: UnitPoint(x: 0.45, y: 0.26), count: 38)
+                            HUDToast.shared.show(
+                                title: "Thank you for supporting Toolbox!",
+                                symbol: "heart.fill",
+                                tint: .pink
+                            )
+                        }
+                    } label: {
+                        Label(
+                            supportState.isSupporterUnlocked ? "Supporter Badge Active" : "I Supported Toolbox!",
+                            systemImage: supportState.isSupporterUnlocked ? "checkmark.seal.fill" : "sparkles"
+                        )
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(supportState.isSupporterUnlocked ? .pink : .primary)
+                        .padding(.horizontal, 13)
+                        .padding(.vertical, 7)
+                        .background(
+                            supportState.isSupporterUnlocked
+                                ? Color.pink.opacity(0.14)
+                                : Color.primary.opacity(0.07),
+                            in: RoundedRectangle(cornerRadius: 8)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .strokeBorder(
+                                    supportState.isSupporterUnlocked
+                                        ? Color.pink.opacity(0.45)
+                                        : Color.primary.opacity(0.14),
+                                    lineWidth: 1
+                                )
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .focusEffectDisabled()
+                    .help("Honor-system supporter badge — unlocks a thank-you badge in the sidebar.")
+                    .pointerCursor()
+
+                    Spacer(minLength: 8)
+
+                    if let status = supportState.highFiveStatusMessage {
+                        Text(status)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.trailing)
+                    } else if supportState.isSupporterUnlocked {
+                        Text("Thank you for keeping Toolbox free & open-source!")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
         }
     }
 
-    private var fuelSection: some View {
+    private var donateSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("FUEL THE TOOLKIT")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .tracking(0.5)
-                Text("Pick what you'd like to power, optionally copy a checkout note, and choose your preferred platform.")
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 4)
-            .textSelection(.enabled)
+            sectionHeader(
+                "Support Development",
+                subtitle: "Every contribution helps cover Apple Developer notarization ($99/yr) and keeps Toolbox free for everyone."
+            )
 
-            Grid(horizontalSpacing: 12, verticalSpacing: 12) {
+            Grid(horizontalSpacing: 14, verticalSpacing: 14) {
                 GridRow {
-                    ForEach(SupportFuelTier.allCases) { tier in
-                        SupportFuelCard(
-                            tier: tier,
-                            isSelected: supportState.selectedFuel == tier,
-                            onSelect: {
-                                withAnimation(.spring(response: 0.25, dampingFraction: 0.78)) {
-                                    supportState.selectedFuel = tier
-                                    uiState.copiedNote = false
-                                }
-                            }
-                        )
-                    }
-                }
-            }
-
-            SectionCard {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .center, spacing: 12) {
-                        HStack(spacing: 7) {
-                            Image(systemName: supportState.selectedFuel.symbolName)
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(supportState.selectedFuel.accentColor)
-                            Text(supportState.selectedFuel.devReaction)
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(.primary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .textSelection(.enabled)
-
-                        Spacer(minLength: 8)
-
-                        Button {
-                            SupportLinks.copyToPasteboard(supportState.selectedFuel.checkoutNote)
-                            setCopiedFlag(\.copiedNote, toastTitle: "Copied checkout note", tint: supportState.selectedFuel.accentColor)
-                        } label: {
-                            HStack(spacing: 5) {
-                                Image(systemName: uiState.copiedNote ? "checkmark.circle.fill" : "doc.on.doc")
-                                    .font(.caption2)
-                                    .foregroundStyle(uiState.copiedNote ? .green : .secondary)
-                                Text(
-                                    uiState.copiedNote
-                                        ? "Copied note!"
-                                        : "Copy note: \"\(supportState.selectedFuel.checkoutNote)\""
-                                )
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            }
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 5)
-                            .background(Color.primary.opacity(0.06), in: Capsule())
-                            .overlay(
-                                Capsule()
-                                    .strokeBorder(Color.primary.opacity(0.1), lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .focusEffectDisabled()
-                        .fixedSize(horizontal: true, vertical: false)
-                        .help("Copy this optional message to paste on Ko-fi or GitHub Sponsors.")
-                        .pointerCursor()
-                    }
-
-                    Divider()
-
-                    HStack(alignment: .center, spacing: 14) {
-                        Text("GitHub Sponsors takes 0% fees · Ko-fi accepts Apple Pay, cards, or PayPal with no GitHub account needed.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .textSelection(.enabled)
-
-                        Spacer(minLength: 12)
-
-                        HStack(spacing: 8) {
-                            checkoutButton(
-                                title: "Sponsor on GitHub",
+                    SupportActionCard(
+                        title: "Sponsor on GitHub",
+                        subtitle: "Best for developers — 0% platform or card fees for personal sponsorships, so 100% reaches the developer.",
+                        badge: "0% fees",
+                        actionTitle: "Sponsor on GitHub",
+                        symbolName: "heart.fill",
+                        accentColor: .pink,
+                        action: {
+                            launchConfetti(at: UnitPoint(x: 0.36, y: 0.52), count: 28)
+                            SupportLinks.open(SupportLinks.githubSponsors)
+                            HUDToast.shared.show(
+                                title: "Opening GitHub Sponsors — thank you!",
                                 symbol: "heart.fill",
-                                tint: .pink,
-                                url: SupportLinks.githubSponsors,
-                                origin: UnitPoint(x: 0.68, y: 0.52),
-                                toastTitle: "Opening GitHub Sponsors — thank you!"
-                            )
-                            checkoutButton(
-                                title: "Support on Ko-fi",
-                                symbol: "cup.and.saucer.fill",
-                                tint: .orange,
-                                url: SupportLinks.koFi,
-                                origin: UnitPoint(x: 0.86, y: 0.52),
-                                toastTitle: "Opening Ko-fi — thank you!"
+                                tint: .pink
                             )
                         }
-                        .fixedSize(horizontal: true, vertical: false)
-                    }
+                    )
+
+                    SupportActionCard(
+                        title: "Support on Ko-fi",
+                        subtitle: "Quick one-time tip with Apple Pay, cards, or PayPal — no GitHub account needed (0% Ko-fi fee on tips).",
+                        badge: "Apple Pay · PayPal",
+                        actionTitle: "Support on Ko-fi",
+                        symbolName: "cup.and.saucer.fill",
+                        accentColor: .orange,
+                        action: {
+                            launchConfetti(at: UnitPoint(x: 0.78, y: 0.52), count: 28)
+                            SupportLinks.open(SupportLinks.koFi)
+                            HUDToast.shared.show(
+                                title: "Opening Ko-fi — thank you!",
+                                symbol: "cup.and.saucer.fill",
+                                tint: .orange
+                            )
+                        }
+                    )
                 }
             }
         }
     }
 
     private var freeWaysSection: some View {
-        FeatureSection(
-            "Free Ways to Help",
-            subtitle: "No budget right now? Stars, shares, and feedback help Toolbox grow just as much."
-        ) {
-            SettingRow(
-                "Star Toolbox on GitHub",
-                subtitle: "Stars help other Mac users discover the project."
-            ) {
-                Button {
-                    SupportLinks.open(SupportLinks.githubRepo)
-                } label: {
-                    Label {
-                        Text("Star on GitHub")
-                    } icon: {
-                        Image(systemName: "star.fill")
-                            .foregroundStyle(.yellow)
-                    }
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeader(
+                "Free Ways to Help",
+                subtitle: "No budget right now? Stars, shares, and feedback help Toolbox grow just as much."
+            )
+
+            Grid(horizontalSpacing: 12, verticalSpacing: 12) {
+                GridRow {
+                    SupportActionCard(
+                        title: "Star on GitHub",
+                        subtitle: "Stars help other Mac power users discover Toolbox.",
+                        actionTitle: "Star Repo",
+                        symbolName: "star.fill",
+                        accentColor: .yellow,
+                        isCompact: true,
+                        action: {
+                            SupportLinks.open(SupportLinks.githubRepo)
+                        }
+                    )
+
+                    SupportActionCard(
+                        title: "Tell a Mac Friend",
+                        subtitle: "Copy the project link to share in Slack, Discord, or chat.",
+                        actionTitle: uiState.copiedShareLink ? "Copied!" : "Copy Link",
+                        actionSymbol: uiState.copiedShareLink ? "checkmark.circle.fill" : "doc.on.doc",
+                        symbolName: "link",
+                        accentColor: uiState.copiedShareLink ? .green : .blue,
+                        isCompact: true,
+                        action: {
+                            SupportLinks.copyToPasteboard(SupportLinks.githubRepo.absoluteString)
+                            uiState.copiedShareLink = true
+                            HUDToast.shared.show(
+                                title: "Copied Toolbox GitHub link",
+                                symbol: "link",
+                                tint: .blue
+                            )
+                            Task { @MainActor in
+                                try? await Task.sleep(for: .seconds(2))
+                                uiState.copiedShareLink = false
+                            }
+                        }
+                    )
+
+                    SupportActionCard(
+                        title: "Ideas & Bug Reports",
+                        subtitle: "Suggest a new macOS utility or report an edge case.",
+                        actionTitle: "Open Issues",
+                        symbolName: "exclamationmark.bubble.fill",
+                        accentColor: .purple,
+                        isCompact: true,
+                        action: {
+                            SupportLinks.open(SupportLinks.githubIssues)
+                        }
+                    )
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .pointerCursor()
-            }
-
-            Divider()
-
-            SettingRow(
-                "Tell a Mac Friend",
-                subtitle: "Copy the project link to drop into Slack, Discord, or group chat."
-            ) {
-                Button {
-                    SupportLinks.copyToPasteboard(SupportLinks.githubRepo.absoluteString)
-                    setCopiedFlag(\.copiedShareLink, toastTitle: "Copied Toolbox GitHub link", tint: .blue)
-                } label: {
-                    Label {
-                        Text(uiState.copiedShareLink ? "Copied!" : "Copy Link")
-                    } icon: {
-                        Image(systemName: uiState.copiedShareLink ? "checkmark.circle.fill" : "link")
-                            .foregroundStyle(uiState.copiedShareLink ? .green : .blue)
-                    }
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .pointerCursor()
-            }
-
-            Divider()
-
-            SettingRow(
-                "Suggest a Module or Report a Bug",
-                subtitle: "Have an idea for a new macOS utility or spotted an edge case?"
-            ) {
-                Button {
-                    SupportLinks.open(SupportLinks.githubIssues)
-                } label: {
-                    Label {
-                        Text("Open Issues")
-                    } icon: {
-                        Image(systemName: "exclamationmark.bubble.fill")
-                            .foregroundStyle(.purple)
-                    }
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .pointerCursor()
             }
         }
     }
 
-    private func checkoutButton(
-        title: String,
-        symbol: String,
-        tint: Color,
-        url: URL,
-        origin: UnitPoint,
-        toastTitle: String
-    ) -> some View {
-        Button {
-            launchConfetti(at: origin, count: 26)
-            SupportLinks.open(url)
-            HUDToast.shared.show(title: toastTitle, symbol: symbol, tint: tint)
-        } label: {
-            Label {
-                Text(title)
-            } icon: {
-                Image(systemName: symbol)
-                    .foregroundStyle(tint)
-            }
+    private func sectionHeader(_ title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title.uppercased())
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .tracking(0.5)
+            Text(subtitle)
+                .font(.system(size: 11.5))
+                .foregroundStyle(.secondary)
         }
-        .buttonStyle(.bordered)
-        .controlSize(.regular)
-        .pointerCursor()
-    }
-
-    private func setCopiedFlag(
-        _ keyPath: ReferenceWritableKeyPath<SupportViewUIState, Bool>,
-        toastTitle: String,
-        tint: Color
-    ) {
-        uiState[keyPath: keyPath] = true
-        HUDToast.shared.show(title: toastTitle, symbol: "doc.on.doc.fill", tint: tint)
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2))
-            uiState[keyPath: keyPath] = false
-        }
+        .padding(.horizontal, 4)
+        .textSelection(.enabled)
     }
 
     private func triggerHighFive(origin: UnitPoint) {
@@ -520,57 +434,52 @@ struct SupportView: View {
     }
 }
 
-private struct SupportFuelCard: View {
-    let tier: SupportFuelTier
-    let isSelected: Bool
-    let onSelect: () -> Void
+private struct SupportActionCard: View {
+    let title: String
+    let subtitle: String
+    var badge: String? = nil
+    let actionTitle: String
+    var actionSymbol: String = "arrow.up.right"
+    let symbolName: String
+    let accentColor: Color
+    var isCompact: Bool = false
+    let action: () -> Void
 
-    @StateObject private var hoverState = SupportFuelCardHoverState()
+    @StateObject private var hoverState = SupportCardHoverState()
 
     var body: some View {
-        Button(action: onSelect) {
-            VStack(alignment: .leading, spacing: 10) {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: isCompact ? 10 : 12) {
                 HStack(alignment: .center) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 9)
-                            .fill(tier.accentColor.opacity(isSelected ? 0.22 : 0.14))
-                            .frame(width: 34, height: 34)
-                        Image(systemName: tier.symbolName)
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(tier.accentColor)
+                        RoundedRectangle(cornerRadius: isCompact ? 9 : 10)
+                            .fill(accentColor.opacity(hoverState.isHovered ? 0.22 : 0.15))
+                            .frame(width: isCompact ? 34 : 40, height: isCompact ? 34 : 40)
+                        Image(systemName: symbolName)
+                            .font(isCompact ? .body.weight(.semibold) : .title3.weight(.semibold))
+                            .foregroundStyle(accentColor)
                     }
 
-                    Spacer(minLength: 6)
+                    Spacer(minLength: 8)
 
-                    if isSelected {
-                        HStack(spacing: 4) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.caption2)
-                            Text("Selected")
-                                .font(.caption2.weight(.semibold))
-                        }
-                        .foregroundStyle(tier.accentColor)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(tier.accentColor.opacity(0.14), in: Capsule())
-                    } else {
-                        Text(tier.badgeText)
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 7)
+                    if let badge {
+                        Text(badge)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(accentColor)
+                            .padding(.horizontal, 8)
                             .padding(.vertical, 3)
-                            .background(Color.primary.opacity(0.07), in: Capsule())
+                            .background(accentColor.opacity(0.13), in: Capsule())
                     }
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(tier.title)
-                        .font(.headline)
+                    Text(title)
+                        .font(isCompact ? .headline : .title3.weight(.semibold))
                         .foregroundStyle(.primary)
                         .multilineTextAlignment(.leading)
 
-                    Text(tier.description)
-                        .font(.system(size: 12))
+                    Text(subtitle)
+                        .font(.system(size: isCompact ? 12 : 12.5))
                         .foregroundStyle(Color.primary.opacity(0.76))
                         .lineSpacing(1.5)
                         .multilineTextAlignment(.leading)
@@ -578,28 +487,38 @@ private struct SupportFuelCard: View {
                 }
 
                 Spacer(minLength: 0)
+
+                HStack(spacing: 6) {
+                    Text(actionTitle)
+                        .font((isCompact ? Font.caption : Font.callout).weight(.semibold))
+                    Image(systemName: actionSymbol)
+                        .font((isCompact ? Font.caption2 : Font.caption).weight(.semibold))
+                }
+                .foregroundStyle(isCompact ? accentColor : .white)
+                .padding(.horizontal, isCompact ? 10 : 14)
+                .padding(.vertical, isCompact ? 5 : 7)
+                .background(
+                    isCompact
+                        ? accentColor.opacity(0.14)
+                        : accentColor.opacity(hoverState.isHovered ? 1.0 : 0.88),
+                    in: RoundedRectangle(cornerRadius: 7)
+                )
             }
-            .padding(14)
+            .padding(isCompact ? 14 : 16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background {
                 RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
                     .fill(.regularMaterial)
                     .overlay(
                         RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
-                            .fill(
-                                isSelected
-                                    ? tier.accentColor.opacity(0.08)
-                                    : (hoverState.isHovered ? Color.primary.opacity(0.03) : Color.clear)
-                            )
+                            .fill(hoverState.isHovered ? accentColor.opacity(0.05) : Color.clear)
                     )
             }
             .overlay(
                 RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
                     .strokeBorder(
-                        isSelected
-                            ? tier.accentColor.opacity(0.72)
-                            : (hoverState.isHovered ? Color.primary.opacity(0.22) : Color.primary.opacity(0.11)),
-                        lineWidth: isSelected ? 1.5 : 1
+                        hoverState.isHovered ? accentColor.opacity(0.45) : Color.primary.opacity(0.11),
+                        lineWidth: 1
                     )
             )
             .contentShape(RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius))

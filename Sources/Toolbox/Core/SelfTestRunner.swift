@@ -430,8 +430,11 @@ enum SelfTestRunner {
         win.layoutIfNeeded()
         expect(win.acceptsMouseMovedEvents, "Dashboard NSWindow must accept mouse moved events so hover cursors reset outside clickable items")
         if let rootView = win.contentView?.superview ?? win.contentView {
+            let contentTop = win.contentLayoutRect.maxY
+            let windowTop = rootView.bounds.maxY
+
             // 1. Blank areas on the page (e.g. header banner, bottom margin below grid) must NOT match PointerCursorNSView.
-            let emptyBannerPt = NSPoint(x: 500, y: 650)
+            let emptyBannerPt = NSPoint(x: 500, y: contentTop - 30)
             let emptySideMarginPt = NSPoint(x: 230, y: 300)
             expect(!PointerCursorNSView.containsPointerCursorView(in: rootView, atWindowPoint: emptyBannerPt),
                    "Blank header area on Dashboard must not trigger pointingHand cursor")
@@ -439,25 +442,26 @@ enum SelfTestRunner {
                    "Empty margin on Dashboard must not trigger pointingHand cursor")
 
             // 2. Clickable toolbar sidebar toggle and sidebar Dashboard item must match PointerCursorNSView.
-            let toolbarBtnPt = NSPoint(x: 104, y: 734)
-            let sidebarDashboardPt = NSPoint(x: 80, y: 665)
+            let toolbarBtnPt = NSPoint(x: 104, y: windowTop - 16)
+            let sidebarDashboardPt = NSPoint(x: 80, y: contentTop - 42)
             expect(PointerCursorNSView.containsPointerCursorView(in: rootView, atWindowPoint: toolbarBtnPt),
                    "Toolbar sidebar toggle button must match PointerCursorNSView")
             expect(PointerCursorNSView.containsPointerCursorView(in: rootView, atWindowPoint: sidebarDashboardPt),
                    "Sidebar Dashboard row must match PointerCursorNSView")
 
             // 3. Verify all other destinations keep PointerCursorNSView tightly scoped to clickable controls (not empty areas).
+            let detailEmptyY = contentTop - 80
             let destinations: [(String, SidebarDestination, NSPoint)] = [
-                ("settings", .settings, NSPoint(x: 350, y: 600)),
-                ("support", .support, NSPoint(x: 500, y: 600)),
+                ("settings", .settings, NSPoint(x: 350, y: detailEmptyY)),
+                ("support", .support, NSPoint(x: 500, y: detailEmptyY)),
                 ("jsonConfig", .jsonConfig, NSPoint(x: 500, y: 350)),
-                ("dock_minimize", .module("dock_minimize"), NSPoint(x: 500, y: 600)),
-                ("clipboard", .module("clipboard"), NSPoint(x: 500, y: 600)),
-                ("keep_awake", .module("keep_awake"), NSPoint(x: 500, y: 600)),
-                ("custom_commands", .module("custom_commands"), NSPoint(x: 500, y: 600)),
-                ("scroll_direction", .module("scroll_direction"), NSPoint(x: 500, y: 600)),
-                ("screen_ocr", .module("screen_ocr"), NSPoint(x: 500, y: 600)),
-                ("call_controls", .module("call_controls"), NSPoint(x: 500, y: 600)),
+                ("dock_minimize", .module("dock_minimize"), NSPoint(x: 500, y: detailEmptyY)),
+                ("clipboard", .module("clipboard"), NSPoint(x: 500, y: detailEmptyY)),
+                ("keep_awake", .module("keep_awake"), NSPoint(x: 500, y: detailEmptyY)),
+                ("custom_commands", .module("custom_commands"), NSPoint(x: 500, y: detailEmptyY)),
+                ("scroll_direction", .module("scroll_direction"), NSPoint(x: 500, y: detailEmptyY)),
+                ("screen_ocr", .module("screen_ocr"), NSPoint(x: 500, y: detailEmptyY)),
+                ("call_controls", .module("call_controls"), NSPoint(x: 500, y: detailEmptyY)),
             ]
             for (label, dest, emptyPt) in destinations {
                 MainWindowController.shared.navState.navigate(to: dest)
@@ -3121,12 +3125,6 @@ enum SelfTestRunner {
         expect(SupportLinks.githubIssues.host == "github.com", "GitHub Issues URL host mismatch")
         expect(SupportLinks.githubIssues.path == "/ssa17/toolbox/issues", "GitHub Issues URL path mismatch")
 
-        expect(SupportFuelTier.allCases.count == 3, "SupportFuelTier must expose 3 fuel tiers")
-        for tier in SupportFuelTier.allCases {
-            expect(!tier.title.isEmpty && !tier.description.isEmpty && !tier.devReaction.isEmpty && !tier.checkoutNote.isEmpty,
-                   "SupportFuelTier \(tier.rawValue) fields must be non-empty")
-        }
-
         let suiteName = "com.toolbox.selfTest.support.\(UUID().uuidString)"
         guard let testDefaults = UserDefaults(suiteName: suiteName) else {
             failures.append("Failed to allocate isolated UserDefaults suite for SupportState")
@@ -3138,18 +3136,15 @@ enum SelfTestRunner {
         expect(state.highFiveCount == 0, "Fresh SupportState highFiveCount must start at 0")
         expect(state.highFiveStatusMessage == nil, "Fresh SupportState must have nil highFiveStatusMessage")
         expect(!state.isSupporterUnlocked, "Fresh SupportState must start with supporter badge locked")
-        expect(state.selectedFuel == .espresso, "Fresh SupportState must default to espresso tier")
 
         expect(state.sendHighFive() == 1, "First high-five must return 1")
         expect(state.highFiveStatusMessage != nil, "High-five status message must appear after tapping")
         state.toggleSupporterBadge()
         expect(state.isSupporterUnlocked, "toggleSupporterBadge must unlock supporter badge")
-        state.selectedFuel = .notarization
 
         let reloaded = SupportState(userDefaults: testDefaults)
         expect(reloaded.highFiveCount == 1, "SupportState must persist highFiveCount")
         expect(reloaded.isSupporterUnlocked, "SupportState must persist isSupporterUnlocked")
-        expect(reloaded.selectedFuel == .notarization, "SupportState must persist selectedFuel")
     }
 
     private static func testPermissionsFlowAndPointerCursorSheetDealloc() {

@@ -116,6 +116,7 @@ private final class ToolboxWindow: NSWindow {
 @MainActor
 final class MainWindowController: NSObject, NSWindowDelegate {
     static let shared = MainWindowController()
+    static let defaultContentSize = NSSize(width: 1140, height: 760)
     static let minimumContentSize = NSSize(width: 820, height: 560)
 
     let navState = NavigationState()
@@ -136,7 +137,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         hosting.sizingOptions = []
 
         let win = ToolboxWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 960, height: 680),
+            contentRect: NSRect(origin: .zero, size: Self.defaultContentSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false

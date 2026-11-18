@@ -21,77 +21,6 @@ enum SupportLinks {
     }
 }
 
-/// Playful, Toolbox-specific causes users can choose when supporting development.
-enum SupportFuelTier: String, CaseIterable, Identifiable, Sendable {
-    case espresso
-    case notarization
-    case nextModule
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .espresso: return "Bug-Squash Espresso"
-        case .notarization: return "Notarization Fund"
-        case .nextModule: return "Next Module Lab"
-        }
-    }
-
-    var badgeText: String {
-        switch self {
-        case .espresso: return "Quick Boost"
-        case .notarization: return "$99/yr Cert"
-        case .nextModule: return "New Tools"
-        }
-    }
-
-    var symbolName: String {
-        switch self {
-        case .espresso: return "cup.and.saucer.fill"
-        case .notarization: return "checkmark.seal.fill"
-        case .nextModule: return "wrench.and.screwdriver.fill"
-        }
-    }
-
-    var accentColor: Color {
-        switch self {
-        case .espresso: return .orange
-        case .notarization: return .blue
-        case .nextModule: return .purple
-        }
-    }
-
-    var description: String {
-        switch self {
-        case .espresso:
-            return "Fuels late-night fixes for weird macOS quirks, Dock drags, and focus edge cases."
-        case .notarization:
-            return "Helps cover the $99/yr Apple Developer ID so every DMG passes Gatekeeper cleanly."
-        case .nextModule:
-            return "Backs brand-new utilities, Sparkle updates, and keeping Toolbox 100% local & bloat-free."
-        }
-    }
-
-    var devReaction: String {
-        switch self {
-        case .espresso:
-            return "Developer reaction: +10% focus on stubborn macOS Accessibility edge cases."
-        case .notarization:
-            return "Developer reaction: Keeps Apple's $99/yr Developer ID happy & warning-free."
-        case .nextModule:
-            return "Developer reaction: Unlocked 2 AM ideas for the next Toolbox utility."
-        }
-    }
-
-    var checkoutNote: String {
-        switch self {
-        case .espresso: return "For late-night bug-squash espresso ☕"
-        case .notarization: return "For the Apple Notarization fund 🛡️"
-        case .nextModule: return "For the next Toolbox utility ⚡"
-        }
-    }
-}
-
 /// Persists local, privacy-friendly Support page interactions (high-fives and honor-system supporter badge).
 @MainActor
 final class SupportState: ObservableObject {
@@ -99,15 +28,9 @@ final class SupportState: ObservableObject {
 
     private static let highFiveKey = "toolbox.support.highFiveCount"
     private static let supporterKey = "toolbox.support.isSupporterUnlocked"
-    private static let selectedFuelKey = "toolbox.support.selectedFuel"
 
     @Published private(set) var highFiveCount: Int
     @Published private(set) var isSupporterUnlocked: Bool
-    @Published var selectedFuel: SupportFuelTier {
-        didSet {
-            userDefaults?.set(selectedFuel.rawValue, forKey: Self.selectedFuelKey)
-        }
-    }
 
     private let userDefaults: UserDefaults?
 
@@ -115,12 +38,6 @@ final class SupportState: ObservableObject {
         self.userDefaults = userDefaults
         self.highFiveCount = max(0, userDefaults?.integer(forKey: Self.highFiveKey) ?? 0)
         self.isSupporterUnlocked = userDefaults?.bool(forKey: Self.supporterKey) ?? false
-        if let raw = userDefaults?.string(forKey: Self.selectedFuelKey),
-           let tier = SupportFuelTier(rawValue: raw) {
-            self.selectedFuel = tier
-        } else {
-            self.selectedFuel = .espresso
-        }
     }
 
     @discardableResult
