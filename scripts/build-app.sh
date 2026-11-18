@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build Toolbox.app (Sparkle + Developer ID signing + optional notarization).
-# Usage: ./scripts/build-app.sh [--notarize | --no-notarize | --fast] [path/to/icon.png]
+# Usage: ./scripts/build-app.sh [--notarize | --no-notarize | --fast] [--allow-adhoc] [path/to/icon.png]
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -13,6 +13,7 @@ NOTARY_PROFILE="${NOTARY_PROFILE:-notary-profile}"
 
 NOTARIZE=2  # 2 = auto (re-notarize if previous build was notarized), 1 = force, 0 = skip
 FAST=0
+ALLOW_ADHOC=0
 ICON_PNG="$ROOT_DIR/assets/AppIcon.png"
 
 for arg in "$@"; do
@@ -20,8 +21,9 @@ for arg in "$@"; do
     --notarize) NOTARIZE=1 ;;
     --no-notarize) NOTARIZE=0 ;;
     --fast) FAST=1; NOTARIZE=0 ;;
+    --allow-adhoc) ALLOW_ADHOC=1 ;;
     -h|--help)
-      echo "Usage: $0 [--notarize | --no-notarize | --fast] [icon.png]"
+      echo "Usage: $0 [--notarize | --no-notarize | --fast] [--allow-adhoc] [icon.png]"
       exit 0
       ;;
     *.png) ICON_PNG="$arg" ;;
@@ -33,6 +35,21 @@ for arg in "$@"; do
 done
 
 cd "$ROOT_DIR"
+
+# Resolve signing identity BEFORE touching the existing bundle so a locked/sandboxed Keychain
+# can never silently downgrade a Developer ID build to ad-hoc and break macOS TCC permissions.
+CERT=$(security find-identity -v -p codesigning 2>/dev/null | grep -m1 "Developer ID Application" | awk -F'"' '{print $2}' || true)
+if [[ -z "$CERT" ]]; then
+  if [[ "$NOTARIZE" == "1" ]]; then
+    echo "error: --notarize requires a 'Developer ID Application' certificate in Keychain" >&2
+    exit 1
+  elif [[ "$ALLOW_ADHOC" != "1" ]]; then
+    echo "error: no 'Developer ID Application' certificate found in Keychain." >&2
+    echo "Refusing to silently fall back to ad-hoc signing because changing the designated requirement breaks macOS Accessibility/Screen Recording TCC permissions." >&2
+    echo "Unlock your Keychain (or run outside a sandboxed shell), or pass --allow-adhoc explicitly." >&2
+    exit 1
+  fi
+fi
 
 if [[ "$NOTARIZE" == "2" ]]; then
   if [[ -d "$APP_BUNDLE" ]] && codesign -v -R="notarized" "$APP_BUNDLE" >/dev/null 2>&1; then
@@ -89,7 +106,6 @@ if [[ -f "$ICON_PNG" ]]; then
 fi
 
 # Code-sign inside-out
-CERT=$(security find-identity -v -p codesigning 2>/dev/null | grep -m1 "Developer ID Application" | awk -F'"' '{print $2}' || true)
 if [[ -n "$CERT" ]]; then
   echo "Code-signing with: $CERT"
   SIGN_FLAGS=(--force --options=runtime)
@@ -98,11 +114,8 @@ if [[ -n "$CERT" ]]; then
   fi
   codesign --sign "$CERT" "${SIGN_FLAGS[@]}" "$APP_BUNDLE/Contents/Library/Updater.app"
   codesign --sign "$CERT" --deep "${SIGN_FLAGS[@]}" "$APP_BUNDLE"
-elif [[ "$NOTARIZE" == "1" ]]; then
-  echo "error: --notarize requires a 'Developer ID Application' certificate in Keychain" >&2
-  exit 1
 else
-  echo "Warning: no Developer ID cert found — using ad-hoc signature"
+  echo "Warning: no Developer ID cert found — using ad-hoc signature (--allow-adhoc)"
   if [[ -n "$PREV_TEAM_ID" && "$PREV_TEAM_ID" != "not set" ]]; then
     echo "WARNING: Previous bundle was signed with TeamIdentifier=$PREV_TEAM_ID; ad-hoc signing changes the designated requirement and will break macOS Accessibility/Screen Recording TCC permissions." >&2
   fi
