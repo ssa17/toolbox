@@ -25,6 +25,13 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
     private static let axTimeoutSeconds: Float = 0.1
     private static let minimizeActivationGraceInterval: TimeInterval = 0.35
     private static let hiddenUnderlyingSkipInterval: TimeInterval = 0.5
+    /// Pointer travel (in points) beyond which a Dock-icon press is treated as a
+    /// drag to reposition the icon rather than a click. Kept small so we yield to
+    /// the Dock's own drag handling before the icon has moved far.
+    private static let dragThreshold: CGFloat = 4
+    /// Marker placed on synthetic `CGEvent`s replayed to the Dock when a press
+    /// turns into a drag so our own event tap passes them straight through.
+    private static let syntheticEventTag: Int64 = 0x5442444D
     private static let exposeNotifications = [
         "AXExposeShowAllWindows",
         "AXExposeShowFrontWindows",
@@ -55,12 +62,36 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
         var hasActiveFullscreen = false
     }
 
+    /// The action to take for a Dock click, decided at mouse-down and executed at
+    /// mouse-up once we know the gesture was a click and not a drag.
+    private enum DockClickAction {
+        case unhideAndFocus
+        case restore
+        case hideApp
+        case sendToBack
+        case minimizeAll
+        case minimizeFrontWindow
+    }
+
+    /// A Dock-icon press awaiting its mouse-up so a click (act) can be told apart
+    /// from a drag (replay the press and let the Dock reposition the icon).
+    private struct PendingDockClick {
+        let downLocation: CGPoint
+        let flags: CGEventFlags
+        let clickCount: Int64
+        let app: NSRunningApplication
+        let isSelf: Bool
+        let action: DockClickAction
+        var maxTravel: CGFloat = 0
+        var forwardedDownToDock = false
+    }
+
     let hotKeyName = "dock_minimize.toggle"
 
     private var config = DockMinimizeConfig()
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
-    private var consumeNextMouseUp = false
+    private var pendingDockClick: PendingDockClick?
     private var activationObserver: NSObjectProtocol?
     private var dockLaunchObserver: NSObjectProtocol?
     private var exposeObserver: AXObserver?
@@ -231,6 +262,9 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
             eventsOfInterest: mask,
             callback: { _, type, event, userInfo in
                 guard let userInfo else { return Unmanaged.passUnretained(event) }
+                if event.getIntegerValueField(.eventSourceUserData) == DockMinimizeModule.syntheticEventTag {
+                    return Unmanaged.passUnretained(event)
+                }
                 let module = Unmanaged<DockMinimizeModule>.fromOpaque(userInfo).takeUnretainedValue()
                 let location = event.location
                 let flags = event.flags
@@ -289,7 +323,7 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
         teardownExposeObserver()
         eventTap = nil
         runLoopSource = nil
-        consumeNextMouseUp = false
+        pendingDockClick = nil
         isExposeActive = false
         minimizedByDockClick.removeAll()
         minimizedSelfByDockClick.removeAll()
@@ -314,6 +348,14 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
         let nearLeft = (point.x - bounds.minX) <= edgeBand
         let nearRight = (bounds.maxX - point.x) <= edgeBand
         return nearBottom || nearLeft || nearRight
+    }
+
+    /// Returns `true` when pointer travel between mouse-down and mouse-up stayed
+    /// within `dragThreshold`, meaning the gesture was a click rather than a Dock
+    /// icon drag.
+    static func shouldExecuteDockClick(downLocation: CGPoint, upLocation: CGPoint, maxTravel: CGFloat) -> Bool {
+        let upTravel = hypot(upLocation.x - downLocation.x, upLocation.y - downLocation.y)
+        return max(maxTravel, upTravel) <= dragThreshold
     }
 
     private static func isPointNearDockEdge(_ point: CGPoint) -> Bool {
@@ -384,7 +426,7 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
 
     private func handleEvent(type: CGEventType, location: CGPoint, flags: CGEventFlags, clickCount: Int64) -> Bool {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            consumeNextMouseUp = false
+            pendingDockClick = nil
             if let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
@@ -392,19 +434,94 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
         }
 
         if type == .leftMouseDragged {
-            return consumeNextMouseUp
+            guard var pending = pendingDockClick else { return false }
+            if pending.forwardedDownToDock {
+                return false
+            }
+
+            let travelled = hypot(location.x - pending.downLocation.x, location.y - pending.downLocation.y)
+            if travelled > pending.maxTravel {
+                pending.maxTravel = travelled
+            }
+
+            // Still within jitter threshold — keep holding the press back so the Dock
+            // does not start a long-press timer if this turns out to be a click.
+            if pending.maxTravel <= Self.dragThreshold {
+                pendingDockClick = pending
+                return true
+            }
+
+            // Pointer moved past the drag threshold: replay the held mouse-down and
+            // this drag event in order so the Dock can take over and reposition the icon.
+            pending.forwardedDownToDock = true
+            pendingDockClick = pending
+            postSyntheticMouseEvent(
+                type: .leftMouseDown,
+                location: pending.downLocation,
+                flags: pending.flags,
+                clickCount: pending.clickCount
+            )
+            postSyntheticMouseEvent(
+                type: .leftMouseDragged,
+                location: location,
+                flags: flags,
+                clickCount: pending.clickCount
+            )
+            return true
         }
 
         if type == .leftMouseUp {
-            if consumeNextMouseUp {
-                consumeNextMouseUp = false
+            guard let pending = pendingDockClick else { return false }
+            pendingDockClick = nil
+
+            // Already handed off to the Dock as a drag — let the release drop the icon.
+            if pending.forwardedDownToDock {
+                return false
+            }
+
+            // Fast flick past the drag threshold without an intermediate drag event:
+            // replay down + up to the Dock instead of firing our click action.
+            guard Self.shouldExecuteDockClick(
+                downLocation: pending.downLocation,
+                upLocation: location,
+                maxTravel: pending.maxTravel
+            ) else {
+                postSyntheticMouseEvent(
+                    type: .leftMouseDown,
+                    location: pending.downLocation,
+                    flags: pending.flags,
+                    clickCount: pending.clickCount
+                )
+                postSyntheticMouseEvent(
+                    type: .leftMouseUp,
+                    location: location,
+                    flags: flags,
+                    clickCount: pending.clickCount
+                )
                 return true
             }
-            return false
+
+            // It was a click: the Dock never saw the press (so no long-press menu or
+            // stuck highlight), and we consume the release after running the action.
+            let frontmost = NSWorkspace.shared.frontmostApplication
+            let isFrontmost = frontmost?.processIdentifier == pending.app.processIdentifier
+            let handled = pending.isSelf
+                ? executeSelfDockClick(pending.action, app: pending.app, frontmost: frontmost)
+                : executeExternalAppDockClick(pending.action, app: pending.app, frontmost: frontmost)
+
+            if handled {
+                let appLabel = pending.app.localizedName ?? pending.app.bundleIdentifier ?? "PID \(pending.app.processIdentifier)"
+                DeveloperEventLog.shared.record(
+                    .dock,
+                    "Handled dock click on \(appLabel)",
+                    detail: "mode: \(config.actionMode.rawValue) · wasFrontmost: \(isFrontmost)"
+                )
+            }
+            return true
         }
 
         guard type == .leftMouseDown else { return false }
-        consumeNextMouseUp = false
+        pendingDockClick = nil
 
         if isExposeActive {
             return false
@@ -445,60 +562,101 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
         let frontmost = NSWorkspace.shared.frontmostApplication
         let isFrontmost = frontmost?.processIdentifier == clickedApp.processIdentifier
 
-        let handled: Bool
-        if clickedApp.processIdentifier == ProcessInfo.processInfo.processIdentifier {
-            handled = handleSelfDockClick(clickedApp, frontmost: frontmost, isFrontmost: isFrontmost)
-        } else {
-            handled = handleExternalAppDockClick(clickedApp, frontmost: frontmost, isFrontmost: isFrontmost)
+        let isSelf = clickedApp.processIdentifier == ProcessInfo.processInfo.processIdentifier
+        guard let action = isSelf
+            ? decideSelfDockClick(clickedApp, frontmost: frontmost, isFrontmost: isFrontmost)
+            : decideExternalAppDockClick(clickedApp, frontmost: frontmost, isFrontmost: isFrontmost) else {
+            return false
         }
 
-        if handled {
-            consumeNextMouseUp = true
-            let appLabel = clickedApp.localizedName ?? clickedApp.bundleIdentifier ?? "PID \(clickedApp.processIdentifier)"
-            DeveloperEventLog.shared.record(
-                .dock,
-                "Handled dock click on \(appLabel)",
-                detail: "mode: \(config.actionMode.rawValue) · wasFrontmost: \(isFrontmost)"
-            )
-        }
-        return handled
+        // Hold back the press until we know whether this is a click (execute on
+        // release without ever notifying the Dock) or a drag (replay down + drag
+        // to the Dock once pointer travel exceeds `dragThreshold`).
+        pendingDockClick = PendingDockClick(
+            downLocation: location,
+            flags: flags,
+            clickCount: clickCount,
+            app: clickedApp,
+            isSelf: isSelf,
+            action: action
+        )
+        return true
     }
 
-    private func handleSelfDockClick(
+    private func postSyntheticMouseEvent(
+        type: CGEventType,
+        location: CGPoint,
+        flags: CGEventFlags,
+        clickCount: Int64
+    ) {
+        guard let event = CGEvent(
+            mouseEventSource: nil,
+            mouseType: type,
+            mouseCursorPosition: location,
+            mouseButton: .left
+        ) else { return }
+        event.flags = flags
+        event.setIntegerValueField(.mouseEventClickState, value: clickCount)
+        event.setIntegerValueField(.eventSourceUserData, value: Self.syntheticEventTag)
+        event.post(tap: .cghidEventTap)
+    }
+
+    private func decideSelfDockClick(
         _ selfApp: NSRunningApplication,
         frontmost: NSRunningApplication?,
         isFrontmost: Bool
-    ) -> Bool {
+    ) -> DockClickAction? {
         let pid = selfApp.processIdentifier
         let inspection = inspectSelfWindows()
         if inspection.hasActiveFullscreen {
-            return false
+            return nil
         }
 
         if isAppHidden(selfApp) {
             if !inspection.openWindows.isEmpty || !inspection.minimizedWindows.isEmpty || hiddenByDockClick.contains(pid) {
-                return unhideAndFocusApp(selfApp, replacing: frontmost)
+                return .unhideAndFocus
             }
-            return false
+            return nil
         }
 
         if config.actionMode != .sendToBack,
            inspection.openWindows.isEmpty,
            !inspection.minimizedWindows.isEmpty {
-            return restoreSelfWindows(minimizedWindows: inspection.minimizedWindows, replacing: frontmost)
+            return .restore
         }
 
         guard isFrontmost, !inspection.openWindows.isEmpty else {
-            return false
+            return nil
         }
 
         switch config.actionMode {
+        case .hideApp: return .hideApp
+        case .sendToBack: return .sendToBack
+        case .minimizeAll: return .minimizeAll
+        case .minimizeFrontWindow: return .minimizeFrontWindow
+        }
+    }
+
+    private func executeSelfDockClick(
+        _ action: DockClickAction,
+        app: NSRunningApplication,
+        frontmost: NSRunningApplication?
+    ) -> Bool {
+        let pid = app.processIdentifier
+        let inspection = inspectSelfWindows()
+
+        switch action {
+        case .unhideAndFocus:
+            return unhideAndFocusApp(app, replacing: frontmost)
+        case .restore:
+            return restoreSelfWindows(minimizedWindows: inspection.minimizedWindows, replacing: frontmost)
         case .hideApp:
             let nextApp = preferredUnderlyingApp(excludingPID: pid)
-            return hideApp(selfApp, focusingNext: nextApp)
+            return hideApp(app, focusingNext: nextApp)
         case .sendToBack:
-            return sendBehindPreviousApp(selfApp)
+            return sendBehindPreviousApp(app)
         case .minimizeAll:
+            guard !inspection.openWindows.isEmpty else { return false }
             let nextApp = preferredUnderlyingApp(excludingPID: pid)
             minimizedSelfByDockClick = inspection.openWindows.map { WeakWindow(window: $0) }
             lastMinimizeTime[pid] = Date()
@@ -506,69 +664,101 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
                 window.miniaturize(nil)
             }
             if let nextApp {
-                _ = focusTargetApp(nextApp, replacing: selfApp)
+                _ = focusTargetApp(nextApp, replacing: app)
             }
             return true
         case .minimizeFrontWindow:
-            let targetWin = inspection.openWindows[0]
+            guard let targetWin = inspection.openWindows.first else { return false }
             let nextApp = inspection.openWindows.count == 1 ? preferredUnderlyingApp(excludingPID: pid) : nil
             minimizedSelfByDockClick.append(WeakWindow(window: targetWin))
             lastMinimizeTime[pid] = Date()
             targetWin.miniaturize(nil)
             if inspection.openWindows.count == 1 {
                 if let nextApp {
-                    _ = focusTargetApp(nextApp, replacing: selfApp)
+                    _ = focusTargetApp(nextApp, replacing: app)
                 }
-            } else {
+            } else if inspection.openWindows.count > 1 {
                 inspection.openWindows[1].makeKeyAndOrderFront(nil)
             }
             return true
         }
     }
 
-    private func handleExternalAppDockClick(
+    private func decideExternalAppDockClick(
         _ clickedApp: NSRunningApplication,
         frontmost: NSRunningApplication?,
         isFrontmost: Bool
-    ) -> Bool {
+    ) -> DockClickAction? {
         let pid = clickedApp.processIdentifier
         let inspection = inspectWindows(of: pid)
         if inspection.hasActiveFullscreen {
-            return false
+            return nil
         }
 
         // Step A: Hidden app clicked -> bring its windows straight back to the front.
         if isAppHidden(clickedApp) {
             if !inspection.openWindows.isEmpty || !inspection.minimizedWindows.isEmpty || hiddenByDockClick.contains(pid) {
-                return unhideAndFocusApp(clickedApp, replacing: frontmost)
+                return .unhideAndFocus
             }
-            return false
+            return nil
         }
 
         // Step B: All windows minimized in Dock tray -> restore and focus.
         if config.actionMode != .sendToBack,
            inspection.openWindows.isEmpty,
            !inspection.minimizedWindows.isEmpty {
-            return restoreWindows(of: clickedApp, minimizedWindows: inspection.minimizedWindows, replacing: frontmost)
+            return .restore
         }
 
         // Step C: Active frontmost app clicked -> hide, send behind, or minimize.
         guard isFrontmost else {
-            return false
+            return nil
         }
 
         switch config.actionMode {
         case .hideApp:
             guard !inspection.openWindows.isEmpty || hasOnScreenLayerZeroWindow(pid: pid) else {
+                return nil
+            }
+            return .hideApp
+        case .sendToBack:
+            guard !inspection.openWindows.isEmpty || hasOnScreenLayerZeroWindow(pid: pid) else {
+                return nil
+            }
+            return .sendToBack
+        case .minimizeAll:
+            guard !inspection.minimizableOpenWindows.isEmpty else { return nil }
+            return .minimizeAll
+        case .minimizeFrontWindow:
+            guard !inspection.minimizableOpenWindows.isEmpty else { return nil }
+            return .minimizeFrontWindow
+        }
+    }
+
+    private func executeExternalAppDockClick(
+        _ action: DockClickAction,
+        app: NSRunningApplication,
+        frontmost: NSRunningApplication?
+    ) -> Bool {
+        let pid = app.processIdentifier
+        let inspection = inspectWindows(of: pid)
+
+        switch action {
+        case .unhideAndFocus:
+            return unhideAndFocusApp(app, replacing: frontmost)
+        case .restore:
+            return restoreWindows(of: app, minimizedWindows: inspection.minimizedWindows, replacing: frontmost)
+        case .hideApp:
+            guard !inspection.openWindows.isEmpty || hasOnScreenLayerZeroWindow(pid: pid) else {
                 return false
             }
             let nextApp = preferredUnderlyingApp(excludingPID: pid)
-            return hideApp(clickedApp, focusingNext: nextApp)
+            return hideApp(app, focusingNext: nextApp)
         case .sendToBack:
             guard !inspection.openWindows.isEmpty || hasOnScreenLayerZeroWindow(pid: pid) else {
                 return false
             }
-            return sendBehindPreviousApp(clickedApp)
+            return sendBehindPreviousApp(app)
         case .minimizeAll:
             let targets = inspection.minimizableOpenWindows
             guard !targets.isEmpty else { return false }
@@ -586,7 +776,7 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
             minimizedByDockClick[pid] = targets
             lastMinimizeTime[pid] = Date()
             if let nextApp {
-                _ = focusTargetApp(nextApp, replacing: clickedApp)
+                _ = focusTargetApp(nextApp, replacing: app)
             }
             return true
         case .minimizeFrontWindow:
@@ -601,9 +791,9 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
             lastMinimizeTime[pid] = Date()
             if targets.count == 1 {
                 if let nextApp {
-                    _ = focusTargetApp(nextApp, replacing: clickedApp)
+                    _ = focusTargetApp(nextApp, replacing: app)
                 }
-            } else {
+            } else if targets.count > 1 {
                 raiseAndMakeMain(targets[1])
             }
             return true

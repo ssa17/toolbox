@@ -664,6 +664,18 @@ enum SelfTestRunner {
                "Bottom Dock edge on offset secondary display should pass pre-filter")
         expect(!DockMinimizeModule.isPointNearDockEdge(CGPoint(x: 2000, y: 110), inDisplayBounds: secondaryBounds),
                "Top menu bar on offset secondary display must be rejected")
+
+        let down = CGPoint(x: 500, y: 1040)
+        expect(DockMinimizeModule.shouldExecuteDockClick(downLocation: down, upLocation: down, maxTravel: 0),
+               "Zero-travel press/release should be treated as a Dock click")
+        expect(DockMinimizeModule.shouldExecuteDockClick(downLocation: down, upLocation: CGPoint(x: 502, y: 1042), maxTravel: 2.8),
+               "Tiny jitter within drag threshold should still count as a Dock click")
+        expect(!DockMinimizeModule.shouldExecuteDockClick(downLocation: down, upLocation: CGPoint(x: 520, y: 1040), maxTravel: 20),
+               "Drag past threshold must yield to the Dock")
+        expect(!DockMinimizeModule.shouldExecuteDockClick(downLocation: down, upLocation: down, maxTravel: 12),
+               "Drag-out-and-back exceeding maxTravel must still count as a drag, not a click")
+        expect(!DockMinimizeModule.shouldExecuteDockClick(downLocation: down, upLocation: CGPoint(x: 510, y: 1040), maxTravel: 0),
+               "Release location past threshold without intermediate drag events must still count as a drag")
     }
 
     private static func testUpdateManagerAndCustomDialog() {
