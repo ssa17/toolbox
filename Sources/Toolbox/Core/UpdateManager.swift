@@ -39,7 +39,7 @@ final class UpdateManager: NSObject, ObservableObject {
     @Published private(set) var checkProgress: Double = 0.0
     @Published private(set) var pendingUpdateVersion: String?
     @Published private(set) var pendingUpdateSizeBytes: Int64 = 0
-    @Published private(set) var pendingReleaseNotesHTML: String?
+    @Published private(set) var pendingReleaseNotes: String?
     @Published private(set) var lastCheckedAt: Date?
     @Published private(set) var lastCheckFailed = false
     @Published private(set) var lastCheckError: String?
@@ -345,7 +345,7 @@ final class UpdateManager: NSObject, ObservableObject {
         let now = Date()
         pendingUpdateVersion = nil
         pendingUpdateSizeBytes = 0
-        pendingReleaseNotesHTML = nil
+        pendingReleaseNotes = nil
 
         completeCheckWithMinimumDuration(checkedAt: now) { [weak self] in
             guard let self else { return }
@@ -390,7 +390,7 @@ final class UpdateManager: NSObject, ObservableObject {
         lastCheckError = nil
         pendingUpdateVersion = available
         pendingUpdateSizeBytes = Int64(item.contentLength)
-        pendingReleaseNotesHTML = item.itemDescription
+        pendingReleaseNotes = item.itemDescription
         statusText = "Update available: v\(available)"
 
         finishCheckingImmediately(status: "Update available: v\(available)")
@@ -484,15 +484,14 @@ final class UpdateManager: NSObject, ObservableObject {
 
     // MARK: - Developer Simulation
 
-    static func sampleReleaseNotesHTML(for version: String) -> String {
+    static func sampleReleaseNotes(for version: String) -> String {
         """
-        <p><b>What's New in Toolbox v\(version)</b></p>
-        <ul>
-          <li><b>Port Killer</b> — inspect active listening TCP ports, pin favorites, and stop stuck dev servers in one click.</li>
-          <li><b>Status Bar Menu</b> — customize which features appear in the menu-bar popover and reorder them.</li>
-          <li><b>Update Flow</b> — refined dark release-notes sheet, inline progress tracking, and clearer status badges.</li>
-        </ul>
-        <p><i>Simulated release notes preview — no real network request or installation will occur.</i></p>
+        ### What's New in Toolbox v\(version)
+        - **Port Killer** — inspect active listening TCP ports, pin favorites, and stop stuck dev servers in one click.
+        - **Status Bar Menu** — customize which features appear in the menu-bar popover and reorder them.
+        - **Update Flow** — refined dark release-notes sheet, inline progress tracking, and clearer status badges.
+
+        Simulated release notes preview — no real network request or installation will occur.
         """
     }
 
@@ -523,7 +522,7 @@ final class UpdateManager: NSObject, ObservableObject {
             checkProgress = 0
             pendingUpdateVersion = nil
             pendingUpdateSizeBytes = 0
-            pendingReleaseNotesHTML = nil
+            pendingReleaseNotes = nil
             lastCheckedAt = Date()
             lastCheckFailed = false
             lastCheckError = nil
@@ -534,7 +533,7 @@ final class UpdateManager: NSObject, ObservableObject {
             checkProgress = 0.62
             pendingUpdateVersion = nil
             pendingUpdateSizeBytes = 0
-            pendingReleaseNotesHTML = nil
+            pendingReleaseNotes = nil
             lastCheckFailed = false
             lastCheckError = nil
             statusText = "Checking for updates…"
@@ -544,7 +543,7 @@ final class UpdateManager: NSObject, ObservableObject {
             checkProgress = 0
             pendingUpdateVersion = cleanVersion
             pendingUpdateSizeBytes = max(100_000, sizeBytes)
-            pendingReleaseNotesHTML = Self.sampleReleaseNotesHTML(for: cleanVersion)
+            pendingReleaseNotes = Self.sampleReleaseNotes(for: cleanVersion)
             lastCheckedAt = Date()
             lastCheckFailed = false
             lastCheckError = nil
@@ -555,7 +554,7 @@ final class UpdateManager: NSObject, ObservableObject {
             checkProgress = 0
             pendingUpdateVersion = nil
             pendingUpdateSizeBytes = 0
-            pendingReleaseNotesHTML = nil
+            pendingReleaseNotes = nil
             lastCheckFailed = true
             lastCheckError = errorMessage
             statusText = "Couldn't check for updates"
@@ -565,7 +564,7 @@ final class UpdateManager: NSObject, ObservableObject {
             checkProgress = 0
             pendingUpdateVersion = nil
             pendingUpdateSizeBytes = 0
-            pendingReleaseNotesHTML = nil
+            pendingReleaseNotes = nil
             lastCheckedAt = nil
             lastCheckFailed = false
             lastCheckError = nil
@@ -617,7 +616,7 @@ final class UpdateManager: NSObject, ObservableObject {
         checkProgress = 0
         pendingUpdateVersion = nil
         pendingUpdateSizeBytes = 0
-        pendingReleaseNotesHTML = nil
+        pendingReleaseNotes = nil
         lastCheckFailed = false
         lastCheckError = nil
 
@@ -653,7 +652,7 @@ final class UpdateManager: NSObject, ObservableObject {
             : version.trimmingCharacters(in: .whitespacesAndNewlines)
         let effectiveSize = max(100_000, sizeBytes)
         let customNotes = releaseNotesHTML?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let notes = (customNotes?.isEmpty == false ? customNotes! : Self.sampleReleaseNotesHTML(for: cleanVersion))
+        let notes = (customNotes?.isEmpty == false ? customNotes! : Self.sampleReleaseNotes(for: cleanVersion))
         DeveloperEventLog.shared.record(.updates, "Opened update dialog preview: \(kind.label)", detail: "v\(cleanVersion)")
 
         switch kind {
@@ -826,7 +825,7 @@ extension UpdateManager: SPUUpdaterDelegate {
             }
             self.pendingUpdateVersion = version
             self.pendingUpdateSizeBytes = size
-            self.pendingReleaseNotesHTML = notes
+            self.pendingReleaseNotes = notes
             self.lastCheckFailed = false
             self.lastCheckError = nil
             let now = Date()
@@ -1041,7 +1040,7 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
 
     override init() {
         window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 468, height: 340),
+            contentRect: NSRect(x: 0, y: 0, width: 540, height: 340),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -1274,7 +1273,7 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
         window.setFrameOrigin(origin)
     }
 
-    private func resize(width: CGFloat = 468, height: CGFloat) {
+    private func resize(width: CGFloat = 540, height: CGFloat) {
         let targetSize = NSSize(width: width, height: height)
         let screen = window.screen ?? NSScreen.main ?? NSScreen.screens.first
         let visibleFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
@@ -1310,6 +1309,132 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
         ))
     }
 
+    // MARK: - Notes Rendering
+
+    /// Renders release notes into the notes card, choosing the renderer that matches the format.
+    /// `format` is the appcast's `sparkle:format` value ("html" / "markdown" / "plain-text");
+    /// when nil (developer previews) the content is sniffed instead.
+    private func renderNotes(_ text: String, format: String?) {
+        let fmt = (format ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let looksLikeHTML = text.contains("<")
+        let looksLikeMarkdown = text.contains("### ") || text.contains("\n- ") || text.hasPrefix("- ")
+        if fmt == "markdown" || (fmt.isEmpty && looksLikeMarkdown && !looksLikeHTML) {
+            setNotesMarkdown(text)
+        } else if fmt == "html" || looksLikeHTML {
+            if let data = text.data(using: .utf8) {
+                setNotesHTML(data)
+            } else {
+                setNotesPlain(text)
+            }
+        } else {
+            setNotesPlain(text)
+        }
+    }
+
+    /// Renders the changelog's Markdown subset (headings, bullets, **bold**) with dialog typography.
+    private func setNotesMarkdown(_ text: String) {
+        let bodySize: CGFloat = 12.5
+        let bodyFont = NSFont.systemFont(ofSize: bodySize)
+        let boldFont = NSFont.systemFont(ofSize: bodySize, weight: .semibold)
+        let headingFont = NSFont.systemFont(ofSize: 13.5, weight: .semibold)
+
+        let bodyParagraph = NSMutableParagraphStyle()
+        bodyParagraph.lineHeightMultiple = 1.3
+        bodyParagraph.paragraphSpacing = 4
+
+        let bulletParagraph = NSMutableParagraphStyle()
+        bulletParagraph.lineHeightMultiple = 1.3
+        bulletParagraph.paragraphSpacing = 5
+        bulletParagraph.firstLineHeadIndent = 12
+        bulletParagraph.headIndent = 12
+
+        let headingFirstParagraph = NSMutableParagraphStyle()
+        headingFirstParagraph.lineHeightMultiple = 1.2
+        headingFirstParagraph.paragraphSpacing = 6
+
+        let headingParagraph = NSMutableParagraphStyle()
+        headingParagraph.lineHeightMultiple = 1.2
+        headingParagraph.paragraphSpacingBefore = 10
+        headingParagraph.paragraphSpacing = 6
+
+        var baseAttrs: [NSAttributedString.Key: Any] = [
+            .font: bodyFont,
+            .foregroundColor: textCol,
+            .paragraphStyle: bodyParagraph,
+        ]
+
+        let result = NSMutableAttributedString()
+        var firstParagraph = true
+        for rawLine in text.components(separatedBy: "\n") {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty {
+                if !firstParagraph {
+                    result.append(NSAttributedString(string: "\n", attributes: baseAttrs))
+                }
+                continue
+            }
+
+            if !firstParagraph {
+                result.append(NSAttributedString(string: "\n", attributes: baseAttrs))
+            }
+
+            var attrs = baseAttrs
+            var content = line
+            var isBullet = false
+            if let level = Self.markdownHeadingLevel(line) {
+                content = String(line.dropFirst(level + 1))
+                attrs[.font] = headingFont
+                attrs[.paragraphStyle] = firstParagraph ? headingFirstParagraph : headingParagraph
+            } else if line.hasPrefix("- ") || line.hasPrefix("* ") || line.hasPrefix("+ ") {
+                content = String(line.dropFirst(2))
+                attrs[.paragraphStyle] = bulletParagraph
+                isBullet = true
+            }
+
+            if isBullet {
+                result.append(NSAttributedString(string: "•  ", attributes: attrs))
+            }
+            appendMarkdownInline(content, to: result, base: attrs, boldFont: boldFont)
+            firstParagraph = false
+        }
+
+        notesTextView.textStorage?.setAttributedString(result)
+    }
+
+    /// Leading `#` run of a Markdown ATX heading (1–6) followed by a space, or nil.
+    private static func markdownHeadingLevel(_ line: String) -> Int? {
+        var count = 0
+        for ch in line {
+            if ch == "#" { count += 1 } else { break }
+        }
+        guard (1...6).contains(count) else { return nil }
+        let rest = line.dropFirst(count)
+        guard rest.first == " " else { return nil }
+        return count
+    }
+
+    /// Appends `text` with `**bold**` segments rendered in semibold.
+    private func appendMarkdownInline(_ text: String, to result: NSMutableAttributedString, base: [NSAttributedString.Key: Any], boldFont: NSFont) {
+        var searchStart = text.startIndex
+        while let open = text.range(of: "**", range: searchStart..<text.endIndex) {
+            if open.lowerBound > searchStart {
+                result.append(NSAttributedString(string: String(text[searchStart..<open.lowerBound]), attributes: base))
+            }
+            guard let close = text.range(of: "**", range: open.upperBound..<text.endIndex) else {
+                result.append(NSAttributedString(string: String(text[open.lowerBound...]), attributes: base))
+                searchStart = text.endIndex
+                break
+            }
+            var boldAttrs = base
+            boldAttrs[.font] = boldFont
+            result.append(NSAttributedString(string: String(text[open.upperBound..<close.lowerBound]), attributes: boldAttrs))
+            searchStart = close.upperBound
+        }
+        if searchStart < text.endIndex {
+            result.append(NSAttributedString(string: String(text[searchStart...]), attributes: base))
+        }
+    }
+
     private func setNotesHTML(_ data: Data) {
         if let attr = try? NSMutableAttributedString(
             data: data,
@@ -1322,9 +1447,24 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
             attr.enumerateAttribute(.font, in: full) { val, r, _ in
                 if let f = val as? NSFont {
                     let isBold = f.fontDescriptor.symbolicTraits.contains(.bold)
-                    let sz = max(12, min(14.5, f.pointSize))
+                    let sz = max(12, min(15, f.pointSize))
                     attr.addAttribute(.font, value: NSFont.systemFont(ofSize: sz, weight: isBold ? .semibold : .regular), range: r)
                 }
+            }
+            attr.enumerateAttribute(.paragraphStyle, in: full) { val, r, _ in
+                let style = NSMutableParagraphStyle()
+                if let old = val as? NSParagraphStyle {
+                    style.alignment = old.alignment
+                    style.lineBreakMode = old.lineBreakMode
+                    style.firstLineHeadIndent = old.firstLineHeadIndent
+                    style.headIndent = old.headIndent
+                    style.tailIndent = old.tailIndent
+                    style.tabStops = old.tabStops
+                    style.defaultTabInterval = old.defaultTabInterval
+                }
+                style.lineHeightMultiple = 1.3
+                style.paragraphSpacing = 4
+                attr.addAttribute(.paragraphStyle, value: style, range: r)
             }
             notesTextView.textStorage?.setAttributedString(attr)
         }
@@ -1370,11 +1510,7 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
         progressWrap.isHidden = true
 
         if let desc = item.itemDescription, !desc.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            if let data = desc.data(using: .utf8), desc.contains("<") {
-                setNotesHTML(data)
-            } else {
-                setNotesPlain(desc)
-            }
+            renderNotes(desc, format: item.itemDescriptionFormat)
         } else {
             setNotesPlain("A new signed release of Toolbox is ready to download and install.")
         }
@@ -1383,7 +1519,7 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
         secondaryBtn.title = "Later"
         primaryBtn.isHidden = false
         primaryBtn.title = state.stage == .downloaded ? "Install & Relaunch" : "Update & Relaunch"
-        resize(height: 344)
+        resize(height: 400)
         present()
     }
 
@@ -1401,14 +1537,14 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
         if let data = notes.data(using: .utf8), notes.contains("<") {
             setNotesHTML(data)
         } else {
-            setNotesPlain(notes)
+            renderNotes(notes, format: nil)
         }
         secondaryBtn.isHidden = false
         secondaryBtn.title = "Later"
         primaryBtn.isHidden = false
         primaryBtn.title = "Update & Relaunch"
         updateReply = { [weak self] _ in self?.dismiss() }
-        resize(height: 344)
+        resize(height: 400)
     }
 
     func showPreviewAvailable(
@@ -1469,7 +1605,7 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
     }
 
     private func updateDownloadProgress() {
-        let trackW = max(1, progressTrack.bounds.width > 0 ? progressTrack.bounds.width : 424)
+        let trackW = max(1, progressTrack.bounds.width > 0 ? progressTrack.bounds.width : 496)
         if expectedBytes > 0 {
             let frac = min(1.0, Double(receivedBytes) / Double(expectedBytes))
             progressFillWidth.constant = max(8, trackW * frac)
@@ -1499,7 +1635,7 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
     }
 
     func setExtractionProgress(_ progress: Double) {
-        let trackW = max(1, progressTrack.bounds.width > 0 ? progressTrack.bounds.width : 424)
+        let trackW = max(1, progressTrack.bounds.width > 0 ? progressTrack.bounds.width : 496)
         progressFillWidth.constant = max(8, trackW * min(1.0, max(0.0, progress)))
         progressLabel.stringValue = "Extracting… \(Int(progress * 100))%"
     }
@@ -1513,7 +1649,7 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
         subtitleLabel.stringValue = "Toolbox will relaunch automatically to complete installation"
         notesCard.isHidden = true
         progressWrap.isHidden = false
-        let trackW = max(1, progressTrack.bounds.width > 0 ? progressTrack.bounds.width : 424)
+        let trackW = max(1, progressTrack.bounds.width > 0 ? progressTrack.bounds.width : 496)
         progressFillWidth.constant = trackW
         progressLabel.stringValue = "Download verified ✓"
         secondaryBtn.isHidden = false
@@ -1532,7 +1668,7 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
         subtitleLabel.stringValue = "Toolbox will reopen in a moment"
         notesCard.isHidden = true
         progressWrap.isHidden = false
-        let trackW = max(1, progressTrack.bounds.width > 0 ? progressTrack.bounds.width : 424)
+        let trackW = max(1, progressTrack.bounds.width > 0 ? progressTrack.bounds.width : 496)
         progressFillWidth.constant = trackW
         secondaryBtn.isHidden = true
         primaryBtn.isHidden = true

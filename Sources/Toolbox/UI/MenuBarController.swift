@@ -891,11 +891,12 @@ struct MenuBarPopoverView: View {
 
             HStack(spacing: 8) {
                 if let pendingVer = updateManager.pendingUpdateVersion {
+                    let sizeNote = updateManager.formattedPendingSize.map { " · \($0)" } ?? ""
                     Button {
                         onClosePopover(true)
                         updateManager.openPendingUpdateOrCheck()
                     } label: {
-                        Label("Update to v\(pendingVer)…", systemImage: "arrow.down.circle.fill")
+                        Label("Update to v\(pendingVer)\(sizeNote)…", systemImage: "arrow.down.circle.fill")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)

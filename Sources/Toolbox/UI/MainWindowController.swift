@@ -586,13 +586,14 @@ struct MainSplitView: View {
     }
 
     private func updateAvailableBanner(version: String) -> some View {
-        Button {
+        let sizeNote = updateManager.formattedPendingSize.map { " (\($0))" } ?? ""
+        return Button {
             updateManager.openPendingUpdateOrCheck()
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "arrow.down.circle.fill")
                     .font(.caption.weight(.bold))
-                Text("Toolbox v\(version) is available - click to review and update")
+                Text("Toolbox v\(version) is available\(sizeNote) - click to review and update")
                     .font(.caption.weight(.semibold))
                 Spacer(minLength: 8)
                 Text("Update…")

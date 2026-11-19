@@ -10,6 +10,7 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 ## [Unreleased]
 
 ### Changed
+- **Software Update** — the update dialog is wider and shows the release notes with proper formatting (group headings, bullets, and bold lead-ins) instead of raw Markdown, and the Dashboard banner and status-bar menu now show the download size (e.g. “Toolbox v1.5 is available (3.4 MB)”) when a new release is detected
 - **Main Window** — increased the default Dashboard window size (`1140 × 760`) so the 3-column module grid and detail pages fit comfortably on open
 - **Support Toolbox** — moved support links to a dedicated **Support Toolbox** sidebar page with prominent **Sponsor on GitHub** and **Support on Ko-fi** cards, a **Free Ways to Help** card grid, a high-five confetti button, and an honor-system **Supporter ♥** badge (shown in the sidebar, Settings, window titlebar, and a custom gold-accented Dock icon)
 

@@ -311,7 +311,7 @@ struct DeveloperToolsView: View {
                                 version: developerMode.simulatedUpdateVersion,
                                 sizeBytes: developerMode.simulatedUpdateSizeBytes,
                                 errorMessage: developerMode.simulatedUpdateError,
-                                releaseNotesHTML: developerMode.effectiveReleaseNotesHTML(for: developerMode.simulatedUpdateVersion)
+                                releaseNotesHTML: developerMode.effectiveReleaseNotes(for: developerMode.simulatedUpdateVersion)
                             )
                         }
                         .buttonStyle(.borderedProminent)
@@ -337,7 +337,7 @@ struct DeveloperToolsView: View {
                                     version: developerMode.simulatedUpdateVersion,
                                     sizeBytes: developerMode.simulatedUpdateSizeBytes,
                                     errorMessage: developerMode.simulatedUpdateError,
-                                    releaseNotesHTML: developerMode.effectiveReleaseNotesHTML(for: developerMode.simulatedUpdateVersion)
+                                    releaseNotesHTML: developerMode.effectiveReleaseNotes(for: developerMode.simulatedUpdateVersion)
                                 )
                             } label: {
                                 Text(kind.label)

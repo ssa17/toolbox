@@ -166,7 +166,7 @@ enum ReleaseNotesPreset: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .standard: return "Standard Changelog"
         case .longScrollable: return "Long (Scrollable)"
-        case .custom: return "Custom HTML"
+        case .custom: return "Custom (HTML or Markdown)"
         }
     }
 }
@@ -306,26 +306,23 @@ final class DeveloperModeManager: ObservableObject {
         Int64(max(0.1, simulatedUpdateSizeMB) * 1_000_000)
     }
 
-    func effectiveReleaseNotesHTML(for version: String) -> String {
+    func effectiveReleaseNotes(for version: String) -> String {
         switch selectedReleaseNotesPreset {
         case .standard:
-            return UpdateManager.sampleReleaseNotesHTML(for: version)
+            return UpdateManager.sampleReleaseNotes(for: version)
         case .longScrollable:
             return """
-            <p><strong>Toolbox v\(version) Release Highlights</strong></p>
-            <ul>
-              <li>Added PIN-gated Developer Tools with Updates, UI &amp; Modules, Events &amp; Taps, HotKeys &amp; Config, and Checks &amp; Diagnostics.</li>
-              <li>Centered the dark Sparkle update window directly over Toolbox's main window across all height transitions.</li>
-              <li>Added live CoreGraphics layer-0 window stack inspection and Scroll Direction event-tap monitoring.</li>
-              <li>Introduced in-memory config checkpoints with flattened key-path diffs against disk and checkpoint state.</li>
-            </ul>
-            <p><strong>Bug Fixes &amp; Hardening</strong></p>
-            <ul>
-              <li>Salted SHA-256 PIN verification with brute-force cooldown throttling.</li>
-              <li>Preserved Accessibility trust state cleanly when simulating UI permission banners.</li>
-              <li>Verified Developer ID code signature, Hardened Runtime flag, CDHash, and Gatekeeper status.</li>
-              <li>Improved hotkey registration error surfacing and conflict detection across modules.</li>
-            </ul>
+            ### Toolbox v\(version) Release Highlights
+            - Added PIN-gated Developer Tools with Updates, UI & Modules, Events & Taps, HotKeys & Config, and Checks & Diagnostics.
+            - Centered the dark Sparkle update window directly over Toolbox's main window across all height transitions.
+            - Added live CoreGraphics layer-0 window stack inspection and Scroll Direction event-tap monitoring.
+            - Introduced in-memory config checkpoints with flattened key-path diffs against disk and checkpoint state.
+
+            ### Bug Fixes & Hardening
+            - Salted SHA-256 PIN verification with brute-force cooldown throttling.
+            - Preserved Accessibility trust state cleanly when simulating UI permission banners.
+            - Verified Developer ID code signature, Hardened Runtime flag, CDHash, and Gatekeeper status.
+            - Improved hotkey registration error surfacing and conflict detection across modules.
             """
         case .custom:
             return customReleaseNotesHTML

@@ -1022,8 +1022,8 @@ enum SelfTestRunner {
         )
         devMode.selectedReleaseNotesPreset = .longScrollable
         expect(
-            devMode.effectiveReleaseNotesHTML(for: "2.0.0").contains("Bug Fixes &amp; Hardening"),
-            "Long release notes preset should populate extended changelog HTML"
+            devMode.effectiveReleaseNotes(for: "2.0.0").contains("Bug Fixes & Hardening"),
+            "Long release notes preset should populate extended changelog"
         )
         devMode.selectedErrorPreset = .eddsaSignatureInvalid
         expect(
@@ -1055,7 +1055,7 @@ enum SelfTestRunner {
         expect(updateMgr.isSimulatingState, "isSimulatingState should be true during preset simulation")
         expect(updateMgr.activeSimulationPreset == .updateAvailable, "activeSimulationPreset mismatch")
         expect(updateMgr.pendingUpdateVersion == "2.4.0", "Simulated pendingUpdateVersion mismatch")
-        expect(updateMgr.pendingReleaseNotesHTML?.contains("Toolbox v2.4.0") == true, "Simulated release notes should reference simulated version")
+        expect(updateMgr.pendingReleaseNotes?.contains("Toolbox v2.4.0") == true, "Simulated release notes should reference simulated version")
 
         updateMgr.applySimulationPreset(.checking)
         expect(updateMgr.isChecking && updateMgr.checkProgress == 0.62, "Checking preset should hold at 62%")

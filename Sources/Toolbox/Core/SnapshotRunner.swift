@@ -541,12 +541,10 @@ enum SnapshotRunner {
             currentVersion: "1.0",
             sizeBytes: 3_420_000,
             notes: """
-            <p><b>What's New in Toolbox 1.1</b></p>
-            <ul>
-              <li>Inline Settings update checker with progress bar, version badge, and last checked timestamp.</li>
-              <li>Custom dark update dialog shown only when a new release is ready.</li>
-              <li>Update-available indicators across the sidebar, dashboard banner, and status bar menu.</li>
-            </ul>
+            ### What's New in Toolbox 1.1
+            - **Inline Settings update checker** — progress bar, version badge, and last checked timestamp.
+            - **Custom dark update dialog** — shown only when a new release is ready.
+            - **Update-available indicators** — across the sidebar, dashboard banner, and status bar menu.
             """
         )
         guard let view = controller.window.contentView else { return }
