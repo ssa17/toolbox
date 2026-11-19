@@ -420,7 +420,20 @@ enum SelfTestRunner {
             menuBar.popoverPanelForTesting?.contentView?.subviews.first?.acceptsFirstMouse(for: nil) == true,
             "Status bar popover PointerCursorHostingView must accept first mouse so buttons work on first click while non-key"
         )
+        final class PopoverCloseObserverState: @unchecked Sendable {
+            var didPost = false
+        }
+        let closeState = PopoverCloseObserverState()
+        let closeObserver = NotificationCenter.default.addObserver(
+            forName: .toolboxMenuBarPopoverDidClose,
+            object: nil,
+            queue: nil
+        ) { _ in
+            closeState.didPost = true
+        }
         menuBar.hidePopoverForTesting()
+        NotificationCenter.default.removeObserver(closeObserver)
+        expect(closeState.didPost, "Dismissing the status bar popover must post toolboxMenuBarPopoverDidClose so hover highlights reset")
         expect(!menuBar.isPopoverVisibleForTesting, "hidePopoverForTesting must dismiss the status bar popover")
         menuBar.setVisible(false)
         expect(menuBar.statusButtonForTesting == nil, "Hiding status item must remove status bar button")

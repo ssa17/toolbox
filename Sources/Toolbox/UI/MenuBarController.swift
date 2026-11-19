@@ -432,6 +432,7 @@ final class MenuBarController: NSObject {
         stopSizeSyncTimer()
         removePopoverMonitors()
         panel?.orderOut(nil)
+        NotificationCenter.default.post(name: .toolboxMenuBarPopoverDidClose, object: nil)
         NSCursor.arrow.set()
     }
 
@@ -622,6 +623,7 @@ struct MenuBarPopoverView: View {
                 RoundedRectangle(cornerRadius: 8)
                     .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.75)
             )
+            .menuRowHover(cornerRadius: 8)
 
             if !permissions.isAccessibilityGranted {
                 Button {
@@ -649,6 +651,7 @@ struct MenuBarPopoverView: View {
                 .buttonStyle(.plain)
         .focusEffectDisabled()
                 .pointerCursor()
+                .menuRowHover(cornerRadius: 8, borderOpacity: 0)
             }
 
             let visibleModules = registry.visibleMenuBarModules(for: configManager.config)
@@ -710,6 +713,7 @@ struct MenuBarPopoverView: View {
                         .buttonStyle(.plain)
                         .focusEffectDisabled()
                         .pointerCursor()
+                        .menuRowHover(cornerRadius: 8)
 
                         Button {
                             onClosePopover(false)
@@ -737,6 +741,7 @@ struct MenuBarPopoverView: View {
                         .buttonStyle(.plain)
                         .focusEffectDisabled()
                         .pointerCursor()
+                        .menuRowHover(cornerRadius: 8)
 
                         Button {
                             keepAwake.toggle()
@@ -776,6 +781,7 @@ struct MenuBarPopoverView: View {
                         .focusEffectDisabled()
                         .help(keepAwake.isAwakeActive ? "Turn Keep Awake Off" : "Turn Keep Awake On")
                         .pointerCursor()
+                        .menuRowHover(cornerRadius: 8)
                     }
 
                     if configManager.config.callControls.enabled && configManager.config.general.appEnabled {
@@ -810,6 +816,7 @@ struct MenuBarPopoverView: View {
                             .focusEffectDisabled()
                             .help(callControls.isInputMuted ? "Unmute default microphone" : "Mute default microphone")
                             .pointerCursor()
+                            .menuRowHover(cornerRadius: 8)
 
                             Button {
                                 callControls.cycleOutputDevice()
@@ -838,6 +845,7 @@ struct MenuBarPopoverView: View {
                             .focusEffectDisabled()
                             .help("Cycle favorite output audio devices")
                             .pointerCursor()
+                            .menuRowHover(cornerRadius: 8)
                         }
                     }
                 }
@@ -869,6 +877,7 @@ struct MenuBarPopoverView: View {
                             .buttonStyle(.plain)
                             .focusEffectDisabled()
                             .pointerCursor()
+                            .menuRowHover(cornerRadius: 6)
                         }
                     }
                 }
@@ -904,11 +913,13 @@ struct MenuBarPopoverView: View {
                 .buttonStyle(.plain)
                 .focusEffectDisabled()
                 .pointerCursor()
+                .menuRowHover(cornerRadius: 8)
             }
 
             Divider()
 
             HStack(spacing: 8) {
+                let hasPending = updateManager.pendingUpdateVersion != nil
                 if let pendingVer = updateManager.pendingUpdateVersion {
                     let sizeNote = updateManager.formattedPendingSize.map { " · \($0)" } ?? ""
                     Button {
@@ -926,41 +937,7 @@ struct MenuBarPopoverView: View {
                     .buttonStyle(.plain)
                     .focusEffectDisabled()
                     .pointerCursor()
-                } else {
-                    Button {
-                        updateManager.checkForUpdates()
-                    } label: {
-                        VStack(spacing: 0) {
-                            Label(
-                                updateManager.isChecking ? "Checking…" : "Check for Updates",
-                                systemImage: "arrow.triangle.2.circlepath"
-                            )
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(updateManager.lastCheckFailed ? .orange : .primary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 6)
-
-                            if updateManager.isChecking || updateManager.checkProgress > 0 {
-                                GeometryReader { proxy in
-                                    Capsule()
-                                        .fill(Color.blue)
-                                        .frame(width: max(8, proxy.size.width * min(1.0, updateManager.checkProgress)), height: 2)
-                                }
-                                .frame(height: 2)
-                            }
-                        }
-                        .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 7))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 7)
-                                .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.75)
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 7))
-                        .contentShape(RoundedRectangle(cornerRadius: 7))
-                    }
-                    .buttonStyle(.plain)
-                    .focusEffectDisabled()
-                    .disabled(updateManager.isChecking)
-                    .pointerCursor(!updateManager.isChecking)
+                    .menuRowHover(cornerRadius: 7, color: .white, fillOpacity: 0.14, borderOpacity: 0)
                 }
 
                 Button {
@@ -969,7 +946,8 @@ struct MenuBarPopoverView: View {
                     Label("Quit", systemImage: "power")
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.secondary)
-                        .padding(.horizontal, 14)
+                        .frame(maxWidth: hasPending ? nil : .infinity)
+                        .padding(.horizontal, hasPending ? 14 : 0)
                         .padding(.vertical, 6)
                         .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 7))
                         .overlay(
@@ -981,10 +959,15 @@ struct MenuBarPopoverView: View {
                 .buttonStyle(.plain)
         .focusEffectDisabled()
                 .pointerCursor()
+                .menuRowHover(cornerRadius: 7)
             }
         }
         .padding(14)
         .frame(width: 340)
+        .onReceive(NotificationCenter.default.publisher(for: .toolboxMenuBarPopoverDidClose)) { _ in
+            headerHover.isDashboardHovered = false
+            headerHover.isSettingsHovered = false
+        }
     }
 
     private func moduleRow(_ module: any ToolboxModule) -> some View {
@@ -1090,5 +1073,6 @@ struct MenuBarPopoverView: View {
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(Color.primary.opacity(isEnabled ? 0.07 : 0.03), lineWidth: 0.75)
         )
+        .menuRowHover(cornerRadius: 8)
     }
 }

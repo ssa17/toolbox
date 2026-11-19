@@ -17,6 +17,61 @@ extension View {
             self
         }
     }
+
+    /// Subtle hover highlight for menu-bar popover rows and buttons. Fades in a translucent
+    /// fill + border while the pointer is over the view, giving clear "interactive" feedback
+    /// without altering the row's base styling. Holds its own hover state, so it works for
+    /// static rows and inside `ForEach` alike.
+    func menuRowHover(
+        cornerRadius: CGFloat = 8,
+        color: Color = .primary,
+        fillOpacity: Double = 0.05,
+        borderOpacity: Double = 0.14
+    ) -> some View {
+        MenuRowHover(
+            cornerRadius: cornerRadius,
+            color: color,
+            fillOpacity: fillOpacity,
+            borderOpacity: borderOpacity
+        ) {
+            self
+        }
+    }
+}
+
+extension Notification.Name {
+    static let toolboxMenuBarPopoverDidClose = Notification.Name("toolbox.menuBarPopoverDidClose")
+}
+
+private final class MenuRowHoverState: ObservableObject {
+    @Published var isHovered = false
+}
+
+private struct MenuRowHover<Content: View>: View {
+    @StateObject private var state = MenuRowHoverState()
+    var cornerRadius: CGFloat
+    var color: Color
+    var fillOpacity: Double
+    var borderOpacity: Double
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        content()
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .fill(color.opacity(state.isHovered ? fillOpacity : 0))
+                    .allowsHitTesting(false)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .strokeBorder(color.opacity(state.isHovered ? borderOpacity : 0), lineWidth: 0.75)
+                    .allowsHitTesting(false)
+            )
+            .onHover { state.isHovered = $0 }
+            .onReceive(NotificationCenter.default.publisher(for: .toolboxMenuBarPopoverDidClose)) { _ in
+                state.isHovered = false
+            }
+    }
 }
 
 private struct PointerCursorOverlay: NSViewRepresentable {
