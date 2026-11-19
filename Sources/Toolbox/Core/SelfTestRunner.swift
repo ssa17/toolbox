@@ -420,6 +420,42 @@ enum SelfTestRunner {
             menuBar.popoverPanelForTesting?.contentView?.subviews.first?.acceptsFirstMouse(for: nil) == true,
             "Status bar popover PointerCursorHostingView must accept first mouse so buttons work on first click while non-key"
         )
+
+        let savedMenuBarConfig = ConfigManager.shared.config
+        ConfigManager.shared.config.callControls.enabled = true
+        ConfigManager.shared.config.general.showQuickActionsInMenuBar = true
+        ConfigManager.shared.config.general.appEnabled = true
+        registry.reloadAll(with: ConfigManager.shared.config)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        menuBar.refreshHostedViewSizeForTesting()
+        let activeHeight = menuBar.popoverPanelForTesting?.frame.height ?? 0
+        let activePointerCount = menuBar.pointerCursorViewCountForTesting
+
+        ConfigManager.shared.config.general.appEnabled = false
+        registry.reloadAll(with: ConfigManager.shared.config)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        menuBar.refreshHostedViewSizeForTesting()
+        let pausedHeight = menuBar.popoverPanelForTesting?.frame.height ?? 0
+        let pausedPointerCount = menuBar.pointerCursorViewCountForTesting
+
+        expect(
+            abs(activeHeight - pausedHeight) <= 1,
+            "Status bar popover height must not jump when toggling Toolbox on/off (active=\(activeHeight), paused=\(pausedHeight))"
+        )
+        expect(
+            pausedPointerCount < activePointerCount,
+            "Paused module rows and quick actions must drop PointerCursorNSView overlays (active=\(activePointerCount), paused=\(pausedPointerCount))"
+        )
+        expect(
+            pausedPointerCount >= 4,
+            "Header, master toggle, and footer controls must retain pointer cursor overlays while paused (found \(pausedPointerCount))"
+        )
+
+        ConfigManager.shared.config = savedMenuBarConfig
+        registry.reloadAll(with: savedMenuBarConfig)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        menuBar.refreshHostedViewSizeForTesting()
+
         final class PopoverCloseObserverState: @unchecked Sendable {
             var didPost = false
         }

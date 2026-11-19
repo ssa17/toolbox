@@ -48,6 +48,7 @@ private final class MenuRowHoverState: ObservableObject {
 }
 
 private struct MenuRowHover<Content: View>: View {
+    @Environment(\.isEnabled) private var isEnabled
     @StateObject private var state = MenuRowHoverState()
     var cornerRadius: CGFloat
     var color: Color
@@ -56,18 +57,24 @@ private struct MenuRowHover<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     var body: some View {
+        let isHighlighted = isEnabled && state.isHovered
         content()
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .fill(color.opacity(state.isHovered ? fillOpacity : 0))
+                    .fill(color.opacity(isHighlighted ? fillOpacity : 0))
                     .allowsHitTesting(false)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .strokeBorder(color.opacity(state.isHovered ? borderOpacity : 0), lineWidth: 0.75)
+                    .strokeBorder(color.opacity(isHighlighted ? borderOpacity : 0), lineWidth: 0.75)
                     .allowsHitTesting(false)
             )
-            .onHover { state.isHovered = $0 }
+            .onHover { state.isHovered = isEnabled && $0 }
+            .onChange(of: isEnabled) { _, enabled in
+                if !enabled {
+                    state.isHovered = false
+                }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .toolboxMenuBarPopoverDidClose)) { _ in
                 state.isHovered = false
             }

@@ -654,6 +654,7 @@ struct MenuBarPopoverView: View {
                 .menuRowHover(cornerRadius: 8, borderOpacity: 0)
             }
 
+            let isAppEnabled = configManager.config.general.appEnabled
             let visibleModules = registry.visibleMenuBarModules(for: configManager.config)
             let showQuickActions = configManager.config.general.showQuickActionsInMenuBar
             let activeCommands = configManager.config.customCommands.commands.filter {
@@ -673,166 +674,37 @@ struct MenuBarPopoverView: View {
                         moduleRow(module)
                     }
                 }
-                .opacity(configManager.config.general.appEnabled ? 1.0 : 0.62)
+                .opacity(isAppEnabled ? 1.0 : 0.55)
+                .disabled(!isAppEnabled)
             }
 
             if showQuickActions || showQuickCommands {
                 Divider()
 
-                if showQuickActions {
-                    HStack(spacing: 8) {
-                        Button {
-                            onClosePopover(false)
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                                clipboard.showPopover()
-                            }
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "doc.on.clipboard")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.cyan)
-                                Text("Clipboard")
-                                    .font(.caption.weight(.medium))
-                                    .foregroundStyle(.primary)
-                                Text("\(clipboard.entries.count)")
-                                    .font(.caption2.monospacedDigit().weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 5)
-                                    .padding(.vertical, 1)
-                                    .background(Color.primary.opacity(0.08), in: Capsule())
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 7)
-                            .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.75)
-                            )
-                            .contentShape(RoundedRectangle(cornerRadius: 8))
-                        }
-                        .buttonStyle(.plain)
-                        .focusEffectDisabled()
-                        .pointerCursor()
-                        .menuRowHover(cornerRadius: 8)
-
-                        Button {
-                            onClosePopover(false)
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                                portKiller.showPopover()
-                            }
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "network")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.indigo)
-                                Text("Ports")
-                                    .font(.caption.weight(.medium))
-                                    .foregroundStyle(.primary)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 7)
-                            .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.75)
-                            )
-                            .contentShape(RoundedRectangle(cornerRadius: 8))
-                        }
-                        .buttonStyle(.plain)
-                        .focusEffectDisabled()
-                        .pointerCursor()
-                        .menuRowHover(cornerRadius: 8)
-
-                        Button {
-                            keepAwake.toggle()
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: keepAwake.isAwakeActive ? "bolt.fill" : "bolt")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(keepAwake.isAwakeActive ? .orange : .secondary)
-                                Text("Keep Awake")
-                                    .font(.caption.weight(.medium))
-                                    .foregroundStyle(.primary)
-                                if keepAwake.isAwakeActive {
-                                    Text("ON")
-                                        .font(.system(size: 9, weight: .bold, design: .rounded))
-                                        .foregroundStyle(.orange)
-                                        .padding(.horizontal, 5)
-                                        .padding(.vertical, 1.5)
-                                        .background(Color.orange.opacity(0.2), in: Capsule())
-                                }
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 7)
-                            .background(
-                                keepAwake.isAwakeActive ? Color.orange.opacity(0.14) : Color.primary.opacity(0.055),
-                                in: RoundedRectangle(cornerRadius: 8)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .strokeBorder(
-                                        keepAwake.isAwakeActive ? Color.orange.opacity(0.42) : Color.primary.opacity(0.09),
-                                        lineWidth: 0.75
-                                    )
-                            )
-                            .contentShape(RoundedRectangle(cornerRadius: 8))
-                        }
-                        .buttonStyle(.plain)
-                        .focusEffectDisabled()
-                        .help(keepAwake.isAwakeActive ? "Turn Keep Awake Off" : "Turn Keep Awake On")
-                        .pointerCursor()
-                        .menuRowHover(cornerRadius: 8)
-                    }
-
-                    if configManager.config.callControls.enabled && configManager.config.general.appEnabled {
+                VStack(alignment: .leading, spacing: 12) {
+                    if showQuickActions {
                         HStack(spacing: 8) {
                             Button {
-                                callControls.toggleSmartMicMute()
+                                onClosePopover(false)
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                                    clipboard.showPopover()
+                                }
                             } label: {
                                 HStack(spacing: 6) {
-                                    Image(systemName: callControls.isInputMuted ? "mic.slash.fill" : "mic.fill")
+                                    Image(systemName: "doc.on.clipboard")
                                         .font(.caption.weight(.semibold))
-                                        .foregroundStyle(callControls.isInputMuted ? .red : .green)
-                                    Text(callControls.isInputMuted ? "Mic Muted" : "Mic Live")
+                                        .foregroundStyle(.cyan)
+                                    Text("Clipboard")
                                         .font(.caption.weight(.medium))
                                         .foregroundStyle(.primary)
+                                    Text("\(clipboard.entries.count)")
+                                        .font(.caption2.monospacedDigit().weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 1)
+                                        .background(Color.primary.opacity(0.08), in: Capsule())
                                 }
                                 .frame(maxWidth: .infinity)
-                                .padding(.vertical, 7)
-                                .background(
-                                    (callControls.isInputMuted ? Color.red : Color.green).opacity(0.12),
-                                    in: RoundedRectangle(cornerRadius: 8)
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .strokeBorder(
-                                            (callControls.isInputMuted ? Color.red : Color.green).opacity(0.35),
-                                            lineWidth: 0.75
-                                        )
-                                )
-                                .contentShape(RoundedRectangle(cornerRadius: 8))
-                            }
-                            .buttonStyle(.plain)
-                            .focusEffectDisabled()
-                            .help(callControls.isInputMuted ? "Unmute default microphone" : "Mute default microphone")
-                            .pointerCursor()
-                            .menuRowHover(cornerRadius: 8)
-
-                            Button {
-                                callControls.cycleOutputDevice()
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: callControls.defaultOutputDevice?.transport.symbolName(isInput: false) ?? "speaker.wave.2")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.blue)
-                                    Text(callControls.defaultOutputDevice?.name ?? "Cycle Output")
-                                        .font(.caption.weight(.medium))
-                                        .foregroundStyle(.primary)
-                                        .lineLimit(1)
-                                        .truncationMode(.tail)
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.horizontal, 8)
                                 .padding(.vertical, 7)
                                 .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
                                 .overlay(
@@ -843,44 +715,178 @@ struct MenuBarPopoverView: View {
                             }
                             .buttonStyle(.plain)
                             .focusEffectDisabled()
-                            .help("Cycle favorite output audio devices")
-                            .pointerCursor()
+                            .pointerCursor(isAppEnabled)
                             .menuRowHover(cornerRadius: 8)
-                        }
-                    }
-                }
 
-                if showQuickCommands {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Quick Commands")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        ForEach(activeCommands.prefix(4)) { cmd in
                             Button {
                                 onClosePopover(false)
-                                registry.customCommands.runCommand(cmd)
-                            } label: {
-                                HStack {
-                                    Image(systemName: "play.circle")
-                                        .foregroundStyle(.purple)
-                                    Text(cmd.name)
-                                        .font(.caption)
-                                    Spacer()
-                                    if !cmd.shortcut.isEmpty {
-                                        ShortcutPill(text: cmd.shortcut.displayString)
-                                    }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                                    portKiller.showPopover()
                                 }
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 5)
-                                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "network")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.indigo)
+                                    Text("Ports")
+                                        .font(.caption.weight(.medium))
+                                        .foregroundStyle(.primary)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 7)
+                                .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.75)
+                                )
+                                .contentShape(RoundedRectangle(cornerRadius: 8))
                             }
                             .buttonStyle(.plain)
                             .focusEffectDisabled()
-                            .pointerCursor()
-                            .menuRowHover(cornerRadius: 6)
+                            .pointerCursor(isAppEnabled)
+                            .menuRowHover(cornerRadius: 8)
+
+                            Button {
+                                keepAwake.toggle()
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: keepAwake.isAwakeActive ? "bolt.fill" : "bolt")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(keepAwake.isAwakeActive ? .orange : .secondary)
+                                    Text("Keep Awake")
+                                        .font(.caption.weight(.medium))
+                                        .foregroundStyle(.primary)
+                                    if keepAwake.isAwakeActive {
+                                        Text("ON")
+                                            .font(.system(size: 9, weight: .bold, design: .rounded))
+                                            .foregroundStyle(.orange)
+                                            .padding(.horizontal, 5)
+                                            .padding(.vertical, 1.5)
+                                            .background(Color.orange.opacity(0.2), in: Capsule())
+                                    }
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 7)
+                                .background(
+                                    keepAwake.isAwakeActive ? Color.orange.opacity(0.14) : Color.primary.opacity(0.055),
+                                    in: RoundedRectangle(cornerRadius: 8)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .strokeBorder(
+                                            keepAwake.isAwakeActive ? Color.orange.opacity(0.42) : Color.primary.opacity(0.09),
+                                            lineWidth: 0.75
+                                        )
+                                )
+                                .contentShape(RoundedRectangle(cornerRadius: 8))
+                            }
+                            .buttonStyle(.plain)
+                            .focusEffectDisabled()
+                            .help(keepAwake.isAwakeActive ? "Turn Keep Awake Off" : "Turn Keep Awake On")
+                            .pointerCursor(isAppEnabled)
+                            .menuRowHover(cornerRadius: 8)
+                        }
+
+                        if configManager.config.callControls.enabled {
+                            HStack(spacing: 8) {
+                                Button {
+                                    callControls.toggleSmartMicMute()
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: callControls.isInputMuted ? "mic.slash.fill" : "mic.fill")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(callControls.isInputMuted ? .red : .green)
+                                        Text(callControls.isInputMuted ? "Mic Muted" : "Mic Live")
+                                            .font(.caption.weight(.medium))
+                                            .foregroundStyle(.primary)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 7)
+                                    .background(
+                                        (callControls.isInputMuted ? Color.red : Color.green).opacity(0.12),
+                                        in: RoundedRectangle(cornerRadius: 8)
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .strokeBorder(
+                                                (callControls.isInputMuted ? Color.red : Color.green).opacity(0.35),
+                                                lineWidth: 0.75
+                                            )
+                                    )
+                                    .contentShape(RoundedRectangle(cornerRadius: 8))
+                                }
+                                .buttonStyle(.plain)
+                                .focusEffectDisabled()
+                                .help(callControls.isInputMuted ? "Unmute default microphone" : "Mute default microphone")
+                                .pointerCursor(isAppEnabled)
+                                .menuRowHover(cornerRadius: 8)
+
+                                Button {
+                                    callControls.cycleOutputDevice()
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: callControls.defaultOutputDevice?.transport.symbolName(isInput: false) ?? "speaker.wave.2")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(.blue)
+                                        Text(callControls.defaultOutputDevice?.name ?? "Cycle Output")
+                                            .font(.caption.weight(.medium))
+                                            .foregroundStyle(.primary)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 7)
+                                    .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.75)
+                                    )
+                                    .contentShape(RoundedRectangle(cornerRadius: 8))
+                                }
+                                .buttonStyle(.plain)
+                                .focusEffectDisabled()
+                                .help("Cycle favorite output audio devices")
+                                .pointerCursor(isAppEnabled)
+                                .menuRowHover(cornerRadius: 8)
+                            }
+                        }
+                    }
+
+                    if showQuickCommands {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Quick Commands")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            ForEach(activeCommands.prefix(4)) { cmd in
+                                Button {
+                                    onClosePopover(false)
+                                    registry.customCommands.runCommand(cmd)
+                                } label: {
+                                    HStack {
+                                        Image(systemName: "play.circle")
+                                            .foregroundStyle(.purple)
+                                        Text(cmd.name)
+                                            .font(.caption)
+                                        Spacer()
+                                        if !cmd.shortcut.isEmpty {
+                                            ShortcutPill(text: cmd.shortcut.displayString)
+                                        }
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 5)
+                                    .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+                                }
+                                .buttonStyle(.plain)
+                                .focusEffectDisabled()
+                                .pointerCursor(isAppEnabled)
+                                .menuRowHover(cornerRadius: 6)
+                            }
                         }
                     }
                 }
+                .opacity(isAppEnabled ? 1.0 : 0.55)
+                .disabled(!isAppEnabled)
             }
 
             if visibleModules.isEmpty && !showQuickActions && !showQuickCommands {
@@ -1011,7 +1017,7 @@ struct MenuBarPopoverView: View {
             }
             .buttonStyle(.plain)
         .focusEffectDisabled()
-            .pointerCursor()
+            .pointerCursor(isAppEnabled)
 
             if module.id == "call_controls" {
                 if isEnabled {
@@ -1045,7 +1051,7 @@ struct MenuBarPopoverView: View {
                     .buttonStyle(.plain)
                     .focusEffectDisabled()
                     .help(pillOn ? "Hide floating status pill" : "Show floating status pill")
-                    .pointerCursor()
+                    .pointerCursor(isAppEnabled)
                 }
             } else if let shortcut = module.shortcutText(in: configManager.config) {
                 ShortcutPill(text: shortcut)
@@ -1064,7 +1070,7 @@ struct MenuBarPopoverView: View {
             ))
             .labelsHidden()
             .toggleStyle(StatusBarSwitchToggleStyle(onColor: .green))
-            .pointerCursor()
+            .pointerCursor(isAppEnabled)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)

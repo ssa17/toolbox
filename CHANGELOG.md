@@ -13,6 +13,7 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 - **Status Bar Menu** — added subtle hover highlights to rows and buttons, and removed the “Check for Updates” button (updates still check automatically in the background, and an “Update to v<version>…” button appears whenever a new release is available)
 
 ### Fixed
+- **Status Bar Menu** — pausing Toolbox from the master toggle no longer causes the popover to jump in height; all sections stay visible while paused modules, quick actions, and quick commands are dimmed and disabled
 - **Status Bar Menu** — opening the menu-bar popover no longer pulls the Dashboard window to the front; it stays in the background until you choose to open it
 
 ## [1.5] - 2026-11-19
