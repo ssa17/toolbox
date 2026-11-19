@@ -3,28 +3,24 @@
     <channel>
         <title>Toolbox</title>
         <item>
-            <title>1.4</title>
-            <pubDate>Tue, 17 Nov 2026 23:27:48 +0000</pubDate>
-            <sparkle:version>1.4</sparkle:version>
-            <sparkle:shortVersionString>1.4</sparkle:shortVersionString>
+            <title>1.5</title>
+            <pubDate>Thu, 19 Nov 2026 00:24:25 +0000</pubDate>
+            <sparkle:version>1.5</sparkle:version>
+            <sparkle:shortVersionString>1.5</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <description sparkle:format="markdown"><![CDATA[
-### Added
-- **Screen OCR (`⇧ ⌘ 0`)** — drag-select any area of the screen to copy unselectable text or decode QR/barcodes with on-device Apple Vision OCR, with fast/accurate modes, line-break and toast options, and a recent-captures list in Settings
-- **Developer Tools** — a dedicated Screen OCR section with a stage-by-stage live capture test that pinpoints exactly where a capture fails, permission and environment inspection, an offline recognition self-check, and OCR event history
-- **Support Links** — GitHub Sponsors and Ko-fi links under Settings → About Toolbox
-
 ### Changed
-- **Call Controls** — camera on/off is now tracked alongside mic mute so the floating pill and the call session stay consistent when video toggles, all mapped call apps are monitored at once, and the pill shows a short app name for the video target
-- **Screen OCR** — recognizes more of the screen and keeps its structure: small text in large captures is no longer silently dropped, and multi-line selections come out as real lines and paragraphs instead of one merged line
+- **Software Update** — the update dialog is wider and shows release notes with proper formatting (group headings, bullets, and bold lead-ins) instead of raw Markdown, and the Dashboard banner and status-bar menu now show the download size when a new release is detected
+- **Main Window** — increased the default Dashboard window size so the 3-column module grid and detail pages fit comfortably on open
+- **Support Toolbox** — moved support links to a dedicated **Support Toolbox** sidebar page with prominent **Sponsor on GitHub** and **Support on Ko-fi** cards, a **Free Ways to Help** card grid, a high-five confetti button, and an honor-system **Supporter ♥** badge (shown in the sidebar, Settings, window titlebar, and a custom gold-accented Dock icon)
 
 ### Fixed
-- **Screen OCR** — a capture that finishes after the module is disabled or the app is paused no longer writes to the clipboard, and empty results no longer false-positive on dark-themed UIs (terminals) as "screen might be blank"; failed captures are kept on disk for Reveal / Re-analyze in Developer Tools
-- **Call Controls** — browser-hosted web calls (Google Meet, Zoom web, etc.) no longer press the browser's own menu items by mistake, and the floating pill lands on the correct screen when pinned near a shared monitor boundary
+- **Dock Click to Minimize** — Dock icons can be dragged to reorganise again; the click action now waits for the release and yields to the Dock whenever you drag, instead of firing on press and swallowing the gesture
+- **Accessibility & Permission Flow** — fixed a crash when closing the Accessibility explanation sheet, a Mac-wide input freeze when revoking Accessibility in System Settings, and a duplicate Accessibility prompt at startup; permission state no longer goes stale after changes in System Settings, and the Dashboard setup banner walks through Accessibility → Screen Recording step by step and returns you to Toolbox
 
 ]]></description>
-            <enclosure url="https://github.com/ssa17/toolbox/releases/download/v1.4/Toolbox-1.4.zip" length="4807994" type="application/octet-stream" sparkle:edSignature="opFiXkmgNfq6PgAOcRWdzLA2QTMF18wQURK/8WQ+qKB6h0D/tsfs3vwDJG/GYclrPpQJ38BU4qkQu/2d6pXRAg=="/>
+            <enclosure url="https://github.com/ssa17/toolbox/releases/download/v1.5/Toolbox-1.5.zip" length="4999121" type="application/octet-stream" sparkle:edSignature="yzgiTN55Ul8bh7sesnTJ6msXTwrimT8Ve5EgLffXVWAWZVrz6JnDhrilcWgIIK/RQLom8rPNyIPSVyGR9VoPAw=="/>
         </item>
     </channel>
 </rss>

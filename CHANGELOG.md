@@ -9,14 +9,16 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 
 ## [Unreleased]
 
+## [1.5] - 2026-11-19
+
 ### Changed
-- **Software Update** — the update dialog is wider and shows the release notes with proper formatting (group headings, bullets, and bold lead-ins) instead of raw Markdown, and the Dashboard banner and status-bar menu now show the download size (e.g. “Toolbox v1.5 is available (3.4 MB)”) when a new release is detected
-- **Main Window** — increased the default Dashboard window size (`1140 × 760`) so the 3-column module grid and detail pages fit comfortably on open
+- **Software Update** — the update dialog is wider and shows release notes with proper formatting (group headings, bullets, and bold lead-ins) instead of raw Markdown, and the Dashboard banner and status-bar menu now show the download size when a new release is detected
+- **Main Window** — increased the default Dashboard window size so the 3-column module grid and detail pages fit comfortably on open
 - **Support Toolbox** — moved support links to a dedicated **Support Toolbox** sidebar page with prominent **Sponsor on GitHub** and **Support on Ko-fi** cards, a **Free Ways to Help** card grid, a high-five confetti button, and an honor-system **Supporter ♥** badge (shown in the sidebar, Settings, window titlebar, and a custom gold-accented Dock icon)
 
 ### Fixed
 - **Dock Click to Minimize** — Dock icons can be dragged to reorganise again; the click action now waits for the release and yields to the Dock whenever you drag, instead of firing on press and swallowing the gesture
-- **Accessibility & Permission Flow** — fixed a crash when closing the Accessibility explanation sheet (`PointerCursorNSView` forming a weak reference on a deallocating window), fixed a Mac-wide input freeze when revoking Accessibility in System Settings (`CGEventTap` handlers re-arming on `tapDisabledByUserInput`), guarded startup window-title checks so macOS does not trigger a duplicate Accessibility prompt before the onboarding modal, fixed stale in-process `TCC.framework` / `HIServices` / `SkyLight` permission caches using `TCCAccessCheckAuditToken` and live `--check-screen-recording` probes, and streamlined the Dashboard setup banner into a step-by-step Accessibility (Device Control and Data Access) → Screen Recording flow with automatic return to Toolbox
+- **Accessibility & Permission Flow** — fixed a crash when closing the Accessibility explanation sheet, a Mac-wide input freeze when revoking Accessibility in System Settings, and a duplicate Accessibility prompt at startup; permission state no longer goes stale after changes in System Settings, and the Dashboard setup banner walks through Accessibility → Screen Recording step by step and returns you to Toolbox
 
 ## [1.4] - 2026-11-17
 
