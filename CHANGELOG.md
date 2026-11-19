@@ -9,6 +9,9 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 
 ## [Unreleased]
 
+### Fixed
+- **Status Bar Menu** — opening the menu-bar popover no longer pulls the Dashboard window to the front; it stays in the background until you choose to open it
+
 ## [1.5] - 2026-11-19
 
 ### Changed

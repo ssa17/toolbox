@@ -354,6 +354,10 @@ final class PointerCursorNSView: NSView {
 /// Prevents AppKit `cursorUpdate(with:)` and SwiftUI `layout()` passes from
 /// reverting the cursor to `.arrow` while hovering a `.pointerCursor()` control.
 final class PointerCursorHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
     static func shouldUsePointingHand(in window: NSWindow, atWindowPoint pt: NSPoint) -> Bool {
         guard let rootView = window.contentView?.superview ?? window.contentView,
               rootView.bounds.contains(pt) else {

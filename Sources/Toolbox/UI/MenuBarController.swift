@@ -2,7 +2,9 @@ import AppKit
 import SwiftUI
 
 private final class MenuBarPopoverNSPanel: NSPanel {
-    override var canBecomeKey: Bool { true }
+    // The menu bar popover has no text inputs; refusing key/main status keeps it from
+    // flipping NSApp.isActive or raising an open background Dashboard window on another screen.
+    override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
@@ -11,6 +13,10 @@ private final class MenuBarPopoverNSPanel: NSPanel {
 }
 
 private final class MenuBarPopoverChromeView: NSVisualEffectView {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateBorderColor()
@@ -34,6 +40,7 @@ final class MenuBarController: NSObject {
     private var outsideClickMonitor: Any?
     private var localMouseMonitor: Any?
     private var localKeyMonitor: Any?
+    private var globalKeyMonitor: Any?
     private var workspaceActivationObserver: NSObjectProtocol?
     private var sizeCheckTimer: Timer?
     private var openedAtUptime: TimeInterval = 0
@@ -121,7 +128,6 @@ final class MenuBarController: NSObject {
         panel.setFrame(NSRect(origin: origin, size: size), display: true)
         hosting.layoutSubtreeIfNeeded()
         panel.orderFrontRegardless()
-        panel.makeKey()
         installPopoverMonitors(for: panel)
         startSizeSyncTimer()
 
@@ -145,6 +151,7 @@ final class MenuBarController: NSObject {
             defer: false
         )
         newPanel.isFloatingPanel = true
+        newPanel.becomesKeyOnlyIfNeeded = true
         newPanel.level = .popUpMenu
         newPanel.acceptsMouseMovedEvents = true
         newPanel.isMovableByWindowBackground = false
@@ -301,12 +308,20 @@ final class MenuBarController: NSObject {
         }
 
         localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak panel] event in
-            guard let self, let panel, panel.isVisible, event.window === panel else { return event }
+            guard let self, let panel, panel.isVisible else { return event }
             if event.keyCode == 53 {
                 self.closeMenu()
                 return nil
             }
             return event
+        }
+
+        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self, weak panel] event in
+            guard event.keyCode == 53 else { return }
+            Task { @MainActor [weak self, weak panel] in
+                guard let self, let panel, panel.isVisible else { return }
+                self.closeMenu()
+            }
         }
 
         workspaceActivationObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -342,6 +357,10 @@ final class MenuBarController: NSObject {
         if let localKeyMonitor {
             NSEvent.removeMonitor(localKeyMonitor)
             self.localKeyMonitor = nil
+        }
+        if let globalKeyMonitor {
+            NSEvent.removeMonitor(globalKeyMonitor)
+            self.globalKeyMonitor = nil
         }
         if let workspaceActivationObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(workspaceActivationObserver)

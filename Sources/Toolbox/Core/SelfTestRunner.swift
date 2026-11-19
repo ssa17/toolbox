@@ -410,6 +410,16 @@ enum SelfTestRunner {
         expect(menuBar.isPopoverVisibleForTesting, "showPopoverForTesting must display the status bar popover")
         expect(menuBar.popoverPanelForTesting?.styleMask.contains(.nonactivatingPanel) == true, "Status bar popover panel must use .nonactivatingPanel")
         expect(menuBar.popoverPanelForTesting?.hidesOnDeactivate == false, "Status bar popover panel must stay open when Toolbox is inactive")
+        expect(menuBar.popoverPanelForTesting?.canBecomeKey == false, "Status bar popover panel must refuse key status so it never activates Toolbox or raises a background Dashboard")
+        expect(menuBar.popoverPanelForTesting?.canBecomeMain == false, "Status bar popover panel must never become main window")
+        expect(menuBar.popoverPanelForTesting?.becomesKeyOnlyIfNeeded == true, "Status bar popover panel must set becomesKeyOnlyIfNeeded = true")
+        expect(menuBar.popoverPanelForTesting?.isKeyWindow == false, "Showing the status bar popover must not make it key window")
+        expect(!NSApp.isActive, "Showing the status bar popover must not activate Toolbox")
+        expect(menuBar.popoverPanelForTesting?.contentView?.acceptsFirstMouse(for: nil) == true, "Status bar popover chrome view must accept first mouse while non-key")
+        expect(
+            menuBar.popoverPanelForTesting?.contentView?.subviews.first?.acceptsFirstMouse(for: nil) == true,
+            "Status bar popover PointerCursorHostingView must accept first mouse so buttons work on first click while non-key"
+        )
         menuBar.hidePopoverForTesting()
         expect(!menuBar.isPopoverVisibleForTesting, "hidePopoverForTesting must dismiss the status bar popover")
         menuBar.setVisible(false)
