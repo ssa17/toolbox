@@ -48,9 +48,10 @@ enum SelfTestRunner {
         testSupportLinks()
         testPermissionsFlowAndPointerCursorSheetDealloc()
         testForcedDarkAppearanceAndProminentButtons()
+        testHUDToastSizingAndPositioning()
 
         if failures.isEmpty {
-            print("All 35 self-test suites passed.")
+            print("All 36 self-test suites passed.")
             return 0
         } else {
             for f in failures {
@@ -2667,27 +2668,7 @@ enum SelfTestRunner {
             "Simulated FaceTime video action outcome should mention FaceTime (got: \(callModule.lastSimulationOutcome ?? "nil"))"
         )
 
-        // 3. HUDToast height consistency across different SF Symbols
-        let toastSymbols: [(String, Color)] = [
-            ("mic.fill", .green),
-            ("mic.slash.fill", .red),
-            ("video.fill", .blue),
-            ("video.slash", .orange),
-            ("keyboard", .orange),
-            ("exclamationmark.triangle.fill", .orange),
-            ("arrow.uturn.right.circle", .secondary)
-        ]
-        let toastHeights = toastSymbols.map { HUDToast.measuredSize(title: "Sample Toast Title", symbol: $0.0, tint: $0.1).height }
-        expect(
-            toastHeights.allSatisfy { abs($0 - HUDToast.fixedHeight) < 0.5 },
-            "HUDToast height must remain constant (\(HUDToast.fixedHeight)pt) across all icons (got: \(toastHeights))"
-        )
-        let longToastWidth = HUDToast.measuredSize(
-            title: "Focus Zoom or switch scope to Everywhere to toggle camera",
-            symbol: "video.slash",
-            tint: .orange
-        ).width
-        expect(longToastWidth > 320, "Long HUDToast must measure full natural width instead of clamping (got: \(longToastWidth))")
+        // (Toast sizing & positioning moved to testHUDToastSizingAndPositioning)
 
         // 4. Floating pill top-right frame stability when toggling Mic / Camera
         let testScreenFrame = NSRect(x: 0, y: 0, width: 1512, height: 950)
@@ -4152,5 +4133,150 @@ enum SelfTestRunner {
 
         verifyRedButtonRender(appearanceName: .aqua, activeState: .inactive, label: "Light Mode + inactive")
         verifyRedButtonRender(appearanceName: .darkAqua, activeState: .key, label: "Dark Mode + key")
+    }
+
+    private static func testHUDToastSizingAndPositioning() {
+        let testScreen = NSRect(x: 0, y: 0, width: 1512, height: 950)
+
+        // 1. Height must stay constant across different SF Symbols (icon metrics vary).
+        let toastSymbols: [(String, Color)] = [
+            ("checkmark.circle.fill", .green),
+            ("doc.on.clipboard", .green),
+            ("mic.slash.fill", .red),
+            ("video.fill", .blue),
+            ("exclamationmark.triangle.fill", .orange),
+            ("keyboard", .orange),
+            ("bolt.fill", .orange),
+            ("info.circle.fill", .blue),
+            ("arrow.clockwise", .blue),
+            ("xmark.octagon.fill", .red)
+        ]
+        let toastHeights = toastSymbols.map { HUDToast.measuredSize(title: "Sample Toast Title", symbol: $0.0, tint: $0.1).height }
+        expect(
+            toastHeights.allSatisfy { abs($0 - HUDToast.fixedHeight) < 0.5 },
+            "HUDToast height must remain constant (\(HUDToast.fixedHeight)pt) across all icons (got: \(toastHeights))"
+        )
+
+        // 2. Short titles clamp to the pill's minimum width.
+        let shortSize = HUDToast.measuredSize(title: "Hi", symbol: "checkmark.circle.fill", tint: .green)
+        expect(
+            abs(shortSize.width - HUDToast.minWidth) < 0.5,
+            "Short HUDToast must clamp to minimum width (\(HUDToast.minWidth)pt) (got: \(shortSize.width))"
+        )
+
+        // 3. Long titles get their full natural width instead of clamping.
+        let longSize = HUDToast.measuredSize(
+            title: "Focus Zoom or switch scope to Everywhere to toggle camera",
+            symbol: "video.slash",
+            tint: .orange
+        )
+        expect(
+            longSize.width > HUDToast.minWidth + 100,
+            "Long HUDToast must measure full natural width instead of clamping (got: \(longSize.width))"
+        )
+        expect(
+            longSize.width >= shortSize.width - 0.5,
+            "HUDToast width must grow with title length (long \(longSize.width) < short \(shortSize.width))"
+        )
+
+        // 4. Pure placement math: horizontally centered, top edge exactly topInset below the visible frame top.
+        let frame = HUDToast.defaultTopCenterFrame(forSize: longSize, inVisibleFrame: testScreen)
+        expect(
+            abs(frame.width - longSize.width) < 0.5 && abs(frame.height - longSize.height) < 0.5,
+            "HUDToast placement frame must preserve the measured size (got: \(frame))"
+        )
+        expect(
+            abs(frame.midX - testScreen.midX) < 0.5,
+            "HUDToast must be horizontally centered (got midX \(frame.midX), screen midX \(testScreen.midX))"
+        )
+        expect(
+            abs(frame.maxY - (testScreen.maxY - HUDToast.topInset)) < 0.5,
+            "HUDToast top edge must sit \(HUDToast.topInset)pt below the top of the visible frame (got maxY \(frame.maxY))"
+        )
+
+        // 5. Live panel: show() presents, reuses the same panel, and auto-dismisses.
+        let toast = HUDToast.shared
+        toast.show(title: "Self-test toast", symbol: "checkmark.circle.fill", tint: .green)
+        guard let panel = toast.panelForTesting else {
+            failures.append("HUDToast.show() must create the floating panel")
+            return
+        }
+        expect(panel.isVisible, "HUDToast panel must be visible after show()")
+        expect(panel.level == .statusBar, "HUDToast panel must float at .statusBar level (got: \(panel.level.rawValue))")
+        expect(panel.ignoresMouseEvents, "HUDToast panel must ignore mouse events so it never steals clicks")
+        expect(panel.collectionBehavior.contains(.canJoinAllSpaces), "HUDToast panel must join all spaces")
+
+        if let screen = NSScreen.main ?? NSScreen.screens.first {
+            let expected = HUDToast.defaultTopCenterFrame(
+                forSize: HUDToast.measuredSize(title: "Self-test toast", symbol: "checkmark.circle.fill", tint: .green),
+                inVisibleFrame: screen.visibleFrame
+            )
+            expect(
+                abs(panel.frame.midX - expected.midX) < 1 && abs(panel.frame.maxY - expected.maxY) < 1,
+                "HUDToast panel frame must match the top-center placement math (got \(panel.frame), expected \(expected))"
+            )
+        }
+
+        let firstPanel = panel
+        toast.show(title: "A much longer replacement toast for the self-test run", symbol: "info.circle.fill", tint: .blue)
+        expect(toast.panelForTesting === firstPanel, "HUDToast must reuse the same panel instead of allocating a new one")
+        expect(panel.isVisible, "Re-showing a new toast must keep the panel visible")
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 2.3))
+        expect(!panel.isVisible, "HUDToast must auto-dismiss about 2s after showing")
+        panel.orderOut(nil)
+
+        // 6. Offscreen render: the tinted icon and light title text must actually draw inside the pill.
+        let size = NSSize(width: 280, height: 88)
+        let hosting = NSHostingView(rootView:
+            ZStack {
+                Color(red: 0.145, green: 0.149, blue: 0.165)
+                HUDToast.makeToastView(title: "Copied to clipboard", symbol: "doc.on.clipboard", tint: .green)
+            }
+            .preferredColorScheme(.dark)
+            .environment(\.colorScheme, .dark)
+        )
+        hosting.appearance = NSAppearance(named: .darkAqua)
+        hosting.frame = NSRect(origin: .zero, size: size)
+
+        let window = NSWindow(
+            contentRect: NSRect(origin: NSPoint(x: -10000, y: -10000), size: size),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.contentView = hosting
+        window.layoutIfNeeded()
+        hosting.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+        hosting.layoutSubtreeIfNeeded()
+
+        guard let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else {
+            failures.append("Could not allocate bitmap rep for HUDToast render check")
+            window.close()
+            return
+        }
+        NSAppearance(named: .darkAqua)?.performAsCurrentDrawingAppearance {
+            hosting.cacheDisplay(in: hosting.bounds, to: rep)
+        }
+        window.close()
+
+        var tintedIconPixels = 0
+        var lightTextPixels = 0
+        for y in 0..<rep.pixelsHigh {
+            for x in 0..<rep.pixelsWide {
+                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                if c.greenComponent > 0.55 && c.redComponent < 0.45 && c.blueComponent < 0.55 {
+                    tintedIconPixels += 1
+                }
+                if c.redComponent > 0.8 && c.greenComponent > 0.8 && c.blueComponent > 0.8 {
+                    lightTextPixels += 1
+                }
+            }
+        }
+        expect(tintedIconPixels > 20, "HUDToast must render its tinted SF Symbol (found \(tintedIconPixels) green pixels)")
+        expect(lightTextPixels > 40, "HUDToast must render light title text (found \(lightTextPixels) light pixels)")
     }
 }

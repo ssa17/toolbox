@@ -5,6 +5,9 @@ import SwiftUI
 final class HUDToast {
     static let shared = HUDToast()
     static let fixedHeight: CGFloat = 44
+    static let minWidth: CGFloat = 200
+    /// Top edge inset from the top of the screen's visible frame.
+    static let topInset: CGFloat = 48
 
     private var panel: NSPanel?
     private var dismissTask: DispatchWorkItem?
@@ -26,7 +29,7 @@ final class HUDToast {
                 .lineLimit(1)
         }
         .padding(.horizontal, 18)
-        .frame(minWidth: 200)
+        .frame(minWidth: minWidth)
         .frame(height: fixedHeight)
         .background(.ultraThickMaterial, in: Capsule())
         .overlay(
@@ -43,8 +46,18 @@ final class HUDToast {
         hosting.layoutSubtreeIfNeeded()
         let fitting = hosting.fittingSize
         return NSSize(
-            width: ceil(max(200, fitting.width)),
+            width: ceil(max(minWidth, fitting.width)),
             height: fixedHeight
+        )
+    }
+
+    /// Top-center placement: horizontally centered, with `topInset` of space above the pill.
+    static func defaultTopCenterFrame(forSize size: NSSize, inVisibleFrame frame: NSRect) -> NSRect {
+        NSRect(
+            x: frame.midX - size.width / 2,
+            y: frame.maxY - size.height - topInset,
+            width: size.width,
+            height: size.height
         )
     }
 
@@ -56,7 +69,7 @@ final class HUDToast {
         hosting.sizingOptions = [.intrinsicContentSize]
         hosting.layoutSubtreeIfNeeded()
         let fitting = hosting.fittingSize
-        let width = ceil(max(200, fitting.width))
+        let width = ceil(max(Self.minWidth, fitting.width))
         let height = Self.fixedHeight
 
         let toastPanel: NSPanel
@@ -83,10 +96,8 @@ final class HUDToast {
 
         toastPanel.contentView = hosting
         if let screen = NSScreen.main ?? NSScreen.screens.first {
-            let frame = screen.visibleFrame
-            let x = frame.midX - width / 2
-            let y = frame.maxY - height - 48
-            toastPanel.setFrame(NSRect(x: x, y: y, width: width, height: height), display: true)
+            let size = NSSize(width: width, height: height)
+            toastPanel.setFrame(Self.defaultTopCenterFrame(forSize: size, inVisibleFrame: screen.visibleFrame), display: true)
         }
         toastPanel.orderFrontRegardless()
 
