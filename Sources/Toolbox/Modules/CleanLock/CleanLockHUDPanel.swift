@@ -22,6 +22,10 @@ final class CleanLockHUDPanel {
     private var panel: NSPanel?
     let state = CleanLockHUDState()
 
+    internal var panelForTesting: NSPanel? {
+        panel
+    }
+
     func show(totalSeconds: Int, remainingSeconds: Int, lockMouseAndTrackpad: Bool) {
         state.totalSeconds = max(1, totalSeconds)
         state.remainingSeconds = max(0, remainingSeconds)
@@ -59,6 +63,7 @@ final class CleanLockHUDPanel {
         newPanel.isOpaque = false
         newPanel.hasShadow = true
         newPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        ToolboxTheme.applyDarkAppearance(to: newPanel)
         newPanel.contentView = NSHostingView(rootView: CleanLockHUDCardView(state: state))
         newPanel.orderFrontRegardless()
         self.panel = newPanel
@@ -165,5 +170,6 @@ struct CleanLockHUDCardView: View {
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.14), lineWidth: 1)
         )
+        .toolboxDarkAppearance()
     }
 }

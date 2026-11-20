@@ -48,9 +48,8 @@ struct CleanLockSettingsView: View {
                         )
                         .font(.callout.weight(.semibold))
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.toolboxProminent(.red))
                     .controlSize(.large)
-                    .tint(.red)
                     .pointerCursor()
                 }
 
@@ -72,13 +71,13 @@ struct CleanLockSettingsView: View {
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 5)
                                     .background(
-                                        isSelected ? Color.red : Color.primary.opacity(0.07),
+                                        isSelected ? ToolboxProminentTone.red.fillColor : Color.primary.opacity(0.07),
                                         in: RoundedRectangle(cornerRadius: 7, style: .continuous)
                                     )
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 7, style: .continuous)
                                             .strokeBorder(
-                                                isSelected ? Color.red.opacity(0.9) : Color.primary.opacity(0.1),
+                                                isSelected ? ToolboxProminentTone.red.fillColor.opacity(0.9) : Color.primary.opacity(0.1),
                                                 lineWidth: 0.75
                                             )
                                     )

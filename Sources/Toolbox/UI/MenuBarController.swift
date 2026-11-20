@@ -161,8 +161,10 @@ final class MenuBarController: NSObject {
         newPanel.hasShadow = true
         newPanel.hidesOnDeactivate = false
         newPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        ToolboxTheme.applyDarkAppearance(to: newPanel)
 
         let chrome = MenuBarPopoverChromeView(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 320))
+        chrome.appearance = ToolboxTheme.darkAppearance
         chrome.material = .windowBackground
         chrome.blendingMode = .behindWindow
         chrome.state = .active
@@ -986,6 +988,7 @@ struct MenuBarPopoverView: View {
             headerHover.isSettingsHovered = false
             headerHover.isQuitHovered = false
         }
+        .toolboxDarkAppearance()
     }
 
     private func moduleRow(_ module: any ToolboxModule) -> some View {

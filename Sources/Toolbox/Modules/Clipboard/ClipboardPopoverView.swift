@@ -448,6 +448,7 @@ struct ClipboardPopoverView: View {
                 uiState.cancelActiveDrag()
             }
         }
+        .toolboxDarkAppearance()
     }
 
     private var activeFooterEntry: ClipboardEntry? {

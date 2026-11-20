@@ -147,9 +147,8 @@ struct SettingsView: View {
                                 Button(permissions.isAwaitingAccessibilityGrant ? "Open Settings…" : "Grant Access…") {
                                     permissions.promptAndOpenSettings()
                                 }
-                                .buttonStyle(.borderedProminent)
+                                .buttonStyle(.toolboxProminent(.orange))
                                 .controlSize(.large)
-                                .tint(.orange)
                                 .pointerCursor()
                             }
                         }
@@ -186,9 +185,8 @@ struct SettingsView: View {
                                     screenOCR.requestScreenAccess()
                                 }
                             }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.toolboxProminent(.orange))
                             .controlSize(.large)
-                            .tint(.orange)
                             .pointerCursor()
                         } else {
                             Button("Open Settings…") {

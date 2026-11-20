@@ -47,9 +47,10 @@ enum SelfTestRunner {
         testMultiScreenOnboardingClipboardScrollAndMicSync()
         testSupportLinks()
         testPermissionsFlowAndPointerCursorSheetDealloc()
+        testForcedDarkAppearanceAndProminentButtons()
 
         if failures.isEmpty {
-            print("All 34 self-test suites passed.")
+            print("All 35 self-test suites passed.")
             return 0
         } else {
             for f in failures {
@@ -3665,5 +3666,155 @@ enum SelfTestRunner {
             PermissionsManager.isProcessTrustedFast() == PermissionsManager.isProcessTrusted(),
             "isProcessTrustedFast() must stay synchronized with isProcessTrusted()"
         )
+    }
+
+    private static func testForcedDarkAppearanceAndProminentButtons() {
+        // 1. Keep NSApp.appearance unset so NSStatusBarButton template icons adapt to light/dark menu bars.
+        expect(
+            NSApp.appearance == nil,
+            "NSApp.appearance must stay nil so the menu bar template icon adapts to Light and Dark menu bars"
+        )
+
+        // 2. Every Toolbox window and popover panel must explicitly force Dark Aqua.
+        expect(
+            MainWindowController.shared.ensureWindow().appearance?.name == .darkAqua,
+            "Main dashboard NSWindow must use .darkAqua appearance"
+        )
+
+        let menuBar = MenuBarController()
+        menuBar.refreshHostedViewSizeForTesting()
+        expect(
+            menuBar.popoverPanelForTesting?.appearance?.name == .darkAqua,
+            "Menu bar popover panel must use .darkAqua appearance"
+        )
+        menuBar.hidePopoverForTesting()
+        menuBar.setVisible(false)
+
+        expect(
+            ModuleRegistry.shared.clipboard.ensurePanel().appearance?.name == .darkAqua,
+            "Clipboard popover panel must use .darkAqua appearance"
+        )
+        expect(
+            ModuleRegistry.shared.portKiller.ensurePanel().appearance?.name == .darkAqua,
+            "Port Killer popover panel must use .darkAqua appearance"
+        )
+        expect(
+            ToolboxUpdateWindowController().window.appearance?.name == .darkAqua,
+            "Custom update dialog window must use .darkAqua appearance"
+        )
+
+        // 3. Every ToolboxProminentTone must meet strong WCAG contrast against pure white text/icons.
+        func linearChannel(_ c: Double) -> Double {
+            c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+        }
+        for tone in ToolboxProminentTone.allCases {
+            let rgb = tone.sRGBComponents
+            let lum = 0.2126 * linearChannel(rgb.r) + 0.7152 * linearChannel(rgb.g) + 0.0722 * linearChannel(rgb.b)
+            let contrast = (1.0 + 0.05) / (lum + 0.05)
+            expect(
+                contrast >= 3.8,
+                "ToolboxProminentTone.\(tone) must have >= 3.8:1 contrast against white (got \(String(format: "%.2f", contrast)):1)"
+            )
+        }
+
+        // 4. Offscreen render of red Lock button under both Light Mode + inactive window AND Dark Mode + key window.
+        func verifyRedButtonRender(
+            appearanceName: NSAppearance.Name,
+            activeState: ControlActiveState,
+            label: String
+        ) {
+            let scheme: ColorScheme = (appearanceName == .darkAqua) ? .dark : .light
+            let view = ZStack {
+                Color(white: 0.45)
+                Button {} label: {
+                    Label("Lock (1m)", systemImage: "lock.fill")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.toolboxProminent(.red))
+                .controlSize(.small)
+            }
+            .environment(\.colorScheme, scheme)
+            .preferredColorScheme(scheme)
+            .environment(\.controlActiveState, activeState)
+
+            let size = NSSize(width: 160, height: 56)
+            let hosting = NSHostingView(rootView: view)
+            hosting.appearance = NSAppearance(named: appearanceName)
+            hosting.frame = NSRect(origin: .zero, size: size)
+
+            let window = NSWindow(
+                contentRect: NSRect(origin: NSPoint(x: -10000, y: -10000), size: size),
+                styleMask: [.borderless],
+                backing: .buffered,
+                defer: false
+            )
+            window.isReleasedWhenClosed = false
+            window.appearance = NSAppearance(named: appearanceName)
+            window.contentView = hosting
+            window.layoutIfNeeded()
+            hosting.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.08))
+            hosting.layoutSubtreeIfNeeded()
+
+            guard let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else {
+                failures.append("Could not allocate bitmap rep for prominent button render check (\(label))")
+                window.close()
+                return
+            }
+            NSAppearance(named: appearanceName)?.performAsCurrentDrawingAppearance {
+                hosting.cacheDisplay(in: hosting.bounds, to: rep)
+            }
+            window.close()
+
+            var redCount = 0
+            var minX = rep.pixelsWide
+            var maxX = -1
+            var minY = rep.pixelsHigh
+            var maxY = -1
+
+            for y in 0..<rep.pixelsHigh {
+                for x in 0..<rep.pixelsWide {
+                    guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                    if c.redComponent > 0.60 && c.greenComponent < 0.35 && c.blueComponent < 0.35 {
+                        redCount += 1
+                        minX = min(minX, x)
+                        maxX = max(maxX, x)
+                        minY = min(minY, y)
+                        maxY = max(maxY, y)
+                    }
+                }
+            }
+
+            expect(
+                redCount > 50,
+                "Prominent red Lock button (\(label)) must render saturated red background fill (found \(redCount) red pixels)"
+            )
+            guard maxX - minX >= 4, maxY - minY >= 4 else { return }
+
+            var whiteCount = 0
+            var nearBlackCount = 0
+            for y in (minY + 2)...(maxY - 2) {
+                for x in (minX + 2)...(maxX - 2) {
+                    guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                    if c.redComponent > 0.85 && c.greenComponent > 0.85 && c.blueComponent > 0.85 {
+                        whiteCount += 1
+                    } else if c.redComponent < 0.25 && c.greenComponent < 0.25 && c.blueComponent < 0.25 {
+                        nearBlackCount += 1
+                    }
+                }
+            }
+
+            expect(
+                whiteCount > 10,
+                "Prominent red Lock button (\(label)) must render crisp white label text & icon (found \(whiteCount) white pixels)"
+            )
+            expect(
+                nearBlackCount == 0,
+                "Prominent red Lock button (\(label)) must never render black/dark text on red fill (found \(nearBlackCount) near-black pixels)"
+            )
+        }
+
+        verifyRedButtonRender(appearanceName: .aqua, activeState: .inactive, label: "Light Mode + inactive")
+        verifyRedButtonRender(appearanceName: .darkAqua, activeState: .key, label: "Dark Mode + key")
     }
 }

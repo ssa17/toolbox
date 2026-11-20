@@ -217,7 +217,7 @@ struct CustomCommandsSettingsView: View {
                 Button("Add Command") {
                     addDraftCommand()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.toolboxProminent)
                 .disabled(trimmedName.isEmpty || trimmedPayload.isEmpty)
                 .pointerCursor(!trimmedName.isEmpty && !trimmedPayload.isEmpty)
             }
@@ -426,7 +426,7 @@ struct CustomCommandsSettingsView: View {
                             draft.expandedCommandID = nil
                         }
                         .controlSize(.small)
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.toolboxProminent)
                         .pointerCursor()
                     }
                 }

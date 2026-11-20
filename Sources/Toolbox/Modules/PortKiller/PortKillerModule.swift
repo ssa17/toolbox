@@ -90,6 +90,7 @@ struct PortKillerTooltipBubbleView: View {
             )
             .shadow(color: .black.opacity(0.24), radius: 5, y: 2)
             .padding(6)
+            .toolboxDarkAppearance()
     }
 }
 
@@ -590,8 +591,10 @@ final class PortKillerModule: NSObject, ToolboxModule, ObservableObject {
         newPanel.hasShadow = true
         newPanel.hidesOnDeactivate = false
         newPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        ToolboxTheme.applyDarkAppearance(to: newPanel)
 
         let visualEffect = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        visualEffect.appearance = ToolboxTheme.darkAppearance
         visualEffect.material = .windowBackground
         visualEffect.blendingMode = .behindWindow
         visualEffect.state = .active
@@ -653,6 +656,7 @@ final class PortKillerModule: NSObject, ToolboxModule, ObservableObject {
             newTip.hidesOnDeactivate = false
             newTip.ignoresMouseEvents = true
             newTip.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+            ToolboxTheme.applyDarkAppearance(to: newTip)
 
             let newHost = NSHostingView(rootView: bubbleView)
             newTip.contentView = newHost

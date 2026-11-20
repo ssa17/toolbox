@@ -1048,7 +1048,7 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
         window.title = ""
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
-        window.appearance = NSAppearance(named: .darkAqua)
+        ToolboxTheme.applyDarkAppearance(to: window)
         window.backgroundColor = panelBg
         window.isReleasedWhenClosed = false
         super.init()

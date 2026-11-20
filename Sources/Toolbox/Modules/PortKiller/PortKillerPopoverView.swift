@@ -37,6 +37,7 @@ struct PortKillerPopoverView: View {
                 isSearchFocused = true
             }
         }
+        .toolboxDarkAppearance()
     }
 
     private func searchHeader(items: [ListeningPort]) -> some View {
@@ -440,8 +441,7 @@ private struct PortPopoverRowView: View, Equatable {
                 Button("Force Kill") {
                     onKill(.sigkill)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
+                .buttonStyle(.toolboxProminent(.red))
                 .controlSize(.small)
                 .instantTooltip(
                     id: "stuck.\(entry.id)",

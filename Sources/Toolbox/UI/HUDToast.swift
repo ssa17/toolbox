@@ -9,6 +9,10 @@ final class HUDToast {
     private var panel: NSPanel?
     private var dismissTask: DispatchWorkItem?
 
+    internal var panelForTesting: NSPanel? {
+        panel
+    }
+
     private init() {}
 
     static func makeToastView(title: String, symbol: String, tint: Color) -> some View {
@@ -30,6 +34,7 @@ final class HUDToast {
                 .strokeBorder(Color.primary.opacity(0.14), lineWidth: 1)
         )
         .fixedSize()
+        .toolboxDarkAppearance()
     }
 
     static func measuredSize(title: String, symbol: String, tint: Color = .green) -> NSSize {
@@ -71,6 +76,7 @@ final class HUDToast {
             p.backgroundColor = .clear
             p.hasShadow = true
             p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+            ToolboxTheme.applyDarkAppearance(to: p)
             self.panel = p
             toastPanel = p
         }

@@ -157,7 +157,7 @@ struct ConfigEditorView: View {
                             Button("Switch to Raw JSON") {
                                 editorState.mode = .raw
                             }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.toolboxProminent)
                             .pointerCursor()
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -182,7 +182,7 @@ struct ConfigEditorView: View {
                         editorState.statusMessage = nil
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.toolboxProminent)
                 .keyboardShortcut("s", modifiers: .command)
                 .disabled(!editorState.hasUnsavedChanges)
                 .help(editorState.hasUnsavedChanges ? "Apply & Save JSON (⌘S)" : "No unsaved changes")
@@ -496,7 +496,7 @@ private struct JSONTreeNodeView: View {
                 Button("OK") {
                     commitLeafEdit()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.toolboxProminent)
                 .controlSize(.mini)
                 .pointerCursor()
                 Button("Cancel") {

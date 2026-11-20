@@ -144,7 +144,7 @@ struct DeveloperCallControlsView: View {
                         Button("Show Desktop Pill") {
                             callControls.applyDeveloperSimulationPreset(.zoomCall)
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.toolboxProminent)
                         .controlSize(.small)
                         .pointerCursor()
                     }
@@ -440,7 +440,7 @@ struct DeveloperCallControlsView: View {
                         Button("Load Zoom Scenario") {
                             callControls.applyDeveloperSimulationPreset(.zoomCall)
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.toolboxProminent)
                         .controlSize(.small)
                         .pointerCursor()
                     }

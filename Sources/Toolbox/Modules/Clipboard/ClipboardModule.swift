@@ -461,6 +461,7 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
         newPanel.hidesOnDeactivate = false
         newPanel.acceptsMouseMovedEvents = true
         newPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        ToolboxTheme.applyDarkAppearance(to: newPanel)
 
         let contentView = ClipboardPopoverView(
             module: self,

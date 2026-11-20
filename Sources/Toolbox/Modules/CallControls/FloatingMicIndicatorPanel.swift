@@ -93,6 +93,10 @@ final class FloatingMicIndicatorPanel {
         panel?.frame
     }
 
+    internal var panelForTesting: NSPanel? {
+        panel
+    }
+
     var hasCustomPosition: Bool {
         customAnchor != nil
     }
@@ -196,6 +200,7 @@ final class FloatingMicIndicatorPanel {
         newPanel.isOpaque = false
         newPanel.hasShadow = true
         newPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        ToolboxTheme.applyDarkAppearance(to: newPanel)
         newPanel.contentView = hosting
 
         let size = prepareAndMeasureFittingSize(for: newPanel)
@@ -820,6 +825,7 @@ struct FloatingMicIndicatorView: View {
                 onHidePill()
             }
         }
+        .toolboxDarkAppearance()
     }
 
     private func statusChip(

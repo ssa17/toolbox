@@ -4,9 +4,31 @@ import SwiftUI
 enum ToolboxTheme {
     static let cardCornerRadius: CGFloat = 12
     static let pillCornerRadius: CGFloat = 6
+
+    /// Brand blue used for selected sidebar items and default prominent buttons,
+    /// keeping white-on-blue contrast independent of the user's macOS System Accent Color.
+    static let accentBlue = Color(red: 0.13, green: 0.44, blue: 0.92)
+
+    /// Forced-dark AppKit appearance applied per Toolbox window/panel rather than on
+    /// `NSApp.appearance` so the system menu bar `NSStatusItem` still adapts natively.
+    static var darkAppearance: NSAppearance? {
+        NSAppearance(named: .darkAqua)
+    }
+
+    @MainActor
+    static func applyDarkAppearance(to window: NSWindow) {
+        window.appearance = darkAppearance
+    }
 }
 
 extension View {
+    /// Forces Toolbox's consistent dark theme on root SwiftUI surfaces (windows, popovers, sheets, HUDs).
+    func toolboxDarkAppearance() -> some View {
+        self
+            .preferredColorScheme(.dark)
+            .environment(\.colorScheme, .dark)
+    }
+
     /// Shows the system pointing-hand cursor on hover for clickable controls and interactive surfaces,
     /// including inside `NSMenu` and `.nonactivatingPanel` popovers where SwiftUI's `.pointerStyle(.link)` does not fire.
     @ViewBuilder
@@ -712,6 +734,132 @@ struct StatusBarSwitchToggleStyle: ToggleStyle {
         .focusEffectDisabled()
         .accessibilityAddTraits(.isToggle)
         .accessibilityValue(configuration.isOn ? "On" : "Off")
+    }
+}
+
+/// Semantic fills for `ToolboxProminentButtonStyle`, calibrated for consistent
+/// white-on-color contrast independent of system Light/Dark Mode or Accent Color.
+enum ToolboxProminentTone: CaseIterable, Equatable, Sendable {
+    case accent
+    case red
+    case orange
+    case green
+    case purple
+    case neutral
+
+    var sRGBComponents: (r: Double, g: Double, b: Double) {
+        switch self {
+        case .accent:  return (0.13, 0.44, 0.92)
+        case .red:     return (0.84, 0.20, 0.22)
+        case .orange:  return (0.79, 0.40, 0.04)
+        case .green:   return (0.12, 0.54, 0.25)
+        case .purple:  return (0.56, 0.24, 0.84)
+        case .neutral: return (0.34, 0.35, 0.38)
+        }
+    }
+
+    var fillColor: Color {
+        let c = sRGBComponents
+        return Color(red: c.r, green: c.g, blue: c.b)
+    }
+}
+
+private final class ProminentButtonHoverState: ObservableObject {
+    @Published var isHovered = false
+}
+
+/// Consistent prominent button style with crisp white text/icons across active,
+/// inactive, Light Mode, Dark Mode, and non-activating popover surfaces.
+struct ToolboxProminentButtonStyle: ButtonStyle {
+    var tone: ToolboxProminentTone = .accent
+
+    func makeBody(configuration: Configuration) -> some View {
+        ToolboxProminentButtonBody(configuration: configuration, tone: tone)
+    }
+}
+
+private struct ToolboxProminentButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    let tone: ToolboxProminentTone
+
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.controlSize) private var controlSize
+    @StateObject private var hoverState = ProminentButtonHoverState()
+
+    private var metrics: (font: Font, hPad: CGFloat, vPad: CGFloat, radius: CGFloat) {
+        switch controlSize {
+        case .mini:
+            return (.system(size: 11, weight: .semibold), 8, 2, 5)
+        case .small:
+            return (.caption.weight(.semibold), 10, 3.5, 6)
+        case .regular:
+            return (.callout.weight(.semibold), 12, 4.0, 7)
+        case .large:
+            return (.callout.weight(.semibold), 14, 6.5, 8)
+        case .extraLarge:
+            return (.callout.weight(.semibold), 16, 8, 9)
+        @unknown default:
+            return (.callout.weight(.semibold), 12, 4.0, 7)
+        }
+    }
+
+    var body: some View {
+        let m = metrics
+        let shape = RoundedRectangle(cornerRadius: m.radius, style: .continuous)
+        let isHovered = isEnabled && hoverState.isHovered
+        let isPressed = isEnabled && configuration.isPressed
+
+        configuration.label
+            .font(m.font)
+            .foregroundStyle(isEnabled ? Color.white : Color.white.opacity(0.45))
+            .tint(.white)
+            .padding(.horizontal, m.hPad)
+            .padding(.vertical, m.vPad)
+            .background {
+                ZStack {
+                    shape.fill(isEnabled ? tone.fillColor : tone.fillColor.opacity(0.32))
+                    if isEnabled {
+                        shape.fill(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.11), Color.clear],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                    }
+                    if isPressed {
+                        shape.fill(Color.black.opacity(0.16))
+                    } else if isHovered {
+                        shape.fill(Color.white.opacity(0.08))
+                    }
+                }
+            }
+            .overlay(
+                shape.strokeBorder(
+                    Color.white.opacity(!isEnabled ? 0.08 : (isHovered ? 0.24 : 0.16)),
+                    lineWidth: 0.75
+                )
+            )
+            .contentShape(shape)
+            .onHover { hoverState.isHovered = isEnabled && $0 }
+            .onChange(of: isEnabled) { _, enabled in
+                if !enabled {
+                    hoverState.isHovered = false
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .toolboxMenuBarPopoverDidClose)) { _ in
+                hoverState.isHovered = false
+            }
+    }
+}
+
+extension ButtonStyle where Self == ToolboxProminentButtonStyle {
+    static var toolboxProminent: ToolboxProminentButtonStyle {
+        ToolboxProminentButtonStyle(tone: .accent)
+    }
+
+    static func toolboxProminent(_ tone: ToolboxProminentTone) -> ToolboxProminentButtonStyle {
+        ToolboxProminentButtonStyle(tone: tone)
     }
 }
 

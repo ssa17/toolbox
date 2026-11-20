@@ -111,7 +111,7 @@ struct DashboardView: View {
                     Button("Resume") {
                         configManager.config.general.appEnabled = true
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.toolboxProminent)
                     .fixedSize(horizontal: true, vertical: false)
                     .pointerCursor()
                 }
@@ -201,9 +201,8 @@ struct DashboardView: View {
                         .font(.callout.weight(.semibold))
                         .padding(.horizontal, 6)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.toolboxProminent(.orange))
                     .controlSize(.large)
-                    .tint(.orange)
                     .pointerCursor()
                 }
             }
@@ -268,9 +267,8 @@ struct DashboardView: View {
                         .font(.callout.weight(.semibold))
                         .padding(.horizontal, 6)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.toolboxProminent(.orange))
                     .controlSize(.large)
-                    .tint(.orange)
                     .pointerCursor()
                 }
             }
@@ -341,9 +339,8 @@ struct DashboardView: View {
                         )
                         .font(.caption.weight(.semibold))
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.toolboxProminent(.red))
                     .controlSize(.small)
-                    .tint(.red)
                     .pointerCursor()
                 }
             }
@@ -491,9 +488,8 @@ struct AccessibilityOnboardingModalView: View {
                     permissions.dismissOnboardingModal(markSeen: true)
                     permissions.promptAndOpenSettings()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.toolboxProminent(.orange))
                 .controlSize(.large)
-                .tint(.orange)
                 .keyboardShortcut(.defaultAction)
                 .pointerCursor()
             }

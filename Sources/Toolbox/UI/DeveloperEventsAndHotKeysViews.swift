@@ -240,7 +240,7 @@ struct DeveloperEventsAndTapsView: View {
                     Button("Refresh Stack") {
                         refreshWindowStack()
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.toolboxProminent)
                     .controlSize(.small)
                     .pointerCursor()
                 }
@@ -480,7 +480,7 @@ struct DeveloperHotKeysAndConfigView: View {
                             checkpoints.saveCheckpoint()
                             HUDToast.shared.show(title: "Saved config checkpoint", symbol: "bookmark.fill", tint: .blue)
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.toolboxProminent)
                         .controlSize(.small)
                         .pointerCursor()
 

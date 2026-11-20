@@ -492,8 +492,7 @@ struct PortKillerSettingsView: View {
                 Button("Still running: Force Kill?") {
                     module.killPort(entry, signal: .sigkill)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
+                .buttonStyle(.toolboxProminent(.red))
                 .controlSize(.small)
                 .pointerCursor()
             } else {

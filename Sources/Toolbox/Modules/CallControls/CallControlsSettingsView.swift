@@ -105,8 +105,7 @@ struct CallControlsSettingsView: View {
                             )
                             .font(.caption.weight(.semibold))
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(module.isInputMuted ? .green : .red)
+                        .buttonStyle(.toolboxProminent(module.isInputMuted ? .green : .red))
                         .controlSize(.small)
                         .disabled(input == nil)
                         .pointerCursor(input != nil)
@@ -235,8 +234,7 @@ struct CallControlsSettingsView: View {
                     Button(permissions.isAwaitingAccessibilityGrant ? "Open Settings…" : "Grant Permission…") {
                         permissions.promptAndOpenSettings()
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.orange)
+                    .buttonStyle(.toolboxProminent(.orange))
                     .pointerCursor()
 
                     Button(permissions.isResettingAccessibility ? "Resetting…" : "Reset Entry") {
@@ -727,7 +725,7 @@ struct CallControlsSettingsView: View {
                     configManager.config.callControls.appShortcutMappings.append(entry)
                     resetAddAppState()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.toolboxProminent)
                 .disabled(!canAdd)
                 .pointerCursor(canAdd)
             }

@@ -384,7 +384,7 @@ struct ClipboardSettingsView: View {
                             module.showPopover()
                         }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.toolboxProminent)
                     .pointerCursor()
 
                     Spacer()

@@ -18,6 +18,7 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 - **Settings** — upgraded Status Bar Menu row drag-reordering to a smooth lifted-card interaction with live slot shifting, haptic ticks, Escape to cancel, and zero-jump drop settling
 
 ### Fixed
+- **Appearance & Buttons** — Toolbox windows, popovers, and HUDs now use a consistent dark theme on every Mac (while keeping the menu bar icon adaptive), and prominent colored buttons like **Lock Keyboard** always keep crisp white text and icons instead of turning dark or washing out in Light Mode or unfocused windows
 - **Status Bar Menu** — pausing Toolbox from the master toggle no longer causes the popover to jump in height; all sections stay visible while paused modules, quick actions, and quick commands are dimmed and disabled
 - **Status Bar Menu** — opening the menu-bar popover no longer pulls the Dashboard window to the front; it stays in the background until you choose to open it
 

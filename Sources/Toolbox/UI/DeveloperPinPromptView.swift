@@ -95,14 +95,14 @@ struct DeveloperPinPromptView: View {
                     submit()
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .tint(.purple)
+                .buttonStyle(.toolboxProminent(.purple))
                 .disabled(state.pinText.isEmpty || state.lockoutRemainingSeconds > 0)
                 .pointerCursor(!state.pinText.isEmpty && state.lockoutRemainingSeconds == 0)
             }
         }
         .padding(22)
         .frame(width: 360)
+        .toolboxDarkAppearance()
         .onAppear {
             state.refreshLockout(from: developerMode)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {

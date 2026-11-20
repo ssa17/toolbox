@@ -46,7 +46,7 @@ struct DeveloperScreenOCRView: View {
                         Button(module.isReanalyzing ? "Analyzing…" : "Re-analyze") {
                             module.reanalyzeFailedCapture()
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.toolboxProminent)
                         .controlSize(.small)
                         .disabled(module.isReanalyzing || module.isRecognizing)
                         .pointerCursor(!(module.isReanalyzing || module.isRecognizing))
@@ -156,7 +156,7 @@ struct DeveloperScreenOCRView: View {
                     Button(isInteractiveRunning ? "Capturing…" : "Interactive Region Test") {
                         module.runPipelineTest(interactive: true)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.toolboxProminent)
                     .controlSize(.small)
                     .disabled(module.isRunningPipelineTest || module.isCaptureInFlight)
                     .pointerCursor(!module.isRunningPipelineTest && !module.isCaptureInFlight)
@@ -342,7 +342,7 @@ struct DeveloperScreenOCRView: View {
                         Button(module.isRunningSelfCheck ? "Running…" : "Run OCR Self-Check") {
                             module.runSelfCheck()
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.toolboxProminent)
                         .controlSize(.small)
                         .disabled(module.isRunningSelfCheck || module.isCaptureInFlight)
                         .pointerCursor(!module.isRunningSelfCheck && !module.isCaptureInFlight)

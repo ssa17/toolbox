@@ -32,8 +32,7 @@ struct KeepAwakeSettingsView: View {
                         }
                         module.toggle()
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(module.isAwakeActive ? .gray : .orange)
+                    .buttonStyle(.toolboxProminent(module.isAwakeActive ? .neutral : .orange))
                     .pointerCursor()
                 }
 

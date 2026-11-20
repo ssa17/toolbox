@@ -111,8 +111,7 @@ struct DeveloperToolsView: View {
                         Button("Reset Simulations") {
                             developerMode.resetAllSimulations()
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.orange)
+                        .buttonStyle(.toolboxProminent(.orange))
                         .controlSize(.small)
                         .pointerCursor()
                     }
@@ -278,7 +277,7 @@ struct DeveloperToolsView: View {
                                 errorMessage: developerMode.simulatedUpdateError
                             )
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.toolboxProminent)
                         .controlSize(.small)
                         .pointerCursor()
                     }
@@ -314,7 +313,7 @@ struct DeveloperToolsView: View {
                                 releaseNotesHTML: developerMode.effectiveReleaseNotes(for: developerMode.simulatedUpdateVersion)
                             )
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.toolboxProminent)
                         .controlSize(.small)
                         .pointerCursor()
                     }
@@ -535,7 +534,7 @@ struct DeveloperToolsView: View {
                                 tint: updateManager.isSparkleAvailable ? .blue : .orange
                             )
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.toolboxProminent)
                         .controlSize(.small)
                         .pointerCursor()
                     }
@@ -642,7 +641,7 @@ struct DeveloperToolsView: View {
                         Button("Preview Prompt") {
                             permissions.presentOnboardingModal()
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.toolboxProminent)
                         .controlSize(.small)
                         .pointerCursor()
 
@@ -700,7 +699,7 @@ struct DeveloperToolsView: View {
                                 tint: toastColor(uiState.selectedToastPreset)
                             )
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.toolboxProminent)
                         .pointerCursor()
                     }
                     .onChange(of: uiState.selectedToastPreset) { _, newPreset in
@@ -851,7 +850,7 @@ struct DeveloperToolsView: View {
                             tint: healthChecks.failCount == 0 ? .green : .orange
                         )
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.toolboxProminent)
                     .controlSize(.small)
                     .pointerCursor()
                 }
@@ -1033,7 +1032,7 @@ struct DeveloperToolsView: View {
                         Button(healthChecks.isProbingGatekeeper ? "Checking…" : "Verify Gatekeeper") {
                             Task { await healthChecks.probeGatekeeperAssessment() }
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.toolboxProminent)
                         .controlSize(.small)
                         .disabled(healthChecks.isProbingGatekeeper)
                         .pointerCursor()
@@ -1152,7 +1151,7 @@ struct DeveloperToolsView: View {
                             toast: "Diagnostics report copied to clipboard"
                         )
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.toolboxProminent)
                     .controlSize(.small)
                     .pointerCursor()
 

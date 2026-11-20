@@ -183,9 +183,8 @@ struct ModuleDetailContainerView: View {
                                 Button(permissions.isAwaitingAccessibilityGrant ? "Open Settings…" : "Grant Permission…") {
                                     permissions.promptAndOpenSettings()
                                 }
-                                .buttonStyle(.borderedProminent)
+                                .buttonStyle(.toolboxProminent(.orange))
                                 .controlSize(.large)
-                                .tint(.orange)
                                 .pointerCursor()
                             }
                         }

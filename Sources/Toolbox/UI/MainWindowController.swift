@@ -143,6 +143,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             defer: false
         )
         win.title = "Toolbox"
+        ToolboxTheme.applyDarkAppearance(to: win)
         win.isReleasedWhenClosed = false
         win.titlebarAppearsTransparent = false
         win.acceptsMouseMovedEvents = true
@@ -376,6 +377,7 @@ struct MainSplitView: View {
             }
         }
         .animation(.easeInOut(duration: 0.15), value: permissions.isPresentingOnboardingModal)
+        .toolboxDarkAppearance()
     }
 
     private var sidebarView: some View {
@@ -392,7 +394,7 @@ struct MainSplitView: View {
                     } label: {
                         HStack(spacing: 8) {
                             Image(systemName: "square.grid.2x2")
-                                .foregroundStyle(navState.selection == .dashboard ? .white : .accentColor)
+                                .foregroundStyle(navState.selection == .dashboard ? Color.white : ToolboxTheme.accentBlue)
                             Text("Dashboard")
                                 .font(.callout.weight(.medium))
                             Spacer()
@@ -401,7 +403,7 @@ struct MainSplitView: View {
                         .padding(.vertical, 6)
                         .background(
                             navState.selection == .dashboard
-                                ? Color.accentColor
+                                ? ToolboxTheme.accentBlue
                                 : Color.clear,
                             in: RoundedRectangle(cornerRadius: 7)
                         )
@@ -450,7 +452,7 @@ struct MainSplitView: View {
                             .padding(.horizontal, 8)
                             .padding(.vertical, 6)
                             .background(
-                                isSelected ? Color.accentColor : Color.clear,
+                                isSelected ? ToolboxTheme.accentBlue : Color.clear,
                                 in: RoundedRectangle(cornerRadius: 7)
                             )
                             .foregroundStyle(isSelected ? .white : .primary)
@@ -538,7 +540,7 @@ struct MainSplitView: View {
                 if let badge {
                     Text(badge)
                         .font(.system(size: 10, weight: .bold, design: .rounded))
-                        .foregroundStyle(isSelected ? Color.accentColor : .white)
+                        .foregroundStyle(isSelected ? ToolboxTheme.accentBlue : .white)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(isSelected ? Color.white : badgeColor, in: Capsule())
@@ -547,7 +549,7 @@ struct MainSplitView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
             .background(
-                isSelected ? Color.accentColor : Color.clear,
+                isSelected ? ToolboxTheme.accentBlue : Color.clear,
                 in: RoundedRectangle(cornerRadius: 7)
             )
             .foregroundStyle(isSelected ? .white : .primary)
