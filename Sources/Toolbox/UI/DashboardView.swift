@@ -363,21 +363,21 @@ private struct DashboardDensityPicker: View {
     var body: some View {
         HStack(spacing: 2) {
             segment(
-                title: "Detailed",
-                symbol: "list.bullet.rectangle",
-                isSelected: showDetails,
-                helpText: "Show module descriptions on Dashboard cards"
-            ) {
-                onSelect(true)
-            }
-
-            segment(
                 title: "Compact",
                 symbol: "rectangle.grid.2x2",
                 isSelected: !showDetails,
                 helpText: "Hide descriptions for compact Dashboard cards"
             ) {
                 onSelect(false)
+            }
+
+            segment(
+                title: "Detailed",
+                symbol: "list.bullet.rectangle",
+                isSelected: showDetails,
+                helpText: "Show module descriptions on Dashboard cards"
+            ) {
+                onSelect(true)
             }
         }
         .padding(2.5)

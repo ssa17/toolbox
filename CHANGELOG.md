@@ -11,7 +11,7 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 
 ### Added
 - **Clipboard** — pinned items can now be reordered: drag rows in the dropdown, use ⌘ ↑ / ⌘ ↓, or the right-click menu, and the saved order drives your ⌘ 1–9 quick paste
-- **Dashboard** — a **Detailed / Compact** switcher next to the Modules heading smoothly expands or collapses module descriptions in place with balanced compact card spacing and hover feedback, making all modules easier to scan at a glance
+- **Dashboard** — a **Compact / Detailed** switcher next to the Modules heading smoothly expands or collapses module descriptions in place with balanced compact card spacing and hover feedback (and remembers your choice), making all modules easier to scan at a glance
 - **Window Navigation** — navigate back and forward through visited pages with your mouse's Back/Forward buttons, swipe gestures, toolbar `<` / `>` buttons, or `⌘ [` / `⌘ ]`
 
 ### Changed
