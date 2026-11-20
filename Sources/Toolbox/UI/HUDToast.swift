@@ -4,7 +4,7 @@ import SwiftUI
 @MainActor
 final class HUDToast {
     static let shared = HUDToast()
-    static let fixedHeight: CGFloat = 36
+    static let fixedHeight: CGFloat = 44
 
     private var panel: NSPanel?
     private var dismissTask: DispatchWorkItem?
@@ -16,17 +16,17 @@ final class HUDToast {
     private init() {}
 
     static func makeToastView(title: String, symbol: String, tint: Color) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Image(systemName: symbol)
-                .font(.system(size: 13.5, weight: .semibold))
-                .frame(width: 18, height: 18)
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: 22, height: 22)
                 .foregroundStyle(tint)
             Text(title)
-                .font(.callout.weight(.medium))
+                .font(.title3.weight(.medium))
                 .lineLimit(1)
         }
-        .padding(.horizontal, 14)
-        .frame(minWidth: 180)
+        .padding(.horizontal, 18)
+        .frame(minWidth: 200)
         .frame(height: fixedHeight)
         .background(.ultraThickMaterial, in: Capsule())
         .overlay(
@@ -43,7 +43,7 @@ final class HUDToast {
         hosting.layoutSubtreeIfNeeded()
         let fitting = hosting.fittingSize
         return NSSize(
-            width: ceil(max(180, fitting.width)),
+            width: ceil(max(200, fitting.width)),
             height: fixedHeight
         )
     }
@@ -56,7 +56,7 @@ final class HUDToast {
         hosting.sizingOptions = [.intrinsicContentSize]
         hosting.layoutSubtreeIfNeeded()
         let fitting = hosting.fittingSize
-        let width = ceil(max(180, fitting.width))
+        let width = ceil(max(200, fitting.width))
         let height = Self.fixedHeight
 
         let toastPanel: NSPanel
@@ -85,7 +85,7 @@ final class HUDToast {
         if let screen = NSScreen.main ?? NSScreen.screens.first {
             let frame = screen.visibleFrame
             let x = frame.midX - width / 2
-            let y = frame.maxY - height - 24
+            let y = frame.maxY - height - 48
             toastPanel.setFrame(NSRect(x: x, y: y, width: width, height: height), display: true)
         }
         toastPanel.orderFrontRegardless()

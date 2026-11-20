@@ -24,6 +24,22 @@ enum SnapshotRunner {
         configManager.config = ToolboxConfig()
         registry.reloadAll(with: configManager.config)
 
+        // HUD toast pill: verify size, font, and material rendering.
+        saveViewSnapshot(
+            HUDToast.makeToastView(title: "Copied to clipboard", symbol: "doc.on.clipboard", tint: .green),
+            size: NSSize(width: 280, height: 88),
+            to: outURL.appendingPathComponent("hud_toast.png")
+        )
+        saveViewSnapshot(
+            HUDToast.makeToastView(
+                title: "Copied (grant Accessibility for auto-paste)",
+                symbol: "exclamationmark.triangle.fill",
+                tint: .orange
+            ),
+            size: NSSize(width: 460, height: 88),
+            to: outURL.appendingPathComponent("hud_toast_long.png")
+        )
+
         let navDashboard = NavigationState()
         navDashboard.selection = .dashboard
         navDashboard.isSidebarVisible = true
