@@ -34,9 +34,10 @@ private final class ShortcutRecorderCoordinator: ObservableObject {
             }
         }
 
-        mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+        mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             guard let self, self.activeRecorderID == id else { return event }
-            if let buttonFrame = anchorButtonFrameInWindow(),
+            if event.type != .otherMouseDown,
+               let buttonFrame = anchorButtonFrameInWindow(),
                buttonFrame.contains(event.locationInWindow) {
                 return event
             }

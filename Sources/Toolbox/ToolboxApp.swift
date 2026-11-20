@@ -4,6 +4,7 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     static var allowImmediateTermination = false
     private var menuBarController: MenuBarController?
+    private var lastAppliedConfig: ToolboxConfig?
 
     static func terminateNow() {
         allowImmediateTermination = true
@@ -30,6 +31,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         applyGeneralPreferences(configManager.config.general)
 
         configManager.onConfigChanged = { [weak self] newConfig in
+            if let prev = self?.lastAppliedConfig, prev.runtimeBehaviorEquals(newConfig) {
+                self?.lastAppliedConfig = newConfig
+                return
+            }
+            self?.lastAppliedConfig = newConfig
             self?.applyGeneralPreferences(newConfig.general)
             registry.reloadAll(with: newConfig)
         }
@@ -42,6 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Start all enabled modules immediately (Accessibility-gated modules wait gracefully without blocking launch).
         registry.reloadAll(with: configManager.config)
+        self.lastAppliedConfig = configManager.config
 
         // Screen OCR: remove capture artifacts left behind by the previous session
         // (failed captures are intentionally kept on disk for diagnosis, so they must

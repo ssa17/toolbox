@@ -9,6 +9,11 @@ enum SidebarDestination: Hashable {
     case support
     case developer(DeveloperSection)
 
+    var isDeveloper: Bool {
+        if case .developer = self { return true }
+        return false
+    }
+
     @MainActor
     var title: String {
         switch self {
@@ -23,31 +28,73 @@ enum SidebarDestination: Hashable {
     }
 }
 
+enum WindowNavigationDirection: Equatable {
+    case back
+    case forward
+}
+
 @MainActor
 final class NavigationState: ObservableObject {
+    private static let maxHistoryCount = 50
+
     @Published var selection: SidebarDestination = .dashboard
     @Published var isSidebarVisible: Bool = true
     @Published private(set) var history: [SidebarDestination] = []
+    @Published private(set) var forwardHistory: [SidebarDestination] = []
+
+    var previousDestination: SidebarDestination? {
+        history.last ?? (selection != .dashboard ? .dashboard : nil)
+    }
+
+    var nextDestination: SidebarDestination? {
+        forwardHistory.last
+    }
 
     var canGoBack: Bool {
-        !history.isEmpty
+        previousDestination != nil
+    }
+
+    var canGoForward: Bool {
+        nextDestination != nil
+    }
+
+    @MainActor
+    var backHelpText: String {
+        previousDestination.map { "Back to \($0.title) (⌘[)" } ?? "Back (⌘[)"
+    }
+
+    @MainActor
+    var forwardHelpText: String {
+        nextDestination.map { "Forward to \($0.title) (⌘])" } ?? "Forward (⌘])"
     }
 
     func navigate(to destination: SidebarDestination) {
         guard destination != selection else { return }
-        history.append(selection)
-        if history.count > 25 {
-            history.removeFirst()
-        }
+        pushHistory(selection)
+        forwardHistory.removeAll()
         selection = destination
     }
 
-    func goBack() {
+    @discardableResult
+    func goBack() -> Bool {
         if let previous = history.popLast() {
+            pushForward(selection)
             selection = previous
+            return true
         } else if selection != .dashboard {
+            pushForward(selection)
             selection = .dashboard
+            return true
         }
+        return false
+    }
+
+    @discardableResult
+    func goForward() -> Bool {
+        guard let next = forwardHistory.popLast() else { return false }
+        pushHistory(selection)
+        selection = next
+        return true
     }
 
     func toggleSidebar() {
@@ -55,18 +102,102 @@ final class NavigationState: ObservableObject {
     }
 
     func pruneDeveloperDestinations(fallback: SidebarDestination = .settings) {
-        history.removeAll {
-            if case .developer = $0 { return true }
-            return false
-        }
-        if case .developer = selection {
+        history.removeAll(where: \.isDeveloper)
+        forwardHistory.removeAll(where: \.isDeveloper)
+        if selection.isDeveloper {
             selection = fallback
         }
+        history = Self.deduplicatedStack(history, excludingTopMatching: selection)
+        forwardHistory = Self.deduplicatedStack(forwardHistory, excludingTopMatching: selection)
+    }
+
+    internal func resetHistoryForTesting(selection: SidebarDestination = .dashboard) {
+        history.removeAll()
+        forwardHistory.removeAll()
+        self.selection = selection
+    }
+
+    private func pushHistory(_ destination: SidebarDestination) {
+        history.append(destination)
+        if history.count > Self.maxHistoryCount {
+            history.removeFirst(history.count - Self.maxHistoryCount)
+        }
+    }
+
+    private func pushForward(_ destination: SidebarDestination) {
+        forwardHistory.append(destination)
+        if forwardHistory.count > Self.maxHistoryCount {
+            forwardHistory.removeFirst(forwardHistory.count - Self.maxHistoryCount)
+        }
+    }
+
+    private static func deduplicatedStack(
+        _ stack: [SidebarDestination],
+        excludingTopMatching current: SidebarDestination
+    ) -> [SidebarDestination] {
+        var result: [SidebarDestination] = []
+        result.reserveCapacity(stack.count)
+        for item in stack where result.last != item {
+            result.append(item)
+        }
+        while result.last == current {
+            result.removeLast()
+        }
+        return result
     }
 }
 
 @MainActor
-private final class ToolboxWindow: NSWindow {
+internal final class ToolboxWindow: NSWindow {
+    weak var navigationState: NavigationState?
+
+    static func navigationDirection(forOtherMouseButton buttonNumber: Int) -> WindowNavigationDirection? {
+        switch buttonNumber {
+        case 3: return .back
+        case 4: return .forward
+        default: return nil
+        }
+    }
+
+    static func navigationDirection(forSwipeDeltaX deltaX: CGFloat) -> WindowNavigationDirection? {
+        if deltaX > 0 { return .back }
+        if deltaX < 0 { return .forward }
+        return nil
+    }
+
+    private var canPerformWindowNavigation: Bool {
+        attachedSheet == nil
+            && sheets.isEmpty
+            && !PermissionsManager.shared.isPresentingOnboardingModal
+            && PointerCursorNSView.activeDragCursor == nil
+    }
+
+    @discardableResult
+    private func performNavigation(_ direction: WindowNavigationDirection) -> Bool {
+        guard canPerformWindowNavigation, let navigationState else { return false }
+        let canNavigate = (direction == .back) ? navigationState.canGoBack : navigationState.canGoForward
+        guard canNavigate else { return false }
+        if firstResponder is NSText {
+            makeFirstResponder(nil)
+        }
+        let didNavigate: Bool
+        switch direction {
+        case .back:
+            didNavigate = navigationState.goBack()
+        case .forward:
+            didNavigate = navigationState.goForward()
+        }
+        if didNavigate {
+            RunLoop.main.perform(inModes: [.common]) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    PointerCursorNSView.syncCursor(in: self)
+                }
+            }
+        }
+        return didNavigate
+    }
+
     override var contentMinSize: NSSize {
         get { super.contentMinSize }
         set {
@@ -88,6 +219,27 @@ private final class ToolboxWindow: NSWindow {
     }
 
     override func sendEvent(_ event: NSEvent) {
+        switch event.type {
+        case .otherMouseDown:
+            if let direction = Self.navigationDirection(forOtherMouseButton: event.buttonNumber),
+               canPerformWindowNavigation {
+                performNavigation(direction)
+                return
+            }
+        case .otherMouseUp:
+            if Self.navigationDirection(forOtherMouseButton: event.buttonNumber) != nil,
+               canPerformWindowNavigation {
+                return
+            }
+        case .swipe:
+            if let direction = Self.navigationDirection(forSwipeDeltaX: event.deltaX),
+               canPerformWindowNavigation {
+                performNavigation(direction)
+                return
+            }
+        default:
+            break
+        }
         if event.type == .leftMouseDown,
            let textView = firstResponder as? NSTextView {
             let ptInTextView = textView.convert(event.locationInWindow, from: nil)
@@ -110,6 +262,43 @@ private final class ToolboxWindow: NSWindow {
         default:
             break
         }
+    }
+
+    override func swipe(with event: NSEvent) {
+        if let direction = Self.navigationDirection(forSwipeDeltaX: event.deltaX),
+           canPerformWindowNavigation {
+            performNavigation(direction)
+            return
+        }
+        super.swipe(with: event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.type == .keyDown, canPerformWindowNavigation {
+            let relevantMods = event.modifierFlags.intersection([.command, .shift, .option, .control])
+            if relevantMods == .command {
+                switch event.charactersIgnoringModifiers {
+                case "[":
+                    performNavigation(.back)
+                    return true
+                case "]":
+                    performNavigation(.forward)
+                    return true
+                default:
+                    if !(firstResponder is NSText) {
+                        if event.keyCode == 123 { // kVK_LeftArrow
+                            performNavigation(.back)
+                            return true
+                        }
+                        if event.keyCode == 124 { // kVK_RightArrow
+                            performNavigation(.forward)
+                            return true
+                        }
+                    }
+                }
+            }
+        }
+        return super.performKeyEquivalent(with: event)
     }
 }
 
@@ -143,6 +332,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
             defer: false
         )
         win.title = "Toolbox"
+        win.navigationState = navState
         ToolboxTheme.applyDarkAppearance(to: win)
         win.isReleasedWhenClosed = false
         win.titlebarAppearsTransparent = false
@@ -299,10 +489,19 @@ struct MainSplitView: View {
             }
         }
         .background {
-            Button("") {
-                navState.goBack()
+            ZStack {
+                Button("") {
+                    guard !permissions.isPresentingOnboardingModal else { return }
+                    navState.goBack()
+                }
+                .keyboardShortcut("[", modifiers: .command)
+
+                Button("") {
+                    guard !permissions.isPresentingOnboardingModal else { return }
+                    navState.goForward()
+                }
+                .keyboardShortcut("]", modifiers: .command)
             }
-            .keyboardShortcut("[", modifiers: .command)
             .hidden()
         }
         .toolbar {
@@ -314,6 +513,28 @@ struct MainSplitView: View {
                 }
                 .help(navState.isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
                 .pointerCursor()
+            }
+
+            ToolbarItemGroup(placement: .navigation) {
+                Button {
+                    navState.goBack()
+                } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .disabled(!navState.canGoBack)
+                .help(navState.backHelpText)
+                .accessibilityLabel("Back")
+                .pointerCursor(navState.canGoBack)
+
+                Button {
+                    navState.goForward()
+                } label: {
+                    Image(systemName: "chevron.right")
+                }
+                .disabled(!navState.canGoForward)
+                .help(navState.forwardHelpText)
+                .accessibilityLabel("Forward")
+                .pointerCursor(navState.canGoForward)
             }
 
             if supportState.isSupporterUnlocked {
@@ -381,141 +602,148 @@ struct MainSplitView: View {
     }
 
     private var sidebarView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Overview")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 8)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Overview")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
 
-                    Button {
-                        navState.navigate(to: .dashboard)
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "square.grid.2x2")
-                                .foregroundStyle(navState.selection == .dashboard ? Color.white : ToolboxTheme.accentBlue)
-                            Text("Dashboard")
-                                .font(.callout.weight(.medium))
-                            Spacer()
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(
-                            navState.selection == .dashboard
-                                ? ToolboxTheme.accentBlue
-                                : Color.clear,
-                            in: RoundedRectangle(cornerRadius: 7)
-                        )
-                        .foregroundStyle(navState.selection == .dashboard ? .white : .primary)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .focusEffectDisabled()
-                    .pointerCursor()
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Modules")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 8)
-
-                    ForEach(registry.modules, id: \.id) { module in
-                        let dest = SidebarDestination.module(module.id)
-                        let isSelected = navState.selection == dest
                         Button {
-                            navState.navigate(to: dest)
+                            navState.navigate(to: .dashboard)
                         } label: {
                             HStack(spacing: 8) {
-                                Image(systemName: module.symbolName)
-                                    .foregroundStyle(isSelected ? .white : module.accentColor)
-                                    .frame(width: 16)
-                                Text(module.name)
-                                    .font(.callout)
-                                    .lineLimit(1)
+                                Image(systemName: "square.grid.2x2")
+                                    .foregroundStyle(navState.selection == .dashboard ? Color.white : ToolboxTheme.accentBlue)
+                                Text("Dashboard")
+                                    .font(.callout.weight(.medium))
                                 Spacer()
-                                Circle()
-                                    .fill(
-                                        !module.isEnabled(in: configManager.config)
-                                            ? Color.secondary.opacity(0.35)
-                                            : (!configManager.config.general.appEnabled
-                                                || (module.requiresAccessibility && !permissions.isAccessibilityGranted)
-                                                || (module as? ScreenOCRModule)?.screenRecordingGranted == false
-                                                ? Color.orange
-                                                : (!module.supportsEnableToggle
-                                                    ? (module.isRunning ? Color.red : Color.blue)
-                                                    : Color.green))
-                                    )
-                                    .frame(width: 7, height: 7)
                             }
                             .padding(.horizontal, 8)
                             .padding(.vertical, 6)
                             .background(
-                                isSelected ? ToolboxTheme.accentBlue : Color.clear,
+                                navState.selection == .dashboard
+                                    ? ToolboxTheme.accentBlue
+                                    : Color.clear,
                                 in: RoundedRectangle(cornerRadius: 7)
                             )
-                            .foregroundStyle(isSelected ? .white : .primary)
+                            .foregroundStyle(navState.selection == .dashboard ? .white : .primary)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .focusEffectDisabled()
                         .pointerCursor()
+                        .id(SidebarDestination.dashboard)
                     }
-                }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Configuration")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 8)
-
-                    sidebarConfigItem(
-                        title: "JSON Config",
-                        symbol: "curlybraces",
-                        destination: .jsonConfig
-                    )
-                    sidebarConfigItem(
-                        title: "Settings & About",
-                        symbol: "gearshape",
-                        destination: .settings,
-                        badge: updateManager.pendingUpdateVersion.map { "v\($0)" }
-                    )
-                    sidebarConfigItem(
-                        title: "Support Toolbox",
-                        symbol: "heart.fill",
-                        symbolColor: .pink,
-                        destination: .support,
-                        badge: supportState.isSupporterUnlocked ? "♥" : nil,
-                        badgeColor: .pink
-                    )
-                }
-
-                if developerMode.isUnlocked {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Developer")
+                        Text("Modules")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 8)
 
-                        ForEach(DeveloperSection.allCases) { section in
-                            let badgeInfo = developerBadge(for: section)
-                            sidebarConfigItem(
-                                title: section.title,
-                                symbol: section.symbolName,
-                                destination: .developer(section),
-                                badge: badgeInfo?.text,
-                                badgeColor: badgeInfo?.color ?? .blue
-                            )
+                        ForEach(registry.modules, id: \.id) { module in
+                            let dest = SidebarDestination.module(module.id)
+                            let isSelected = navState.selection == dest
+                            Button {
+                                navState.navigate(to: dest)
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: module.symbolName)
+                                        .foregroundStyle(isSelected ? .white : module.accentColor)
+                                        .frame(width: 16)
+                                    Text(module.name)
+                                        .font(.callout)
+                                        .lineLimit(1)
+                                    Spacer()
+                                    Circle()
+                                        .fill(
+                                            !module.isEnabled(in: configManager.config)
+                                                ? Color.secondary.opacity(0.35)
+                                                : (!configManager.config.general.appEnabled
+                                                    || (module.requiresAccessibility && !permissions.isAccessibilityGranted)
+                                                    || (module as? ScreenOCRModule)?.screenRecordingGranted == false
+                                                    ? Color.orange
+                                                    : (!module.supportsEnableToggle
+                                                        ? (module.isRunning ? Color.red : Color.blue)
+                                                        : Color.green))
+                                        )
+                                        .frame(width: 7, height: 7)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 6)
+                                .background(
+                                    isSelected ? ToolboxTheme.accentBlue : Color.clear,
+                                    in: RoundedRectangle(cornerRadius: 7)
+                                )
+                                .foregroundStyle(isSelected ? .white : .primary)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .focusEffectDisabled()
+                            .pointerCursor()
+                            .id(dest)
                         }
                     }
-                }
 
-                Spacer()
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Configuration")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+
+                        sidebarConfigItem(
+                            title: "JSON Config",
+                            symbol: "curlybraces",
+                            destination: .jsonConfig
+                        )
+                        sidebarConfigItem(
+                            title: "Settings & About",
+                            symbol: "gearshape",
+                            destination: .settings,
+                            badge: updateManager.pendingUpdateVersion.map { "v\($0)" }
+                        )
+                        sidebarConfigItem(
+                            title: "Support Toolbox",
+                            symbol: "heart.fill",
+                            symbolColor: .pink,
+                            destination: .support,
+                            badge: supportState.isSupporterUnlocked ? "♥" : nil,
+                            badgeColor: .pink
+                        )
+                    }
+
+                    if developerMode.isUnlocked {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Developer")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 8)
+
+                            ForEach(DeveloperSection.allCases) { section in
+                                let badgeInfo = developerBadge(for: section)
+                                sidebarConfigItem(
+                                    title: section.title,
+                                    symbol: section.symbolName,
+                                    destination: .developer(section),
+                                    badge: badgeInfo?.text,
+                                    badgeColor: badgeInfo?.color ?? .blue
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer()
+                }
+                .padding(12)
             }
-            .padding(12)
+            .background(Color.primary.opacity(0.03))
+            .onChange(of: navState.selection) { _, destination in
+                proxy.scrollTo(destination)
+            }
         }
-        .background(Color.primary.opacity(0.03))
     }
 
     private func sidebarConfigItem(
@@ -558,6 +786,7 @@ struct MainSplitView: View {
         .buttonStyle(.plain)
         .focusEffectDisabled()
         .pointerCursor()
+        .id(destination)
     }
 
     private func developerBadge(for section: DeveloperSection) -> (text: String, color: Color)? {

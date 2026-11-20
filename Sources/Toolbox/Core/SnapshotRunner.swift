@@ -33,6 +33,29 @@ enum SnapshotRunner {
             size: NSSize(width: 940, height: 700),
             to: outURL.appendingPathComponent("dashboard_active.png")
         )
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navDashboard),
+            size: NSSize(width: 1140, height: 760),
+            to: outURL.appendingPathComponent("dashboard_active_default_width.png")
+        )
+
+        configManager.config.general.showModuleCardDetails = false
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navDashboard),
+            size: NSSize(width: 940, height: 700),
+            to: outURL.appendingPathComponent("dashboard_active_compact.png")
+        )
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navDashboard),
+            size: NSSize(width: 820, height: 560),
+            to: outURL.appendingPathComponent("dashboard_active_compact_minwidth.png")
+        )
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navDashboard),
+            size: NSSize(width: 1140, height: 760),
+            to: outURL.appendingPathComponent("dashboard_active_compact_default_width.png")
+        )
+        configManager.config.general.showModuleCardDetails = true
 
         let prevSimAX = PermissionsManager.shared.simulatedAccessibilityGranted
         PermissionsManager.shared.setSimulatedAccessibilityGranted(false)

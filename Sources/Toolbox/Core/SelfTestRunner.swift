@@ -212,6 +212,38 @@ enum SelfTestRunner {
         expect(DockActionMode.allCases.contains(.sendToBack), "DockActionMode should include sendToBack")
         expect(cfg.clipboard.maxItems == 25, "Clipboard default maxItems should be 25")
         expect(cfg.clipboard.persistHistory, "Clipboard default persistHistory should be true")
+        expect(cfg.general.showModuleCardDetails, "Dashboard showModuleCardDetails should default to true")
+
+        if let legacyGeneral = try? JSONDecoder().decode(GeneralConfig.self, from: Data("{}".utf8)) {
+            expect(legacyGeneral.showModuleCardDetails, "Decoding legacy GeneralConfig without showModuleCardDetails should default to true")
+        } else {
+            failures.append("Failed to decode legacy GeneralConfig")
+        }
+
+        var compactCfg = ToolboxConfig()
+        compactCfg.general.showModuleCardDetails = false
+        if let encoded = try? JSONEncoder().encode(compactCfg),
+           let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: encoded) {
+            expect(!decoded.general.showModuleCardDetails, "showModuleCardDetails=false should round-trip through Codable")
+        } else {
+            failures.append("ToolboxConfig Codable round-trip for showModuleCardDetails=false failed")
+        }
+
+        expect(cfg.runtimeBehaviorEquals(compactCfg), "runtimeBehaviorEquals should ignore showModuleCardDetails differences")
+        var pausedCfg = cfg
+        pausedCfg.general.appEnabled = false
+        expect(!cfg.runtimeBehaviorEquals(pausedCfg), "runtimeBehaviorEquals should return false when general.appEnabled differs")
+        var toggledModuleCfg = cfg
+        toggledModuleCfg.dockMinimize.enabled.toggle()
+        expect(!cfg.runtimeBehaviorEquals(toggledModuleCfg), "runtimeBehaviorEquals should return false when dockMinimize.enabled differs")
+
+        expect(DashboardLayoutMetrics.columnCount(forAvailableWidth: 547) == 2, "547pt available width should use 2 columns")
+        expect(DashboardLayoutMetrics.columnCount(forAvailableWidth: 667) == 2, "667pt available width should use 2 columns")
+        expect(DashboardLayoutMetrics.columnCount(forAvailableWidth: 809) == 2, "809pt available width should use 2 columns")
+        expect(DashboardLayoutMetrics.columnCount(forAvailableWidth: 810) == 3, "810pt available width should use 3 columns")
+        expect(DashboardLayoutMetrics.columnCount(forAvailableWidth: 867) == 3, "867pt available width should use 3 columns")
+        expect(DashboardLayoutMetrics.gridSpacing(showDetails: true) == 14, "Detailed grid spacing should be 14pt")
+        expect(DashboardLayoutMetrics.gridSpacing(showDetails: false) == 18, "Compact grid spacing should be 18pt")
     }
 
     private static func testNavigationHistoryAndPreservation() {
@@ -223,16 +255,320 @@ enum SelfTestRunner {
         nav.toggleSidebar()
         expect(nav.isSidebarVisible, "Sidebar should reopen when toggled again")
         expect(!nav.canGoBack, "Initial back history should be empty")
+        expect(!nav.canGoForward, "Initial forward history should be empty")
+        expect(nav.previousDestination == nil, "Initial previousDestination should be nil")
+        expect(nav.nextDestination == nil, "Initial nextDestination should be nil")
+        expect(nav.backHelpText == "Back (⌘[)", "Initial backHelpText mismatch: \(nav.backHelpText)")
+        expect(nav.forwardHelpText == "Forward (⌘])", "Initial forwardHelpText mismatch: \(nav.forwardHelpText)")
+        expect(!nav.goBack(), "goBack() at root with empty history should return false")
+        expect(!nav.goForward(), "goForward() with empty forwardHistory should return false")
 
         nav.navigate(to: .module("clipboard"))
+        expect(nav.previousDestination == .dashboard, "previousDestination after navigating from dashboard should be dashboard")
+        expect(nav.backHelpText == "Back to Dashboard (⌘[)", "backHelpText mismatch: \(nav.backHelpText)")
+
         nav.navigate(to: .jsonConfig)
         expect(nav.canGoBack, "Should be able to go back after navigation")
+        expect(!nav.canGoForward, "Forward history should be empty before going back")
         expect(nav.selection == .jsonConfig, "Current selection should be jsonConfig")
+        expect(nav.previousDestination == .module("clipboard"), "previousDestination should be clipboard module")
 
-        nav.goBack()
+        // Going back populates forwardHistory; a no-op navigate(to: current) must preserve it.
+        expect(nav.goBack(), "goBack() from jsonConfig should return true")
         expect(nav.selection == .module("clipboard"), "Back should return to clipboard module")
-        nav.goBack()
+        expect(nav.canGoForward, "Should be able to go forward after going back")
+        expect(nav.nextDestination == .jsonConfig, "nextDestination should be jsonConfig")
+        expect(nav.forwardHelpText == "Forward to JSON Config (⌘])", "forwardHelpText mismatch: \(nav.forwardHelpText)")
+
+        nav.navigate(to: .module("clipboard"))
+        expect(nav.canGoForward, "No-op navigate(to: current) must preserve forwardHistory")
+
+        expect(nav.goForward(), "goForward() should return true when forwardHistory is non-empty")
+        expect(nav.selection == .jsonConfig, "Forward should restore jsonConfig")
+        expect(!nav.canGoForward, "Forward history should be empty after advancing to the end")
+
+        expect(nav.goBack(), "goBack() should return true")
+        expect(nav.goBack(), "Second goBack() should return true")
         expect(nav.selection == .dashboard, "Back should return to dashboard")
+        expect(nav.canGoForward, "Forward history should have two entries after going back twice")
+        expect(!nav.goBack(), "goBack() at dashboard with empty history should return false")
+
+        // Branching navigation clears forwardHistory.
+        nav.navigate(to: .settings)
+        expect(!nav.canGoForward, "Navigating to a new branch must clear forwardHistory")
+
+        // Clicking "< Back to Dashboard" appends to history so mouse Back can undo it.
+        nav.navigate(to: .dashboard)
+        expect(nav.selection == .dashboard, "Navigating to dashboard should set selection to dashboard")
+        expect(nav.goBack(), "Back after returning to dashboard should undo back to settings")
+        expect(nav.selection == .settings, "Back after returning to dashboard should restore settings")
+        expect(nav.goForward(), "Forward should return to dashboard")
+        expect(nav.selection == .dashboard, "Forward should restore dashboard")
+
+        // History stack capping at 50 entries.
+        nav.resetHistoryForTesting(selection: .dashboard)
+        let capCycle: [SidebarDestination] = [.module("clipboard"), .settings, .jsonConfig, .support]
+        for i in 0..<60 {
+            nav.navigate(to: capCycle[i % capCycle.count])
+        }
+        expect(nav.history.count == 50, "History should be capped at 50 entries (got \(nav.history.count))")
+        var backSteps = 0
+        while nav.goBack() {
+            backSteps += 1
+            if backSteps > 60 { break }
+        }
+        // 50 steps pop the capped history stack, plus 1 implicit fallback step to .dashboard when the oldest retained entry is not .dashboard.
+        expect(backSteps == 51, "Expected 51 back steps (50 history entries + implicit dashboard fallback, got \(backSteps))")
+        expect(nav.selection == .dashboard, "Exhausting goBack() must end at dashboard")
+        expect(nav.forwardHistory.count == 50, "Forward history should also cap at 50 entries (got \(nav.forwardHistory.count))")
+
+        // Prune developer destinations across both stacks and deduplicate consecutive / top-matching entries.
+        nav.resetHistoryForTesting(selection: .dashboard)
+        nav.navigate(to: .settings)
+        nav.navigate(to: .developer(.eventsAndTaps))
+        nav.navigate(to: .settings)
+        nav.navigate(to: .developer(.updates))
+        nav.navigate(to: .support)
+        expect(nav.goBack(), "goBack() to developer(.updates) should succeed")
+        expect(nav.selection == .developer(.updates), "Expected selection to be developer(.updates)")
+        nav.pruneDeveloperDestinations(fallback: .settings)
+        expect(nav.selection == .settings, "pruneDeveloperDestinations should fall back to settings")
+        expect(nav.history == [.dashboard], "Pruning should remove developer items and collapse duplicate settings entries (got \(nav.history))")
+        expect(nav.forwardHistory == [.support], "Pruning should preserve valid forwardHistory (got \(nav.forwardHistory))")
+
+        // Also check top-matching forwardHistory deduplication when fallback matches forward item.
+        nav.resetHistoryForTesting(selection: .dashboard)
+        nav.navigate(to: .developer(.updates))
+        nav.navigate(to: .settings)
+        _ = nav.goBack()
+        nav.pruneDeveloperDestinations(fallback: .settings)
+        expect(nav.selection == .settings, "Selection should fall back to settings")
+        expect(nav.forwardHistory.isEmpty, "Pruning should strip trailing forwardHistory matching fallback destination")
+
+        // Static button & swipe direction mapping checks.
+        expect(ToolboxWindow.navigationDirection(forOtherMouseButton: 2) == nil, "Middle mouse button (2) must not trigger navigation")
+        expect(ToolboxWindow.navigationDirection(forOtherMouseButton: 3) == .back, "Mouse button 3 must map to back")
+        expect(ToolboxWindow.navigationDirection(forOtherMouseButton: 4) == .forward, "Mouse button 4 must map to forward")
+        expect(ToolboxWindow.navigationDirection(forOtherMouseButton: 5) == nil, "Mouse button 5 must not trigger navigation")
+        expect(ToolboxWindow.navigationDirection(forSwipeDeltaX: 1.0) == .back, "Swipe deltaX > 0 must map to back")
+        expect(ToolboxWindow.navigationDirection(forSwipeDeltaX: -1.0) == .forward, "Swipe deltaX < 0 must map to forward")
+        expect(ToolboxWindow.navigationDirection(forSwipeDeltaX: 0.0) == nil, "Swipe deltaX == 0 must not trigger navigation")
+
+        // End-to-end ToolboxWindow mouse side-button and keyboard equivalent dispatch.
+        guard let win = MainWindowController.shared.ensureWindow() as? ToolboxWindow else {
+            failures.append("MainWindowController.ensureWindow() must return a ToolboxWindow")
+            return
+        }
+        let mainNav = MainWindowController.shared.navState
+        let prevOnboarding = PermissionsManager.shared.isPresentingOnboardingModal
+        defer {
+            PermissionsManager.shared.isPresentingOnboardingModal = prevOnboarding
+            win.makeFirstResponder(nil)
+            mainNav.resetHistoryForTesting(selection: .dashboard)
+        }
+
+        mainNav.resetHistoryForTesting(selection: .dashboard)
+        mainNav.navigate(to: .module("clipboard"))
+        mainNav.navigate(to: .settings)
+
+        func makeOtherMouseEvent(type: CGEventType, buttonNumber: Int64) -> NSEvent? {
+            guard let cg = CGEvent(
+                mouseEventSource: nil,
+                mouseType: type,
+                mouseCursorPosition: .zero,
+                mouseButton: .center
+            ) else { return nil }
+            cg.setIntegerValueField(.mouseEventButtonNumber, value: buttonNumber)
+            return NSEvent(cgEvent: cg)
+        }
+
+        if let backDown = makeOtherMouseEvent(type: .otherMouseDown, buttonNumber: 3),
+           let backUp = makeOtherMouseEvent(type: .otherMouseUp, buttonNumber: 3) {
+            expect(backDown.buttonNumber == 3, "Synthetic CGEvent otherMouseDown should preserve buttonNumber 3")
+            win.sendEvent(backDown)
+            win.sendEvent(backUp)
+            expect(mainNav.selection == .module("clipboard"), "Mouse button 3 down+up must go back once to clipboard module")
+        } else {
+            failures.append("Failed to create synthetic mouse button 3 event")
+        }
+
+        if let middleDown = makeOtherMouseEvent(type: .otherMouseDown, buttonNumber: 2) {
+            win.sendEvent(middleDown)
+            expect(mainNav.selection == .module("clipboard"), "Middle mouse button (2) must not navigate")
+        }
+
+        if let forwardDown = makeOtherMouseEvent(type: .otherMouseDown, buttonNumber: 4),
+           let forwardUp = makeOtherMouseEvent(type: .otherMouseUp, buttonNumber: 4) {
+            expect(forwardDown.buttonNumber == 4, "Synthetic CGEvent otherMouseDown should preserve buttonNumber 4")
+            win.sendEvent(forwardDown)
+            win.sendEvent(forwardUp)
+            expect(mainNav.selection == .settings, "Mouse button 4 down+up must go forward once to settings")
+        } else {
+            failures.append("Failed to create synthetic mouse button 4 event")
+        }
+
+        // Keyboard equivalents: ⌘ [, ⌘ ], ⌘ ←, ⌘ →
+        if let cmdBack = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: .command,
+            timestamp: 0,
+            windowNumber: win.windowNumber,
+            context: nil,
+            characters: "[",
+            charactersIgnoringModifiers: "[",
+            isARepeat: false,
+            keyCode: 33
+        ) {
+            expect(win.performKeyEquivalent(with: cmdBack), "⌘ [ must be handled by ToolboxWindow")
+            expect(mainNav.selection == .module("clipboard"), "⌘ [ must navigate back to clipboard")
+        }
+        if let cmdForward = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: .command,
+            timestamp: 0,
+            windowNumber: win.windowNumber,
+            context: nil,
+            characters: "]",
+            charactersIgnoringModifiers: "]",
+            isARepeat: false,
+            keyCode: 30
+        ) {
+            expect(win.performKeyEquivalent(with: cmdForward), "⌘ ] must be handled by ToolboxWindow")
+            expect(mainNav.selection == .settings, "⌘ ] must navigate forward to settings")
+        }
+
+        let leftArrowStr = String(UnicodeScalar(NSLeftArrowFunctionKey)!)
+        let rightArrowStr = String(UnicodeScalar(NSRightArrowFunctionKey)!)
+        if let cmdLeft = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: .command,
+            timestamp: 0,
+            windowNumber: win.windowNumber,
+            context: nil,
+            characters: leftArrowStr,
+            charactersIgnoringModifiers: leftArrowStr,
+            isARepeat: false,
+            keyCode: 123
+        ), let cmdRight = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: .command,
+            timestamp: 0,
+            windowNumber: win.windowNumber,
+            context: nil,
+            characters: rightArrowStr,
+            charactersIgnoringModifiers: rightArrowStr,
+            isARepeat: false,
+            keyCode: 124
+        ) {
+            expect(win.performKeyEquivalent(with: cmdLeft), "⌘ ← must be handled when no text editor is focused")
+            expect(mainNav.selection == .module("clipboard"), "⌘ ← must navigate back")
+            expect(win.performKeyEquivalent(with: cmdRight), "⌘ → must be handled when no text editor is focused")
+            expect(mainNav.selection == .settings, "⌘ → must navigate forward")
+
+            // While an NSTextView is firstResponder, ⌘ ← / ⌘ → must NOT navigate (preserve cursor jump to line start/end).
+            let tempTextView = NSTextView(frame: NSRect(x: 0, y: 0, width: 100, height: 40))
+            win.contentView?.addSubview(tempTextView)
+            win.makeFirstResponder(tempTextView)
+            expect(win.firstResponder === tempTextView, "Temporary NSTextView should become firstResponder")
+            _ = win.performKeyEquivalent(with: cmdLeft)
+            expect(mainNav.selection == .settings, "⌘ ← must NOT hijack line-start cursor movement inside NSTextView")
+            _ = win.performKeyEquivalent(with: cmdRight)
+            expect(mainNav.selection == .settings, "⌘ → must NOT hijack line-end cursor movement inside NSTextView")
+
+            // ⌘ [ must still navigate back even while NSTextView is focused, committing responder cleanly.
+            if let cmdBackInText = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: .command,
+                timestamp: 0,
+                windowNumber: win.windowNumber,
+                context: nil,
+                characters: "[",
+                charactersIgnoringModifiers: "[",
+                isARepeat: false,
+                keyCode: 33
+            ) {
+                expect(win.performKeyEquivalent(with: cmdBackInText), "⌘ [ should still navigate when NSTextView is focused")
+                expect(mainNav.selection == .module("clipboard"), "⌘ [ should navigate back from NSTextView")
+                expect(!(win.firstResponder is NSText), "Navigation should clear active text responder")
+            }
+            tempTextView.removeFromSuperview()
+        }
+
+        // Onboarding modal guard: mouse side buttons and keyboard shortcuts must not navigate while onboarding modal is shown.
+        PermissionsManager.shared.isPresentingOnboardingModal = true
+        let selectionBeforeModal = mainNav.selection
+        let historyBeforeModal = mainNav.history
+        let forwardBeforeModal = mainNav.forwardHistory
+        if let backDown = makeOtherMouseEvent(type: .otherMouseDown, buttonNumber: 3),
+           let forwardDown = makeOtherMouseEvent(type: .otherMouseDown, buttonNumber: 4) {
+            win.sendEvent(backDown)
+            win.sendEvent(forwardDown)
+            expect(mainNav.selection == selectionBeforeModal, "Mouse Back/Forward must not navigate while onboarding modal is presented")
+            expect(mainNav.history == historyBeforeModal && mainNav.forwardHistory == forwardBeforeModal,
+                   "Mouse Back/Forward must not mutate navigation stacks while onboarding modal is presented")
+        }
+        if let cmdBack = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: .command,
+            timestamp: 0,
+            windowNumber: win.windowNumber,
+            context: nil,
+            characters: "[",
+            charactersIgnoringModifiers: "[",
+            isARepeat: false,
+            keyCode: 33
+        ), let cmdForward = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: .command,
+            timestamp: 0,
+            windowNumber: win.windowNumber,
+            context: nil,
+            characters: "]",
+            charactersIgnoringModifiers: "]",
+            isARepeat: false,
+            keyCode: 30
+        ) {
+            _ = win.performKeyEquivalent(with: cmdBack)
+            expect(mainNav.selection == selectionBeforeModal, "⌘ [ must not navigate while onboarding modal is presented")
+            _ = win.performKeyEquivalent(with: cmdForward)
+            expect(mainNav.selection == selectionBeforeModal, "⌘ ] must not navigate while onboarding modal is presented")
+            expect(mainNav.history == historyBeforeModal && mainNav.forwardHistory == forwardBeforeModal,
+                   "Keyboard shortcuts must not mutate navigation stacks while onboarding modal is presented")
+        }
+        if let cmdLeft = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: .command,
+            timestamp: 0,
+            windowNumber: win.windowNumber,
+            context: nil,
+            characters: leftArrowStr,
+            charactersIgnoringModifiers: leftArrowStr,
+            isARepeat: false,
+            keyCode: 123
+        ), let cmdRight = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: .command,
+            timestamp: 0,
+            windowNumber: win.windowNumber,
+            context: nil,
+            characters: rightArrowStr,
+            charactersIgnoringModifiers: rightArrowStr,
+            isARepeat: false,
+            keyCode: 124
+        ) {
+            expect(!win.performKeyEquivalent(with: cmdLeft), "⌘ ← must not navigate while onboarding modal is presented")
+            expect(!win.performKeyEquivalent(with: cmdRight), "⌘ → must not navigate while onboarding modal is presented")
+            expect(mainNav.selection == selectionBeforeModal, "⌘ ← / ⌘ → must leave selection unchanged during onboarding modal")
+        }
     }
 
     private static func testKeepAwakePmsetParsing() {

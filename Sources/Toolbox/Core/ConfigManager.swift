@@ -113,6 +113,7 @@ struct GeneralConfig: Codable, Equatable, Sendable {
     var menuBarHiddenModules: [String] = []
     var showQuickActionsInMenuBar: Bool = true
     var showQuickCommandsInMenuBar: Bool = true
+    var showModuleCardDetails: Bool = true
 
     init() {}
 
@@ -132,6 +133,7 @@ struct GeneralConfig: Codable, Equatable, Sendable {
         menuBarHiddenModules = decodedHidden.map { $0 == "audio_guard" ? "call_controls" : $0 }
         showQuickActionsInMenuBar = try c.decodeIfPresent(Bool.self, forKey: .showQuickActionsInMenuBar) ?? true
         showQuickCommandsInMenuBar = try c.decodeIfPresent(Bool.self, forKey: .showQuickCommandsInMenuBar) ?? true
+        showModuleCardDetails = try c.decodeIfPresent(Bool.self, forKey: .showModuleCardDetails) ?? true
     }
 
     func normalizedMenuBarModuleOrder(allModuleIDs: [String] = GeneralConfig.defaultMenuBarModuleOrder) -> [String] {
@@ -749,6 +751,16 @@ struct ToolboxConfig: Codable, Equatable, Sendable {
         callControls = decodedCallControls
         extensions = try c.decodeIfPresent([String: JSONValue].self, forKey: .extensions) ?? [:]
     }
+
+    /// Returns `true` when two configs are identical for all runtime module and
+    /// app-presence behaviors (ignoring purely visual Dashboard layout preferences).
+    func runtimeBehaviorEquals(_ other: ToolboxConfig) -> Bool {
+        var lhs = self
+        var rhs = other
+        lhs.general.showModuleCardDetails = true
+        rhs.general.showModuleCardDetails = true
+        return lhs == rhs
+    }
 }
 
 @MainActor
@@ -808,7 +820,7 @@ final class ConfigManager: ObservableObject {
         }
     }
 
-    func loadFromDisk() {
+    func loadFromDisk(onlyIfChanged: Bool = false) {
         guard FileManager.default.fileExists(atPath: configURL.path) else {
             saveToDisk()
             return
@@ -818,6 +830,9 @@ final class ConfigManager: ObservableObject {
             let data = try Data(contentsOf: configURL)
             let rawSchemaVersion = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["schemaVersion"] as? Int ?? 0
             let decoded = try JSONDecoder().decode(ToolboxConfig.self, from: data)
+            if onlyIfChanged && decoded == self.config && rawSchemaVersion >= decoded.schemaVersion {
+                return
+            }
             isReloadingFromDisk = true
             self.config = decoded
             isReloadingFromDisk = false
@@ -891,7 +906,7 @@ final class ConfigManager: ObservableObject {
         )
         source.setEventHandler { [weak self] in
             guard let self else { return }
-            self.loadFromDisk()
+            self.loadFromDisk(onlyIfChanged: true)
             self.fileMonitorSource?.cancel()
             self.startWatchingFile()
         }

@@ -1,10 +1,23 @@
 import SwiftUI
 
+enum DashboardLayoutMetrics: Sendable {
+    static let threeColumnMinWidth: CGFloat = 810
+
+    static func columnCount(forAvailableWidth width: CGFloat) -> Int {
+        width >= threeColumnMinWidth ? 3 : 2
+    }
+
+    static func gridSpacing(showDetails: Bool) -> CGFloat {
+        showDetails ? 14 : 18
+    }
+}
+
 struct DashboardView: View {
     @ObservedObject private var configManager = ConfigManager.shared
     @ObservedObject private var permissions = PermissionsManager.shared
     @ObservedObject private var registry = ModuleRegistry.shared
     @ObservedObject private var screenOCR = ModuleRegistry.shared.screenOCR
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let onSelectModule: (String) -> Void
 
@@ -21,11 +34,19 @@ struct DashboardView: View {
         return "v\(short)"
     }
 
+    private var layoutAnimation: Animation {
+        reduceMotion
+            ? .easeInOut(duration: 0.16)
+            : .spring(duration: 0.32, bounce: 0.04)
+    }
+
     var body: some View {
+        let showDetails = configManager.config.general.showModuleCardDetails
         GeometryReader { proxy in
             let availableGridWidth = max(0, proxy.size.width - 44)
-            let columnCount = availableGridWidth >= 720 ? 3 : 2
-            let columns = Array(repeating: GridItem(.flexible(), spacing: 14), count: columnCount)
+            let columnCount = DashboardLayoutMetrics.columnCount(forAvailableWidth: availableGridWidth)
+            let gridSpacing = DashboardLayoutMetrics.gridSpacing(showDetails: showDetails)
+            let rows = chunkedModules(registry.modules, intoColumns: columnCount)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
@@ -38,16 +59,48 @@ struct DashboardView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Modules")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(.primary)
+                        HStack(spacing: 8) {
+                            Text("Modules")
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            DashboardDensityPicker(showDetails: showDetails) { newVal in
+                                guard newVal != showDetails else { return }
+                                withAnimation(layoutAnimation) {
+                                    configManager.config.general.showModuleCardDetails = newVal
+                                }
+                            }
+                        }
 
-                        LazyVGrid(columns: columns, spacing: 14) {
-                            ForEach(registry.modules, id: \.id) { module in
-                                moduleCard(module)
+                        VStack(alignment: .leading, spacing: gridSpacing) {
+                            ForEach(Array(rows.enumerated()), id: \.offset) { _, rowModules in
+                                HStack(alignment: .top, spacing: gridSpacing) {
+                                    ForEach(rowModules, id: \.id) { module in
+                                        DashboardModuleCard(
+                                            module: module,
+                                            config: configManager.config,
+                                            accessibilityGranted: permissions.isAccessibilityGranted,
+                                            showDetails: showDetails,
+                                            reduceMotion: reduceMotion,
+                                            enabledBinding: enabledBinding(for: module),
+                                            onSelect: { onSelectModule(module.id) }
+                                        )
+                                        .id(module.id)
+                                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                                    }
+
+                                    if rowModules.count < columnCount {
+                                        ForEach(0..<(columnCount - rowModules.count), id: \.self) { _ in
+                                            Color.clear
+                                                .frame(maxWidth: .infinity, minHeight: 0, maxHeight: 0)
+                                        }
+                                    }
+                                }
+                                .fixedSize(horizontal: false, vertical: true)
                             }
                         }
                     }
+                    .animation(layoutAnimation, value: showDetails)
                 }
                 .padding(22)
             }
@@ -55,6 +108,19 @@ struct DashboardView: View {
         .onAppear {
             permissions.refresh()
         }
+    }
+
+    private func chunkedModules(_ modules: [any ToolboxModule], intoColumns columnCount: Int) -> [[any ToolboxModule]] {
+        let size = max(1, columnCount)
+        var rows: [[any ToolboxModule]] = []
+        rows.reserveCapacity((modules.count + size - 1) / size)
+        var index = 0
+        while index < modules.count {
+            let end = min(index + size, modules.count)
+            rows.append(Array(modules[index..<end]))
+            index = end
+        }
+        return rows
     }
 
     private var headerBanner: some View {
@@ -275,109 +341,301 @@ struct DashboardView: View {
         }
     }
 
-    private func moduleCard(_ module: any ToolboxModule) -> some View {
-        let isEnabled = module.isEnabled(in: configManager.config)
-        let status = module.statusText(in: configManager.config, accessibilityGranted: permissions.isAccessibilityGranted)
-        let missingScreenPermission = (module as? ScreenOCRModule).map { !$0.screenRecordingGranted } ?? false
-        let badgeColor: Color = {
-            if !isEnabled { return .secondary }
-            if !configManager.config.general.appEnabled { return .orange }
-            if module.requiresAccessibility && !permissions.isAccessibilityGranted { return .orange }
-            if missingScreenPermission { return .orange }
-            return module.isRunning ? .green : .blue
-        }()
-
-        return SectionCard {
-            HStack(alignment: .top) {
-                Button {
-                    onSelectModule(module.id)
-                } label: {
-                    HStack(alignment: .top) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 9)
-                                .fill(module.accentColor.opacity(0.15))
-                                .frame(width: 34, height: 34)
-                            Image(systemName: module.symbolName)
-                                .font(.body.weight(.semibold))
-                                .foregroundStyle(module.accentColor)
-                        }
-
-                        Spacer()
-
-                        if let shortcut = module.shortcutText(in: configManager.config) {
-                            ShortcutPill(text: shortcut)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+    private func enabledBinding(for module: any ToolboxModule) -> Binding<Bool> {
+        Binding(
+            get: { module.isEnabled(in: configManager.config) },
+            set: { newVal in
+                module.setEnabled(newVal, in: &configManager.config)
+                if newVal && module.requiresAccessibility && !permissions.isAccessibilityGranted {
+                    permissions.promptAndOpenSettings()
                 }
-                .buttonStyle(.plain)
-                .pointerCursor()
+            }
+        )
+    }
+}
+
+private struct DashboardDensityPicker: View {
+    let showDetails: Bool
+    let onSelect: (Bool) -> Void
+
+    @Namespace private var pillNamespace
+
+    var body: some View {
+        HStack(spacing: 2) {
+            segment(
+                title: "Detailed",
+                symbol: "list.bullet.rectangle",
+                isSelected: showDetails,
+                helpText: "Show module descriptions on Dashboard cards"
+            ) {
+                onSelect(true)
+            }
+
+            segment(
+                title: "Compact",
+                symbol: "rectangle.grid.2x2",
+                isSelected: !showDetails,
+                helpText: "Hide descriptions for compact Dashboard cards"
+            ) {
+                onSelect(false)
+            }
+        }
+        .padding(2.5)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.primary.opacity(0.055))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.75)
+        )
+    }
+
+    private func segment(
+        title: String,
+        symbol: String,
+        isSelected: Bool,
+        helpText: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: symbol)
+                    .font(.system(size: 11, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
+            }
+            .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.primary.opacity(0.14))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(Color.primary.opacity(0.18), lineWidth: 0.75)
+                        )
+                        .matchedGeometryEffect(id: "dashboardDensityPill", in: pillNamespace)
+                }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+        .focusEffectDisabled()
+        .help(helpText)
+        .pointerCursor()
+    }
+}
+
+private final class DashboardCardHoverState: ObservableObject {
+    @Published var isHovered = false
+}
+
+private struct CollapsibleHeightLayout: Layout {
+    var progress: CGFloat
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        guard let subview = subviews.first else {
+            return .zero
+        }
+        let clamped = min(max(progress, 0), 1)
+        let natural = subview.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
+        return CGSize(
+            width: proposal.width ?? natural.width,
+            height: natural.height * clamped
+        )
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        guard let subview = subviews.first else { return }
+        let natural = subview.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
+        subview.place(
+            at: bounds.origin,
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: bounds.width, height: natural.height)
+        )
+    }
+}
+
+private struct CollapsibleContainer<Content: View>: View, @MainActor Animatable {
+    var progress: CGFloat
+    let reduceMotion: Bool
+    let content: Content
+
+    init(
+        progress: CGFloat,
+        reduceMotion: Bool,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.progress = progress
+        self.reduceMotion = reduceMotion
+        self.content = content()
+    }
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    var body: some View {
+        let clamped = min(max(progress, 0), 1)
+        let textOpacity = Double(max(0, min(1, (clamped - 0.15) / 0.85)))
+        let yOffset: CGFloat = reduceMotion ? 0 : (1 - clamped) * -4
+
+        CollapsibleHeightLayout(progress: clamped) {
+            content
+                .opacity(textOpacity)
+                .offset(y: yOffset)
+        }
+        .clipped()
+        .allowsHitTesting(clamped > 0.5)
+        .accessibilityHidden(clamped < 0.01)
+    }
+}
+
+private struct CleanLockDashboardButton: View {
+    @ObservedObject var cleanLock: CleanLockModule
+    let durationSeconds: Int
+
+    var body: some View {
+        let secs = CleanLockConfig.clampedDuration(durationSeconds)
+        let durationLabel = secs >= 60 && secs % 60 == 0 ? "\(secs / 60)m" : "\(secs)s"
+        Button {
+            _ = cleanLock.lock()
+        } label: {
+            Label(
+                cleanLock.isLocked ? "\(cleanLock.remainingSeconds)s" : "Lock (\(durationLabel))",
+                systemImage: cleanLock.isLocked ? "lock.fill" : "lock"
+            )
+            .font(.caption.weight(.semibold))
+            .lineLimit(1)
+        }
+        .buttonStyle(.toolboxProminent(.red))
+        .controlSize(.small)
+        .fixedSize(horizontal: true, vertical: false)
+        .pointerCursor()
+    }
+}
+
+private struct DashboardModuleCard: View {
+    let module: any ToolboxModule
+    let config: ToolboxConfig
+    let accessibilityGranted: Bool
+    let showDetails: Bool
+    let reduceMotion: Bool
+    let enabledBinding: Binding<Bool>
+    let onSelect: () -> Void
+
+    @StateObject private var hoverState = DashboardCardHoverState()
+
+    private var status: String {
+        module.statusText(in: config, accessibilityGranted: accessibilityGranted)
+    }
+
+    private var badgeColor: Color {
+        let isEnabled = module.isEnabled(in: config)
+        let missingScreenPermission = (module as? ScreenOCRModule).map { !$0.screenRecordingGranted } ?? false
+        if !isEnabled { return .secondary }
+        if !config.general.appEnabled { return .orange }
+        if module.requiresAccessibility && !accessibilityGranted { return .orange }
+        if missingScreenPermission { return .orange }
+        return module.isRunning ? .green : .blue
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 8) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(module.accentColor.opacity(0.15))
+                        .frame(width: 30, height: 30)
+                    Image(systemName: module.symbolName)
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundStyle(module.accentColor)
+                }
+
+                Text(module.name)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 if module.supportsEnableToggle {
-                    Toggle("", isOn: Binding(
-                        get: { module.isEnabled(in: configManager.config) },
-                        set: { newVal in
-                            module.setEnabled(newVal, in: &configManager.config)
-                            if newVal && module.requiresAccessibility && !permissions.isAccessibilityGranted {
-                                permissions.promptAndOpenSettings()
-                            }
-                        }
-                    ))
-                    .labelsHidden()
-                    .toggleStyle(StatusBarSwitchToggleStyle(onColor: .green))
-                    .pointerCursor()
+                    Toggle("", isOn: enabledBinding)
+                        .labelsHidden()
+                        .toggleStyle(StatusBarSwitchToggleStyle(onColor: .green))
+                        .pointerCursor()
                 } else if let cleanLock = module as? CleanLockModule {
-                    let secs = CleanLockConfig.clampedDuration(configManager.config.cleanLock.durationSeconds)
-                    let durationLabel = secs >= 60 && secs % 60 == 0 ? "\(secs / 60)m" : "\(secs)s"
-                    Button {
-                        _ = cleanLock.lock()
-                    } label: {
-                        Label(
-                            cleanLock.isLocked ? "\(cleanLock.remainingSeconds)s" : "Lock (\(durationLabel))",
-                            systemImage: cleanLock.isLocked ? "lock.fill" : "lock"
-                        )
-                        .font(.caption.weight(.semibold))
-                    }
-                    .buttonStyle(.toolboxProminent(.red))
-                    .controlSize(.small)
-                    .pointerCursor()
+                    CleanLockDashboardButton(
+                        cleanLock: cleanLock,
+                        durationSeconds: config.cleanLock.durationSeconds
+                    )
                 }
             }
+            .frame(minHeight: 30)
 
-            Button {
-                onSelectModule(module.id)
-            } label: {
-                VStack(alignment: .leading, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(module.name)
-                            .font(.headline)
-                            .foregroundStyle(.primary)
-                        Text(module.tagline)
-                            .font(.system(size: 12))
-                            .foregroundStyle(Color.primary.opacity(0.78))
-                            .lineSpacing(1.5)
-                            .multilineTextAlignment(.leading)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    Spacer(minLength: 0)
-
-                    HStack {
-                        StatusBadge(text: status, color: badgeColor)
-                        Spacer(minLength: 6)
-                        Text("Customize →")
-                            .font(.callout.weight(.medium))
-                            .foregroundStyle(.tint)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+            CollapsibleContainer(progress: showDetails ? 1 : 0, reduceMotion: reduceMotion) {
+                Text(module.tagline)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.primary.opacity(0.76))
+                    .lineSpacing(2)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 9)
+                    .padding(.bottom, 2)
             }
-            .buttonStyle(.plain)
-            .pointerCursor()
+
+            Spacer(minLength: 12)
+
+            HStack(alignment: .center, spacing: 6) {
+                StatusBadge(text: status, color: badgeColor)
+
+                Spacer(minLength: 0)
+
+                if let shortcut = module.shortcutText(in: config) {
+                    ShortcutPill(text: shortcut)
+                }
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(hoverState.isHovered ? ToolboxTheme.accentBlue : Color.secondary.opacity(0.55))
+                    .offset(x: hoverState.isHovered ? 2 : 0)
+                    .animation(.easeOut(duration: 0.14), value: hoverState.isHovered)
+            }
+            .frame(minHeight: 22)
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, showDetails ? 15 : 14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.62))
+                .overlay(
+                    RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
+                        .fill(Color.primary.opacity(hoverState.isHovered ? 0.065 : 0.035))
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
+                .strokeBorder(Color.primary.opacity(hoverState.isHovered ? 0.24 : 0.14), lineWidth: 1)
+        )
+        .animation(.easeOut(duration: 0.14), value: hoverState.isHovered)
+        .contentShape(RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius))
+        .onHover { hoverState.isHovered = $0 }
+        .onTapGesture(perform: onSelect)
+        .pointerCursor()
+        .accessibilityElement(children: .contain)
     }
 }
 
