@@ -592,7 +592,7 @@ final class PortKillerModule: NSObject, ToolboxModule, ObservableObject {
         newPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
 
         let visualEffect = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: width, height: height))
-        visualEffect.material = .popover
+        visualEffect.material = .windowBackground
         visualEffect.blendingMode = .behindWindow
         visualEffect.state = .active
         visualEffect.wantsLayer = true

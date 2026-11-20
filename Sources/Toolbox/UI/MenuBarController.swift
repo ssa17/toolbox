@@ -24,7 +24,7 @@ private final class MenuBarPopoverChromeView: NSVisualEffectView {
 
     func updateBorderColor() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.14).cgColor
+            layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.18).cgColor
         }
     }
 }
@@ -49,6 +49,7 @@ final class MenuBarController: NSObject {
     internal var attachedMenuForTesting: NSMenu? { statusItem?.menu }
     internal var statusButtonForTesting: NSStatusBarButton? { statusItem?.button }
     internal var popoverPanelForTesting: NSPanel? { panel }
+    internal var visualEffectMaterialForTesting: NSVisualEffectView.Material? { visualEffectView?.material }
     internal var isPopoverVisibleForTesting: Bool { panel?.isVisible ?? false }
     internal var pointerCursorViewCountForTesting: Int {
         Self.countPointerCursorViews(in: ensurePanelAndHostingView().hostingView)
@@ -162,7 +163,7 @@ final class MenuBarController: NSObject {
         newPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
 
         let chrome = MenuBarPopoverChromeView(frame: NSRect(x: 0, y: 0, width: menuWidth, height: 320))
-        chrome.material = .popover
+        chrome.material = .windowBackground
         chrome.blendingMode = .behindWindow
         chrome.state = .active
         chrome.wantsLayer = true
@@ -487,6 +488,7 @@ final class MenuBarController: NSObject {
 private final class MenuBarHeaderHoverState: ObservableObject {
     @Published var isDashboardHovered = false
     @Published var isSettingsHovered = false
+    @Published var isQuitHovered = false
 }
 
 struct MenuBarPopoverView: View {
@@ -946,33 +948,43 @@ struct MenuBarPopoverView: View {
                     .menuRowHover(cornerRadius: 7, color: .white, fillOpacity: 0.14, borderOpacity: 0)
                 }
 
+                let isQuitHovered = headerHover.isQuitHovered
                 Button {
                     AppDelegate.terminateNow()
                 } label: {
                     Label("Quit", systemImage: "power")
                         .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(isQuitHovered ? Color.red : .secondary)
                         .frame(maxWidth: hasPending ? nil : .infinity)
                         .padding(.horizontal, hasPending ? 14 : 0)
                         .padding(.vertical, 6)
-                        .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 7))
+                        .background(
+                            isQuitHovered ? Color.red.opacity(0.14) : Color.primary.opacity(0.055),
+                            in: RoundedRectangle(cornerRadius: 7)
+                        )
                         .overlay(
                             RoundedRectangle(cornerRadius: 7)
-                                .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.75)
+                                .strokeBorder(
+                                    isQuitHovered ? Color.red.opacity(0.32) : Color.primary.opacity(0.09),
+                                    lineWidth: 0.75
+                                )
                         )
                         .contentShape(RoundedRectangle(cornerRadius: 7))
                 }
                 .buttonStyle(.plain)
-        .focusEffectDisabled()
+                .focusEffectDisabled()
+                .onHover { headerHover.isQuitHovered = $0 }
+                .animation(.easeOut(duration: 0.12), value: isQuitHovered)
                 .pointerCursor()
-                .menuRowHover(cornerRadius: 7)
             }
         }
         .padding(14)
         .frame(width: 340)
+        .background(Color(nsColor: .windowBackgroundColor).opacity(0.76))
         .onReceive(NotificationCenter.default.publisher(for: .toolboxMenuBarPopoverDidClose)) { _ in
             headerHover.isDashboardHovered = false
             headerHover.isSettingsHovered = false
+            headerHover.isQuitHovered = false
         }
     }
 

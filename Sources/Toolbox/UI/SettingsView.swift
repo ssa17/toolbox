@@ -1,11 +1,5 @@
 import ServiceManagement
 import SwiftUI
-import UniformTypeIdentifiers
-
-@MainActor
-private final class MenuBarCustomizationDragState: ObservableObject {
-    @Published var draggedModuleID: String?
-}
 
 struct SettingsView: View {
     @ObservedObject private var configManager = ConfigManager.shared
@@ -15,7 +9,7 @@ struct SettingsView: View {
     @ObservedObject private var screenOCR = ModuleRegistry.shared.screenOCR
     @ObservedObject private var developerMode = DeveloperModeManager.shared
     @ObservedObject private var supportState = SupportState.shared
-    @StateObject private var dragState = MenuBarCustomizationDragState()
+    @StateObject private var dragState = VerticalDragReorderState<String>()
 
     private var versionString: String {
         let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
@@ -339,8 +333,9 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var statusBarMenuCustomizer: some View {
-        let allIDs = registry.modules.map(\.id)
+        let eligibleIDs = registry.modules.filter(\.supportsMenuBar).map(\.id)
         let orderedModules = registry.orderedMenuBarModules(for: configManager.config)
+        let orderedIDs = orderedModules.map(\.id)
         let visibleModules = orderedModules.filter {
             configManager.config.general.isModuleVisibleInMenuBar($0.id)
         }
@@ -366,6 +361,7 @@ struct SettingsView: View {
 
                 if configManager.config.general.hasCustomMenuBarLayout {
                     Button("Reset Layout") {
+                        dragState.cancelActiveDrag()
                         withAnimation(.easeInOut(duration: 0.16)) {
                             configManager.config.general.resetMenuBarLayout()
                         }
@@ -382,14 +378,24 @@ struct SettingsView: View {
                         module: module,
                         index: index,
                         totalCount: orderedModules.count,
-                        allIDs: allIDs
+                        eligibleIDs: eligibleIDs,
+                        orderedIDs: orderedIDs
                     )
                 }
             }
-            .onHover { _ in
-                if dragState.draggedModuleID != nil && NSEvent.pressedMouseButtons == 0 {
-                    dragState.draggedModuleID = nil
+            .animation(dragState.animatedReorder ? .easeInOut(duration: 0.16) : nil, value: orderedIDs)
+            .onPreferenceChange(MenuBarModuleRowHeightKey.self) { heights in
+                MainActor.assumeIsolated {
+                    dragState.rowHeights = heights
                 }
+            }
+            .onChange(of: orderedIDs) { _, newIDs in
+                if let layout = dragState.layout, layout.items.map(\.id) != newIDs {
+                    dragState.cancelActiveDrag()
+                }
+            }
+            .onDisappear {
+                dragState.clearDragState()
             }
 
             Divider()
@@ -422,60 +428,104 @@ struct SettingsView: View {
         module: any ToolboxModule,
         index: Int,
         totalCount: Int,
-        allIDs: [String]
+        eligibleIDs: [String],
+        orderedIDs: [String]
     ) -> some View {
         let isVisible = configManager.config.general.isModuleVisibleInMenuBar(module.id)
         let isModuleEnabled = module.isEnabled(in: configManager.config)
         let canMoveUp = index > 0
         let canMoveDown = index < totalCount - 1
-        let isDragged = dragState.draggedModuleID == module.id
+        let canDrag = orderedIDs.count > 1
+        let isDragged = dragState.draggedID == module.id
+        let isSettling = !isDragged && dragState.settlingID == module.id
+        let dragShift = dragState.restingShift(for: module.id)
+        let rowOffsetY = isDragged ? dragState.dragOffsetY : (isSettling ? dragState.settlingOffsetY : dragShift)
 
         return HStack(spacing: 12) {
-            Image(systemName: "line.3.horizontal")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.tertiary)
-                .help("Drag to reorder")
-
-            ZStack {
-                RoundedRectangle(cornerRadius: 7)
-                    .fill(module.accentColor.opacity(isVisible ? 0.16 : 0.08))
-                    .frame(width: 28, height: 28)
-                Image(systemName: module.symbolName)
+            HStack(spacing: 12) {
+                Image(systemName: "line.3.horizontal")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(isVisible ? module.accentColor : Color.secondary)
-            }
+                    .foregroundStyle(isDragged ? Color.blue : Color.secondary)
+                    .frame(width: 14, height: 28)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(module.name)
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(isVisible ? .primary : .secondary)
-
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(isModuleEnabled ? Color.green : Color.secondary.opacity(0.45))
-                        .frame(width: 5, height: 5)
-                    Text(isModuleEnabled ? "Module enabled" : "Module disabled")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text("·")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                    Text(isVisible ? "Shown in menu" : "Hidden from menu")
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(isVisible ? Color.blue : Color.secondary)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 7)
+                        .fill(module.accentColor.opacity(isVisible ? 0.16 : 0.08))
+                        .frame(width: 28, height: 28)
+                    Image(systemName: module.symbolName)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(isVisible ? module.accentColor : Color.secondary)
                 }
-            }
 
-            Spacer(minLength: 8)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(module.name)
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(isVisible ? .primary : .secondary)
+
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(isModuleEnabled ? Color.green : Color.secondary.opacity(0.45))
+                            .frame(width: 5, height: 5)
+                        Text(isModuleEnabled ? "Module enabled" : "Module disabled")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text("·")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        Text(isVisible ? "Shown in menu" : "Hidden from menu")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(isVisible ? Color.blue : Color.secondary)
+                    }
+                }
+
+                Spacer(minLength: 8)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .overlay(
+                ReorderRowDragSurface(
+                    canDrag: canDrag,
+                    dragThreshold: 2,
+                    hoverCursor: canDrag ? .openHand : .arrow,
+                    toolTip: dragState.isDragging ? nil : "Drag to reorder",
+                    onClick: nil,
+                    onDragStart: { [weak dragState] _, cancelHook in
+                        dragState?.beginDrag(
+                            id: module.id,
+                            itemIDs: orderedIDs,
+                            spacing: 8,
+                            topInset: 0,
+                            fallbackHeight: 52,
+                            onExternalCancel: cancelHook
+                        )
+                    },
+                    onDragMove: { [weak dragState] startDocY, currentDocY in
+                        dragState?.updateDrag(rawDeltaY: currentDocY - startDocY)
+                    },
+                    onDragEnd: { [weak dragState] in
+                        dragState?.finishDrag { draggedID, targetID, _ in
+                            configManager.config.general.moveModuleInMenuBar(
+                                fromId: draggedID,
+                                toId: targetID,
+                                allModuleIDs: eligibleIDs
+                            )
+                        }
+                    },
+                    onEscapeCancel: { [weak dragState] in
+                        dragState?.cancelActiveDrag()
+                    }
+                )
+            )
 
             HStack(spacing: 10) {
                 HStack(spacing: 0) {
                     Button {
+                        dragState.cancelActiveDrag()
                         withAnimation(.easeInOut(duration: 0.16)) {
                             configManager.config.general.moveModuleInMenuBar(
                                 id: module.id,
                                 direction: -1,
-                                allModuleIDs: allIDs
+                                allModuleIDs: eligibleIDs
                             )
                         }
                     } label: {
@@ -495,11 +545,12 @@ struct SettingsView: View {
                         .frame(height: 14)
 
                     Button {
+                        dragState.cancelActiveDrag()
                         withAnimation(.easeInOut(duration: 0.16)) {
                             configManager.config.general.moveModuleInMenuBar(
                                 id: module.id,
                                 direction: 1,
-                                allModuleIDs: allIDs
+                                allModuleIDs: eligibleIDs
                             )
                         }
                     } label: {
@@ -524,6 +575,7 @@ struct SettingsView: View {
                 Toggle("", isOn: Binding(
                     get: { configManager.config.general.isModuleVisibleInMenuBar(module.id) },
                     set: { newVal in
+                        dragState.cancelActiveDrag()
                         withAnimation(.easeInOut(duration: 0.16)) {
                             configManager.config.general.setModuleVisibleInMenuBar(module.id, visible: newVal)
                         }
@@ -537,60 +589,48 @@ struct SettingsView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(
-            Color.primary.opacity(isVisible ? 0.045 : 0.02),
-            in: RoundedRectangle(cornerRadius: 9)
-        )
+        .background {
+            if isDragged {
+                RoundedRectangle(cornerRadius: 9)
+                    .fill(.regularMaterial)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 9)
+                            .fill(Color.blue.opacity(0.10))
+                    )
+            } else {
+                RoundedRectangle(cornerRadius: 9)
+                    .fill(Color.primary.opacity(isVisible ? 0.045 : 0.02))
+            }
+        }
         .overlay(
             RoundedRectangle(cornerRadius: 9)
                 .strokeBorder(
-                    isDragged ? Color.blue.opacity(0.55) : Color.primary.opacity(isVisible ? 0.09 : 0.04),
-                    lineWidth: isDragged ? 1.25 : 0.75
+                    isDragged ? Color.blue.opacity(0.65) : Color.primary.opacity(isVisible ? 0.09 : 0.04),
+                    lineWidth: isDragged ? 1.5 : 0.75
                 )
         )
-        .opacity(isDragged ? 0.65 : 1.0)
-        .onDrag {
-            dragState.draggedModuleID = module.id
-            return NSItemProvider(object: module.id as NSString)
-        }
-        .onDrop(
-            of: [.text],
-            delegate: MenuBarModuleDropDelegate(
-                targetModuleID: module.id,
-                dragState: dragState
-            ) { fromID, toID in
-                withAnimation(.easeInOut(duration: 0.16)) {
-                    configManager.config.general.moveModuleInMenuBar(
-                        fromId: fromID,
-                        toId: toID,
-                        allModuleIDs: allIDs
-                    )
-                }
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: MenuBarModuleRowHeightKey.self, value: [module.id: proxy.size.height])
             }
         )
+        .scaleEffect(isDragged ? 1.015 : 1.0)
+        .shadow(color: .black.opacity(isDragged ? 0.22 : 0), radius: isDragged ? 10 : 0, y: isDragged ? 4 : 0)
+        .animation(.easeOut(duration: 0.12), value: isDragged)
+        .offset(y: rowOffsetY)
+        .animation(
+            dragState.layout != nil && !isDragged
+                ? .interactiveSpring(response: 0.22, dampingFraction: 0.86)
+                : nil,
+            value: dragShift
+        )
+        .zIndex(isDragged ? 100 : (isSettling ? 50 : 0))
     }
 }
 
-private struct MenuBarModuleDropDelegate: DropDelegate {
-    let targetModuleID: String
-    let dragState: MenuBarCustomizationDragState
-    let onMove: @MainActor (String, String) -> Void
-
-    func dropEntered(info: DropInfo) {
-        MainActor.assumeIsolated {
-            guard let draggedID = dragState.draggedModuleID, draggedID != targetModuleID else { return }
-            onMove(draggedID, targetModuleID)
-        }
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        MainActor.assumeIsolated {
-            dragState.draggedModuleID = nil
-        }
-        return true
+private struct MenuBarModuleRowHeightKey: PreferenceKey {
+    static let defaultValue: [String: CGFloat] = [:]
+    static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) {
+        value.merge(nextValue()) { $1 }
     }
 }

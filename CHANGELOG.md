@@ -9,8 +9,13 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 
 ## [Unreleased]
 
+### Added
+- **Clipboard** — pinned items can now be reordered: drag rows in the dropdown, use ⌘ ↑ / ⌘ ↓, or the right-click menu, and the saved order drives your ⌘ 1–9 quick paste
+
 ### Changed
-- **Status Bar Menu** — added subtle hover highlights to rows and buttons, and removed the “Check for Updates” button (updates still check automatically in the background, and an “Update to v<version>…” button appears whenever a new release is available)
+- **Clipboard** — reorganized the dropdown into clean **Pinned** and **Recent** sections (moving **Clear All** to Recent), gave snippets full row width with top-right `⌘ 1–9` pills and larger hover/selection-revealed action buttons, and added multiline counts + relative timestamps
+- **Status Bar Menu** — added subtle hover highlights to rows and buttons (including a soft red highlight on Quit), upgraded the popover backdrop to a higher-contrast frosted surface so text stays crisp over any app background (also applied to the Port Killer popover), and removed the “Check for Updates” button (updates still check automatically in the background, and an “Update to v<version>…” button appears whenever a new release is available)
+- **Settings** — upgraded Status Bar Menu row drag-reordering to a smooth lifted-card interaction with live slot shifting, haptic ticks, Escape to cancel, and zero-jump drop settling
 
 ### Fixed
 - **Status Bar Menu** — pausing Toolbox from the master toggle no longer causes the popover to jump in height; all sections stay visible while paused modules, quick actions, and quick commands are dimmed and disabled

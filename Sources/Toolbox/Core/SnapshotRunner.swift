@@ -88,6 +88,33 @@ enum SnapshotRunner {
             to: outURL.appendingPathComponent("module_clipboard.png")
         )
 
+        // Seed deterministic sample entries so the dropdown renders richly (the
+        // snapshot run is routed into a temporary config dir, so this never touches
+        // the user's real clipboard files).
+        let clipboardModule = registry.clipboard
+        clipboardModule.clearHistory(keepPinned: false)
+        clipboardModule.recordText(#"func greet(_ name: String) -> String { return \(name)! }"#)
+        clipboardModule.recordText("git commit -m \"feat: reorder pinned clipboard items\"")
+        clipboardModule.recordText("SELECT id, email FROM users WHERE active = true;")
+        clipboardModule.recordText("⌘ ⌥ V — Toolbox clipboard hotkey")
+        clipboardModule.togglePin(clipboardModule.entries[3]) // func
+        clipboardModule.togglePin(clipboardModule.entries[3]) // git (lands on top)
+        let swiftHelper = clipboardModule.entries[1]
+        clipboardModule.renameEntry(swiftHelper, title: "Swift helper")
+        let clipboardUI = ClipboardPopoverUIState()
+        clipboardUI.resetForOpen(entries: clipboardModule.entries)
+        saveViewSnapshot(
+            ClipboardPopoverView(
+                module: clipboardModule,
+                uiState: clipboardUI,
+                onSelect: { _ in },
+                onClose: {}
+            )
+            .background(Color(nsColor: .windowBackgroundColor)),
+            size: NSSize(width: 440, height: 500),
+            to: outURL.appendingPathComponent("popover_clipboard.png")
+        )
+
         let navPortKiller = NavigationState()
         navPortKiller.selection = .module("port_killer")
         navPortKiller.isSidebarVisible = true

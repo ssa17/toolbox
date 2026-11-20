@@ -20,6 +20,7 @@ enum SelfTestRunner {
         testClipboardCaptureDedupConcealedAndPinning()
         testClipboardPanelDoesNotHideOnDeactivate()
         testClipboardDeleteAndPopoverUIState()
+        testClipboardPinnedReordering()
         testKeepAwakePmsetParsing()
         testHotKeyManagerRegistrationAndUnregistration()
         testCustomCommandsShellExecution()
@@ -48,7 +49,7 @@ enum SelfTestRunner {
         testPermissionsFlowAndPointerCursorSheetDealloc()
 
         if failures.isEmpty {
-            print("All 33 self-test suites passed.")
+            print("All 34 self-test suites passed.")
             return 0
         } else {
             for f in failures {
@@ -257,6 +258,7 @@ enum SelfTestRunner {
         let clipboard = ClipboardModule()
         let panel = clipboard.ensurePanel(width: 360, height: 400)
         expect(!panel.hidesOnDeactivate, "Clipboard NSPanel must have hidesOnDeactivate = false")
+        expect(panel.acceptsMouseMovedEvents, "Clipboard NSPanel must have acceptsMouseMovedEvents = true for row hover")
         expect(panel.styleMask.contains(.nonactivatingPanel), "Clipboard NSPanel must be nonactivatingPanel")
         clipboard.showPopover()
         expect(clipboard.isPopoverVisible, "Clipboard showPopover() should make panel visible")
@@ -285,14 +287,247 @@ enum SelfTestRunner {
         uiState.pendingDeleteEntry = e1
         uiState.pendingClearAll = true
         uiState.previewEntryID = e2.id
+        uiState.hoveredEntryID = e1.id
         uiState.resetForOpen(entries: clipboard.entries)
         expect(uiState.pendingDeleteEntry == nil, "resetForOpen must reset pendingDeleteEntry")
         expect(!uiState.pendingClearAll, "resetForOpen must reset pendingClearAll")
         expect(uiState.previewEntryID == nil, "resetForOpen must reset previewEntryID")
+        expect(uiState.hoveredEntryID == nil, "resetForOpen must clear hoveredEntryID")
+
+        let refNow = Date(timeIntervalSince1970: 1_700_000_000)
+        let pinnedSingle = ClipboardEntry(text: "a", copiedAt: refNow, isPinned: true)
+        let pinnedFive = ClipboardEntry(text: "hello", copiedAt: refNow, isPinned: true)
+        let pinnedMultiline = ClipboardEntry(text: "one\ntwo\n3rd", copiedAt: refNow, isPinned: true)
+        expect(ClipboardPopoverView.formatRowMetadata(for: pinnedSingle, now: refNow) == "1 char", "Singular pinned metadata mismatch")
+        expect(ClipboardPopoverView.formatRowMetadata(for: pinnedFive, now: refNow) == "5 chars", "Single-line pinned metadata must omit redundant Pinned label")
+        expect(ClipboardPopoverView.formatRowMetadata(for: pinnedMultiline, now: refNow) == "3 lines · 11 chars", "Multiline pinned metadata mismatch")
+
+        let recentNow = ClipboardEntry(text: "hi", copiedAt: refNow.addingTimeInterval(-10), isPinned: false)
+        let recentMinutes = ClipboardEntry(text: "hi", copiedAt: refNow.addingTimeInterval(-5 * 60), isPinned: false)
+        let recentHours = ClipboardEntry(text: "hi", copiedAt: refNow.addingTimeInterval(-2 * 3600), isPinned: false)
+        let recentDays = ClipboardEntry(text: "line1\nline2", copiedAt: refNow.addingTimeInterval(-3 * 86400), isPinned: false)
+        expect(ClipboardPopoverView.formatRowMetadata(for: recentNow, now: refNow) == "Just now · 2 chars", "Just now metadata mismatch")
+        expect(ClipboardPopoverView.formatRowMetadata(for: recentMinutes, now: refNow) == "5m ago · 2 chars", "Minutes ago metadata mismatch")
+        expect(ClipboardPopoverView.formatRowMetadata(for: recentHours, now: refNow) == "2h ago · 2 chars", "Hours ago metadata mismatch")
+        expect(ClipboardPopoverView.formatRowMetadata(for: recentDays, now: refNow) == "3d ago · 2 lines · 11 chars", "Days ago multiline metadata mismatch")
 
         clipboard.deleteEntry(e1)
         expect(clipboard.entries.map(\.id) == [e2.id], "deleteEntry should remove target entry")
         clipboard.clearHistory(keepPinned: false)
+        clipboard.stop()
+    }
+
+    private static func testClipboardPinnedReordering() {
+        let clipboard = ClipboardModule()
+        var cfg = ToolboxConfig()
+        cfg.clipboard.enabled = false // keep the suite off the live pasteboard / hotkey
+        cfg.clipboard.maxItems = 10
+        cfg.clipboard.deduplicate = true
+        cfg.clipboard.persistHistory = true
+        clipboard.reload(with: cfg)
+        clipboard.clearHistory(keepPinned: false)
+
+        clipboard.recordText("alpha")
+        clipboard.recordText("beta")
+        clipboard.recordText("gamma")
+        expect(clipboard.entries.map(\.text) == ["gamma", "beta", "alpha"], "Unpinned entries should stay newest-first")
+
+        // Pin the oldest, then the middle one: the most recently pinned item goes on top.
+        let alpha = clipboard.entries[2]
+        let beta = clipboard.entries[1]
+        clipboard.togglePin(alpha)
+        clipboard.togglePin(beta)
+        expect(clipboard.entries.map(\.text) == ["beta", "alpha", "gamma"], "Newly pinned item should land at the top of the pinned group")
+        let pinnedIndexes = clipboard.entries.filter(\.isPinned).map(\.sortIndex)
+        expect(pinnedIndexes == [0, 1], "Pinned sortIndex values should be dense in display order (got \(pinnedIndexes))")
+
+        // Keyboard move: ⌘ ↓ moves the top pinned item down one slot (swap).
+        clipboard.movePinnedEntry(clipboard.entries[0], by: 1)
+        expect(clipboard.entries.map(\.text) == ["alpha", "beta", "gamma"], "movePinnedEntry(by: 1) should swap with the next pinned item (got \(clipboard.entries.map(\.text)))")
+
+        // Drag moves use the entries' IDs (captured up front so each step targets
+        // the same items, regardless of how the list reorders between steps).
+        let topID = clipboard.entries[0].id
+        let secondID = clipboard.entries[1].id
+
+        // Dropping over the top half of a row keeps the item above it.
+        // Alpha is already above beta, so this must be a no-op (idempotency).
+        clipboard.movePinnedEntry(topID, relativeTo: secondID, insertAfter: false)
+        expect(clipboard.entries.map(\.text) == ["alpha", "beta", "gamma"], "Drag into the top half of a row should be a no-op when the item is already above it (got \(clipboard.entries.map(\.text)))")
+
+        // Dropping over the bottom half of a row places the item below it.
+        clipboard.movePinnedEntry(topID, relativeTo: secondID, insertAfter: true)
+        expect(clipboard.entries.map(\.text) == ["beta", "alpha", "gamma"], "Drag into the bottom half of a row should place the item below it (got \(clipboard.entries.map(\.text)))")
+
+        // The same hover decision re-applied (drop-updated fires continuously) is a no-op.
+        clipboard.movePinnedEntry(topID, relativeTo: secondID, insertAfter: true)
+        expect(clipboard.entries.map(\.text) == ["beta", "alpha", "gamma"], "Repeated drag moves with the same decision should be idempotent (got \(clipboard.entries.map(\.text)))")
+
+        // Re-copying a pinned item keeps its explicit pinned slot instead of jumping to the top.
+        clipboard.recordText("alpha")
+        expect(clipboard.entries.map(\.text) == ["beta", "alpha", "gamma"], "Re-copying a pinned item should keep its pinned position (got \(clipboard.entries.map(\.text)))")
+
+        // Moving an unpinned item is a no-op (its order is chronological).
+        let gamma = clipboard.entries.last
+        clipboard.movePinnedEntry(gamma!, by: -1)
+        expect(clipboard.entries.map(\.text) == ["beta", "alpha", "gamma"], "Moving an unpinned item should be a no-op")
+
+        // 3+ pinned items: non-adjacent drag moves and filtered keyboard moves.
+        clipboard.togglePin(gamma!) // lands on top: [gamma, beta, alpha]
+        expect(clipboard.entries.map(\.text) == ["gamma", "beta", "alpha"], "Pinning third item should put it on top (got \(clipboard.entries.map(\.text)))")
+        let idGamma = clipboard.entries[0].id
+        let idBeta = clipboard.entries[1].id
+        let idAlpha = clipboard.entries[2].id
+
+        // Regression check for the broken `alreadyAfter` guard:
+        // Dragging bottom (alpha) after top (gamma) must move alpha to slot 1 -> [gamma, alpha, beta].
+        clipboard.movePinnedEntry(idAlpha, relativeTo: idGamma, insertAfter: true)
+        expect(clipboard.entries.map(\.text) == ["gamma", "alpha", "beta"], "Dragging bottom item after top item should insert at slot 1 (got \(clipboard.entries.map(\.text)))")
+
+        // Symmetric regression check:
+        // Dragging top (gamma) before bottom (beta) must move gamma to slot 1 -> [alpha, gamma, beta].
+        clipboard.movePinnedEntry(idGamma, relativeTo: idBeta, insertAfter: false)
+        expect(clipboard.entries.map(\.text) == ["alpha", "gamma", "beta"], "Dragging top item before bottom item should insert at slot 1 (got \(clipboard.entries.map(\.text)))")
+
+        // Already-adjacent moves remain no-ops.
+        clipboard.movePinnedEntry(idAlpha, relativeTo: idGamma, insertAfter: false)
+        expect(clipboard.entries.map(\.text) == ["alpha", "gamma", "beta"], "Adjacent before-move should be a no-op")
+        clipboard.movePinnedEntry(idGamma, relativeTo: idAlpha, insertAfter: true)
+        expect(clipboard.entries.map(\.text) == ["alpha", "gamma", "beta"], "Adjacent after-move should be a no-op")
+
+        // Filtered ⌘ ↑ / ⌘ ↓ moves operate within the visible filtered subset.
+        clipboard.recordText("delta")
+        clipboard.togglePin(clipboard.entries.last!) // [delta, alpha, gamma, beta]
+        expect(clipboard.entries.map(\.text) == ["delta", "alpha", "gamma", "beta"], "Four pinned items should be ordered cleanly")
+        let filteredSlice = [clipboard.entries[0], clipboard.entries[3]] // [delta, beta]
+        clipboard.movePinnedEntry(filteredSlice[1], by: -1, within: filteredSlice)
+        expect(clipboard.entries.map(\.text) == ["beta", "delta", "alpha", "gamma"], "Filtered move up should place beta before delta (got \(clipboard.entries.map(\.text)))")
+
+        // Naming an unpinned item auto-pins it at slot 0 and keeps sortIndex dense.
+        clipboard.recordText("unpinned-note")
+        let unpinnedItem = clipboard.entries.last!
+        expect(!unpinnedItem.isPinned, "Newly recorded item should start unpinned")
+        clipboard.renameEntry(unpinnedItem, title: "Quick Note")
+        expect(clipboard.entries.first?.text == "unpinned-note" && clipboard.entries.first?.isPinned == true, "Renaming an unpinned item should pin it at slot 0 (got \(clipboard.entries.map(\.text)))")
+        let denseAfterRename = clipboard.entries.filter(\.isPinned).map(\.sortIndex)
+        expect(denseAfterRename == [0, 1, 2, 3, 4], "Auto-pinning via rename should produce dense sortIndex values (got \(denseAfterRename))")
+
+        // Reset back to [beta, alpha, gamma] before persistence check.
+        clipboard.clearHistory(keepPinned: false)
+        clipboard.recordText("alpha")
+        clipboard.recordText("beta")
+        clipboard.recordText("gamma")
+        clipboard.togglePin(clipboard.entries[2]) // alpha
+        clipboard.togglePin(clipboard.entries[2]) // beta -> [beta, alpha, gamma]
+
+        // Persistence: a fresh module instance restores the user's pinned order.
+        let restored = ClipboardModule()
+        restored.reload(with: cfg)
+        expect(restored.entries.map(\.text) == ["beta", "alpha", "gamma"], "Pinned order should persist across restarts (got \(restored.entries.map(\.text).joined(separator: ",")))")
+
+        // Legacy pinned files (no sortIndex key) still decode, fall back to
+        // most-recently-copied ordering, and immediately renumber in memory.
+        let legacyJSON = """
+        [
+          {"id": "11111111-1111-1111-1111-111111111111", "text": "legacy-a", "copiedAt": 1000, "isPinned": true, "customTitle": "A"},
+          {"id": "22222222-2222-2222-2222-222222222222", "text": "legacy-b", "copiedAt": 2000, "isPinned": true, "customTitle": null}
+        ]
+        """
+        guard let legacyData = legacyJSON.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([ClipboardEntry].self, from: legacyData) else {
+            failures.append("Legacy pinned_clipboard.json without sortIndex should still decode")
+            return
+        }
+        expect(decoded.map(\.text) == ["legacy-a", "legacy-b"], "Legacy pinned entries should decode in file order")
+        expect(decoded.allSatisfy { $0.sortIndex == 0 }, "Legacy pinned entries should default sortIndex to 0")
+
+        // End-to-end legacy restore: write the file and construct a fresh module.
+        let configDir = ConfigManager.shared.configURL.deletingLastPathComponent()
+        let pinnedURL = configDir.appendingPathComponent("pinned_clipboard.json")
+        do {
+            try legacyData.write(to: pinnedURL, options: .atomic)
+        } catch {
+            failures.append("Failed to write legacy pinned_clipboard.json: \(error)")
+            return
+        }
+        try? FileManager.default.removeItem(at: configDir.appendingPathComponent("clipboard_history.json"))
+        let legacy = ClipboardModule()
+        legacy.reload(with: cfg)
+        expect(legacy.entries.map(\.text) == ["legacy-b", "legacy-a"], "Legacy pinned file without sortIndex should restore in most-recently-copied order (got \(legacy.entries.map(\.text).joined(separator: ",")))")
+        expect(legacy.entries.filter(\.isPinned).map(\.sortIndex) == [0, 1], "Legacy pinned entries should be renumbered densely on load (got \(legacy.entries.filter(\.isPinned).map(\.sortIndex)))")
+        legacy.recordText("legacy-a")
+        expect(legacy.entries.map(\.text) == ["legacy-b", "legacy-a"], "Re-copying a legacy pinned item must keep its restored slot instead of jumping to top")
+
+        // Drag layout geometry math with variable row heights.
+        let p0 = UUID()
+        let p1 = UUID()
+        let p2 = UUID()
+        expect(
+            ClipboardPinnedDragLayout(pinnedIDs: [p0], heights: [p0: 50], draggedID: p0) == nil,
+            "ClipboardPinnedDragLayout should return nil for a single pinned item"
+        )
+        let heights: [UUID: CGFloat] = [p0: 80, p1: 40, p2: 40]
+        guard let dragTop = ClipboardPinnedDragLayout(pinnedIDs: [p0, p1, p2], heights: heights, draggedID: p0) else {
+            failures.append("ClipboardPinnedDragLayout should initialize for 3 pinned items")
+            return
+        }
+        expect(dragTop.slotTop(for: 0) == 8, "slotTop(0) should be topInset 8")
+        expect(dragTop.slotTop(for: 1) == 53, "slotTop(1) with 40pt neighbor should be 53 (got \(dragTop.slotTop(for: 1)))")
+        expect(dragTop.slotTop(for: 2) == 98, "slotTop(2) with two 40pt neighbors should be 98 (got \(dragTop.slotTop(for: 2)))")
+        expect(dragTop.targetIndex(for: -200) == 0, "Dragging far above top should clamp targetIndex to 0")
+        expect(dragTop.targetIndex(for: 300) == 2, "Dragging far below bottom should clamp targetIndex to 2")
+        expect(dragTop.targetIndex(for: 45) == 1, "Dragging to slot 1 center should target index 1 (got \(dragTop.targetIndex(for: 45)))")
+        expect(dragTop.clampedOffset(for: -200, overshoot: 10) == -10, "clampedOffset above top should honor overshoot")
+        expect(dragTop.clampedOffset(for: 300, overshoot: 10) == 100, "clampedOffset below bottom should honor overshoot (got \(dragTop.clampedOffset(for: 300, overshoot: 10)))")
+        expect(dragTop.restingShift(forRowAt: 0, targetIndex: 2) == 0, "Dragged row should have 0 restingShift")
+        expect(dragTop.restingShift(forRowAt: 1, targetIndex: 2) == -85, "Row 1 shifting past 80pt card should shift -85 (got \(dragTop.restingShift(forRowAt: 1, targetIndex: 2)))")
+        expect(dragTop.restingShift(forRowAt: 2, targetIndex: 2) == -85, "Row 2 shifting past 80pt card should shift -85 (got \(dragTop.restingShift(forRowAt: 2, targetIndex: 2)))")
+        expect(dragTop.moveInstruction(for: 0) == nil, "moveInstruction at sourceIndex should be nil")
+        expect(dragTop.moveInstruction(for: 2)?.targetID == p2 && dragTop.moveInstruction(for: 2)?.insertAfter == true, "Moving index 0 -> 2 should insert after p2")
+        expect(dragTop.residualSettleOffset(releaseOffsetY: 30, committedTargetIndex: 1) == -15, "Residual offset from +30 to slot 1 (top 53) should be -15")
+
+        guard let dragBottom = ClipboardPinnedDragLayout(pinnedIDs: [p0, p1, p2], heights: heights, draggedID: p2) else {
+            failures.append("ClipboardPinnedDragLayout should initialize for bottom item")
+            return
+        }
+        expect(dragBottom.targetIndex(for: -130) == 0, "Dragging bottom item over tall top row should target index 0")
+        expect(dragBottom.restingShift(forRowAt: 0, targetIndex: 0) == 45, "Tall row shifting down past 40pt card should shift +45")
+        expect(dragBottom.restingShift(forRowAt: 1, targetIndex: 0) == 45, "Middle row shifting down past 40pt card should shift +45")
+        expect(dragBottom.moveInstruction(for: 0)?.targetID == p0 && dragBottom.moveInstruction(for: 0)?.insertAfter == false, "Moving index 2 -> 0 should insert before p0")
+
+        // ClipboardPopoverUIState drag lifecycle (commit, cancel, reset).
+        let uiState = ClipboardPopoverUIState()
+        uiState.rowHeights = heights
+        var externalCancelCount = 0
+        var movedArgs: (UUID, UUID, Bool)?
+        expect(
+            uiState.beginDrag(entryID: p0, pinnedIDs: [p0, p1, p2], onExternalCancel: { externalCancelCount += 1 }),
+            "beginDrag should succeed with multiple pinned items"
+        )
+        expect(uiState.isDragging && uiState.draggedEntryID == p0, "UI state should track active dragged entry")
+        uiState.updateDrag(rawDeltaY: 90)
+        expect(uiState.dragTargetIndex == 2, "updateDrag(+90) should select target slot 2 (got \(String(describing: uiState.dragTargetIndex)))")
+        uiState.finishDrag { d, t, after in movedArgs = (d, t, after) }
+        expect(!uiState.isDragging, "finishDrag should clear active drag")
+        expect(movedArgs?.0 == p0 && movedArgs?.1 == p2 && movedArgs?.2 == true, "finishDrag should emit expected move instruction")
+        expect(uiState.selectedEntryID == p0, "finishDrag should select moved item")
+
+        expect(
+            uiState.beginDrag(entryID: p2, pinnedIDs: [p0, p1, p2], onExternalCancel: { externalCancelCount += 1 }),
+            "Second beginDrag should succeed"
+        )
+        uiState.updateDrag(rawDeltaY: -130)
+        movedArgs = nil
+        uiState.cancelActiveDrag()
+        expect(!uiState.isDragging && externalCancelCount == 1 && movedArgs == nil, "cancelActiveDrag should invoke cancel hook without reordering")
+
+        expect(uiState.beginDrag(entryID: p1, pinnedIDs: [p0, p1, p2]), "Third beginDrag should succeed")
+        uiState.resetForOpen(entries: [])
+        expect(!uiState.isDragging && uiState.settlingEntryID == nil, "resetForOpen should clear all drag and settle state")
+
+        // Clean up shared state files for subsequent suites.
+        legacy.clearHistory(keepPinned: false)
+        restored.stop()
         clipboard.stop()
     }
 
@@ -409,6 +644,7 @@ enum SelfTestRunner {
         menuBar.showPopoverForTesting()
         expect(menuBar.isPopoverVisibleForTesting, "showPopoverForTesting must display the status bar popover")
         expect(menuBar.popoverPanelForTesting?.styleMask.contains(.nonactivatingPanel) == true, "Status bar popover panel must use .nonactivatingPanel")
+        expect(menuBar.visualEffectMaterialForTesting == .windowBackground, "Status bar popover must use high-legibility .windowBackground material instead of thin .popover glass")
         expect(menuBar.popoverPanelForTesting?.hidesOnDeactivate == false, "Status bar popover panel must stay open when Toolbox is inactive")
         expect(menuBar.popoverPanelForTesting?.canBecomeKey == false, "Status bar popover panel must refuse key status so it never activates Toolbox or raises a background Dashboard")
         expect(menuBar.popoverPanelForTesting?.canBecomeMain == false, "Status bar popover panel must never become main window")
@@ -855,6 +1091,72 @@ enum SelfTestRunner {
         expect(!cfg.general.hasCustomMenuBarLayout, "resetMenuBarLayout must clear custom layout state")
         expect(registry.visibleMenuBarModules(for: cfg).map(\.id) == expectedDefaultOrder, "resetMenuBarLayout must restore default visible modules")
         expect(cfg.general.showQuickActionsInMenuBar && cfg.general.showQuickCommandsInMenuBar, "resetMenuBarLayout must restore quick actions & quick commands")
+
+        // VerticalDragReorderLayout<String> & VerticalDragReorderState<String> (Settings Status Bar Menu drag-to-reorder)
+        let eligibleIDs = registry.modules.filter(\.supportsMenuBar).map(\.id)
+        expect(!eligibleIDs.contains("clean_lock"), "Eligible menu bar IDs must exclude clean_lock")
+        let settingsHeights = Dictionary(uniqueKeysWithValues: expectedDefaultOrder.map { ($0, CGFloat(52)) })
+        guard let settingsLayout = VerticalDragReorderLayout(
+            itemIDs: expectedDefaultOrder,
+            heights: settingsHeights,
+            draggedID: "keep_awake",
+            spacing: 8,
+            topInset: 0
+        ) else {
+            failures.append("VerticalDragReorderLayout<String> should initialize for Settings menu bar rows")
+            return
+        }
+        expect(settingsLayout.distanceAboveDraggedCenter == 266, "distanceAboveDraggedCenter for index 4 should be 266 (got \(settingsLayout.distanceAboveDraggedCenter))")
+        expect(settingsLayout.distanceBelowDraggedCenter == 206, "distanceBelowDraggedCenter for index 4 should be 206 (got \(settingsLayout.distanceBelowDraggedCenter))")
+        expect(settingsLayout.restingShift(forRowAt: 2, targetIndex: 1) == 60, "Row shifting down past 52pt card + 8pt spacing should shift +60")
+
+        let dragState = VerticalDragReorderState<String>()
+        dragState.rowHeights = settingsHeights
+
+        // Downward drag: dock_minimize (0) -> keep_awake slot (4)
+        let currentOrder1 = registry.orderedMenuBarModules(for: cfg).map(\.id)
+        let bounds1 = dragState.beginDrag(id: "dock_minimize", itemIDs: currentOrder1, spacing: 8, topInset: 0, fallbackHeight: 52)
+        expect(bounds1 != nil && dragState.isDragging, "VerticalDragReorderState should start downward drag")
+        dragState.updateDrag(rawDeltaY: 240)
+        dragState.finishDrag { draggedID, targetID, _ in
+            cfg.general.moveModuleInMenuBar(fromId: draggedID, toId: targetID, allModuleIDs: eligibleIDs)
+        }
+        expect(!dragState.isDragging, "finishDrag should end active drag")
+        expect(
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["clipboard", "port_killer", "screen_ocr", "keep_awake", "dock_minimize", "custom_commands", "scroll_direction", "call_controls"],
+            "Downward Settings drag should place dock_minimize after keep_awake (got \(registry.orderedMenuBarModules(for: cfg).map(\.id)))"
+        )
+        expect(!cfg.general.menuBarModuleOrder.contains("clean_lock"), "menuBarModuleOrder must never include non-menu-bar clean_lock")
+
+        // Upward drag: call_controls (7) -> top slot (0)
+        let currentOrder2 = registry.orderedMenuBarModules(for: cfg).map(\.id)
+        let bounds2 = dragState.beginDrag(id: "call_controls", itemIDs: currentOrder2, spacing: 8, topInset: 0, fallbackHeight: 52)
+        expect(bounds2 != nil, "VerticalDragReorderState should start upward drag")
+        dragState.updateDrag(rawDeltaY: -420)
+        dragState.finishDrag { draggedID, targetID, _ in
+            cfg.general.moveModuleInMenuBar(fromId: draggedID, toId: targetID, allModuleIDs: eligibleIDs)
+        }
+        expect(
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["call_controls", "clipboard", "port_killer", "screen_ocr", "keep_awake", "dock_minimize", "custom_commands", "scroll_direction"],
+            "Upward Settings drag should place call_controls at top (got \(registry.orderedMenuBarModules(for: cfg).map(\.id)))"
+        )
+
+        // Cancel drag without mutating order
+        let preCancelOrder = registry.orderedMenuBarModules(for: cfg).map(\.id)
+        var settingsCancelHooks = 0
+        let bounds3 = dragState.beginDrag(
+            id: "port_killer",
+            itemIDs: preCancelOrder,
+            spacing: 8,
+            topInset: 0,
+            fallbackHeight: 52,
+            onExternalCancel: { settingsCancelHooks += 1 }
+        )
+        expect(bounds3 != nil, "Third Settings drag should start")
+        dragState.updateDrag(rawDeltaY: -120)
+        dragState.cancelActiveDrag()
+        expect(!dragState.isDragging && settingsCancelHooks == 1, "cancelActiveDrag should invoke cancel hook and clear isDragging")
+        expect(registry.orderedMenuBarModules(for: cfg).map(\.id) == preCancelOrder, "cancelActiveDrag must not reorder modules")
     }
 
     private static func testPortScannerParsersAndElevatedMerge() {

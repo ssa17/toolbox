@@ -287,6 +287,8 @@ struct ClipboardSettingsView: View {
                 Divider()
                 shortcutRow("Pin or unpin item", keys: ["⌘ P"])
                 Divider()
+                shortcutRow("Move pinned item up / down", keys: ["⌘ ↑", "⌘ ↓", "Drag"])
+                Divider()
                 shortcutRow("Name or rename item", keys: ["⌘ R"])
                 Divider()
                 shortcutRow("Delete item (with confirmation)", keys: ["⌫", "⌘ ⌫"])

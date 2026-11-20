@@ -101,6 +101,9 @@ final class PointerCursorNSView: NSView {
     private var cursorTrackingArea: NSTrackingArea?
     private var isHovered = false
     private static var localEventMonitor: Any?
+    /// Non-nil while an in-app row drag gesture owns the cursor (e.g. `.closedHand`),
+    /// preventing hover/click cursor-sync passes from flashing `.pointingHand` mid-drag.
+    static var activeDragCursor: NSCursor?
 
     static func forcePointingHandCursor() {
         // AppKit short-circuits NSCursor.pointingHand.set() if NSCursor.current is already pointingHand,
@@ -156,9 +159,17 @@ final class PointerCursorNSView: NSView {
     static func syncCursor(in window: NSWindow) {
         // NSMenu popups manage their own 40ms cursor sync loop via MenuBarController.
         guard window.isVisible else {
+            if let dragCursor = activeDragCursor {
+                dragCursor.set()
+                return
+            }
             if NSCursor.currentSystem?.hotSpot == NSCursor.pointingHand.hotSpot {
                 NSCursor.arrow.set()
             }
+            return
+        }
+        if let dragCursor = activeDragCursor {
+            dragCursor.set()
             return
         }
         guard window.level.rawValue < NSWindow.Level.popUpMenu.rawValue,
@@ -169,8 +180,10 @@ final class PointerCursorNSView: NSView {
             forcePointingHandCursor()
         } else if let custom = customHoverCursor(in: rootView, atWindowPoint: ptInWindow) {
             custom.set()
-        } else if NSCursor.currentSystem?.hotSpot == NSCursor.pointingHand.hotSpot {
-            // Reset only if we're leaving a pointing-hand region so IBeam/resize cursors remain untouched.
+        } else if NSCursor.currentSystem?.hotSpot == NSCursor.pointingHand.hotSpot
+            || NSCursor.currentSystem?.hotSpot == NSCursor.openHand.hotSpot
+            || NSCursor.currentSystem?.hotSpot == NSCursor.closedHand.hotSpot {
+            // Reset only if we're leaving a pointing-hand or drag-hand region so IBeam/resize cursors remain untouched.
             NSCursor.arrow.set()
         }
     }
@@ -186,6 +199,10 @@ final class PointerCursorNSView: NSView {
     /// Syncs the hover cursor against whichever visible non-popup window currently contains the pointer,
     /// or resets a stale pointing-hand cursor back to `.arrow`. Safe to call after a sheet/window deallocates.
     static func syncVisibleWindowUnderMouseOrResetCursor() {
+        if let dragCursor = activeDragCursor {
+            dragCursor.set()
+            return
+        }
         let mouse = NSEvent.mouseLocation
         let candidate: NSWindow? = {
             if let key = NSApp.keyWindow,
@@ -248,6 +265,10 @@ final class PointerCursorNSView: NSView {
                 syncCursor(in: window)
                 return event
             case .cursorUpdate:
+                if let dragCursor = activeDragCursor {
+                    dragCursor.set()
+                    return nil
+                }
                 if let rootView = window.contentView?.superview ?? window.contentView {
                     let ptInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
                     if containsPointerCursorView(in: rootView, atWindowPoint: ptInWindow) {
@@ -344,6 +365,10 @@ final class PointerCursorNSView: NSView {
     }
 
     func reapplyCursorIfHovered() {
+        if let dragCursor = Self.activeDragCursor {
+            dragCursor.set()
+            return
+        }
         guard let window, window.isVisible else { return }
         let ptInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
         let nowHovered = Self.isPoint(ptInWindow, inside: self)
@@ -366,6 +391,10 @@ final class PointerCursorNSView: NSView {
     }
 
     override func cursorUpdate(with event: NSEvent) {
+        if let dragCursor = Self.activeDragCursor {
+            dragCursor.set()
+            return
+        }
         if let window, window.isVisible {
             let ptInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
             isHovered = Self.isPoint(ptInWindow, inside: self)
@@ -380,6 +409,10 @@ final class PointerCursorNSView: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
+        if let dragCursor = Self.activeDragCursor {
+            dragCursor.set()
+            return
+        }
         guard let window, window.isVisible else { return }
         let ptInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
         isHovered = Self.isPoint(ptInWindow, inside: self)
@@ -429,6 +462,10 @@ final class PointerCursorHostingView<Content: View>: NSHostingView<Content> {
     }
 
     override func cursorUpdate(with event: NSEvent) {
+        if let dragCursor = PointerCursorNSView.activeDragCursor {
+            dragCursor.set()
+            return
+        }
         if let window, window.isVisible {
             let pt = window.convertPoint(fromScreen: NSEvent.mouseLocation)
             if Self.shouldUsePointingHand(in: window, atWindowPoint: pt) {

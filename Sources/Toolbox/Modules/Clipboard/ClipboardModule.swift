@@ -8,19 +8,36 @@ struct ClipboardEntry: Identifiable, Codable, Equatable {
     let copiedAt: Date
     var isPinned: Bool
     var customTitle: String?
+    /// Position within the pinned group (0 = topmost). Only meaningful for pinned
+    /// entries — unpinned entries are always ordered by `copiedAt` (newest first).
+    var sortIndex: Int
 
     init(
         id: UUID = UUID(),
         text: String,
         copiedAt: Date = Date(),
         isPinned: Bool = false,
-        customTitle: String? = nil
+        customTitle: String? = nil,
+        sortIndex: Int = 0
     ) {
         self.id = id
         self.text = text
         self.copiedAt = copiedAt
         self.isPinned = isPinned
         self.customTitle = customTitle
+        self.sortIndex = sortIndex
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        text = try c.decode(String.self, forKey: .text)
+        copiedAt = try c.decode(Date.self, forKey: .copiedAt)
+        isPinned = try c.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
+        customTitle = try c.decodeIfPresent(String.self, forKey: .customTitle)
+        // Older pinned_clipboard.json files predate manual ordering; default to 0 so
+        // pre-existing pinned items keep their most-recently-copied order.
+        sortIndex = try c.decodeIfPresent(Int.self, forKey: .sortIndex) ?? 0
     }
 }
 
@@ -29,13 +46,14 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
     let id = "clipboard"
     let name = "Clipboard History"
     let tagline = "Press your hotkey (default ⌘ ⌥ V) for a searchable floating clipboard dropdown."
-    let aboutSummary = "Keeps a lightweight rolling history of everything you copy so you never lose a snippet when copying something else. Press your shortcut anywhere to search, preview full text, pin & label favorites, and paste straight into your active app."
+    let aboutSummary = "Keeps a lightweight rolling history of everything you copy so you never lose a snippet when copying something else. Press your shortcut anywhere to search, preview full text, pin, label, and reorder favorites, and paste straight into your active app."
     let featureTips = [
         "Use ↑ / ↓ and Return to paste without touching your mouse, or Esc to dismiss.",
         "Press →, Space, or ⌘ I (or click the eye icon) to inspect full text; ← or Esc returns to the list.",
         "Press ⌘ P to pin/unpin, ⌘ R to name or rename an item, and ⌫ (with confirmation) to delete.",
+        "Drag pinned items (or press ⌘ ↑ / ⌘ ↓) to reorder them; the saved order drives ⌘ 1–9 quick paste.",
         "Right-click any item in the dropdown to view all actions and their keyboard shortcuts.",
-        "Pinned items and their custom names are saved across restarts in ~/.config/toolbox/pinned_clipboard.json."
+        "Pinned items, their custom names, and their order are saved across restarts in ~/.config/toolbox/pinned_clipboard.json."
     ]
     let symbolName = "doc.on.clipboard"
     let accentColor = Color.teal
@@ -144,12 +162,59 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
 
     func togglePin(_ entry: ClipboardEntry) {
         guard let idx = entries.firstIndex(where: { $0.id == entry.id }) else { return }
-        entries[idx].isPinned.toggle()
-        if !entries[idx].isPinned {
+        if entries[idx].isPinned {
+            entries[idx].isPinned = false
             entries[idx].customTitle = nil
+        } else {
+            // Newly pinned items land at the top of the pinned group; the rest shift down.
+            entries[idx].isPinned = true
+            entries[idx].sortIndex = 0
+            for i in entries.indices where entries[i].isPinned && entries[i].id != entry.id {
+                entries[i].sortIndex += 1
+            }
         }
         trimHistoryIfNeeded()
+        renumberPinnedEntries()
         saveAllStoredEntries()
+    }
+
+    /// Moves a pinned item one slot up (-1) or down (+1) within the pinned group
+    /// (backing the ⌘ ↑ / ⌘ ↓ dropdown shortcuts and context menu). No-op for unpinned items.
+    func movePinnedEntry(_ entry: ClipboardEntry, by delta: Int, within visible: [ClipboardEntry]? = nil) {
+        let pinned = (visible ?? entries).filter(\.isPinned)
+        guard delta != 0,
+              let pos = pinned.firstIndex(where: { $0.id == entry.id }) else { return }
+        let targetPos = pos + delta
+        guard targetPos >= 0, targetPos < pinned.count else { return }
+        movePinnedEntry(entry.id, relativeTo: pinned[targetPos].id, insertAfter: delta > 0)
+    }
+
+    /// Moves a pinned item relative to a target row (backing drag-to-reorder and
+    /// keyboard/menu moves): `insertAfter` places it directly after the target,
+    /// otherwise directly before. No-op if the item is already at that exact slot.
+    func movePinnedEntry(_ draggedID: UUID, relativeTo targetID: UUID, insertAfter: Bool) {
+        guard draggedID != targetID,
+              let dIdx = entries.firstIndex(where: { $0.id == draggedID }),
+              let tIdx = entries.firstIndex(where: { $0.id == targetID }),
+              entries[dIdx].isPinned,
+              entries[tIdx].isPinned else { return }
+        let targetAfterRemoval = tIdx > dIdx ? tIdx - 1 : tIdx
+        let destination = insertAfter ? targetAfterRemoval + 1 : targetAfterRemoval
+        guard destination != dIdx else { return }
+        let moved = entries.remove(at: dIdx)
+        entries.insert(moved, at: destination)
+        renumberPinnedEntries()
+        trimHistoryIfNeeded()
+        saveAllStoredEntries()
+    }
+
+    /// Keeps pinned `sortIndex` values dense (0, 1, 2, …) in current display order.
+    private func renumberPinnedEntries() {
+        var order = 0
+        for i in entries.indices where entries[i].isPinned {
+            entries[i].sortIndex = order
+            order += 1
+        }
     }
 
     func renameEntry(_ entry: ClipboardEntry, title: String) {
@@ -158,13 +223,19 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
         entries[idx].customTitle = cleaned.isEmpty ? nil : cleaned
         if !entries[idx].isPinned {
             entries[idx].isPinned = true
+            entries[idx].sortIndex = 0
+            for i in entries.indices where entries[i].isPinned && entries[i].id != entry.id {
+                entries[i].sortIndex += 1
+            }
         }
         trimHistoryIfNeeded()
+        renumberPinnedEntries()
         saveAllStoredEntries()
     }
 
     func deleteEntry(_ entry: ClipboardEntry) {
         entries.removeAll { $0.id == entry.id }
+        renumberPinnedEntries()
         saveAllStoredEntries()
     }
 
@@ -174,6 +245,7 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
         } else {
             entries.removeAll()
         }
+        renumberPinnedEntries()
         saveAllStoredEntries()
     }
 
@@ -186,6 +258,8 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
     }
 
     func hidePopover() {
+        popoverState.cancelActiveDrag()
+        popoverState.hoveredEntryID = nil
         panel?.orderOut(nil)
         removePopoverMonitors()
     }
@@ -207,16 +281,20 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
 
         var preservedPin = false
         var preservedTitle: String?
+        var preservedSortIndex = 0
         if config.deduplicate {
             if let existing = entries.first(where: { $0.text == text }) {
                 preservedPin = existing.isPinned
                 preservedTitle = existing.customTitle
+                // Keep the user's explicit pinned slot — re-copying a pinned item
+                // must not shuffle the pinned group it was ordered into.
+                preservedSortIndex = existing.sortIndex
             }
             entries.removeAll { $0.text == text }
         }
 
         entries.insert(
-            ClipboardEntry(text: text, copiedAt: Date(), isPinned: preservedPin, customTitle: preservedTitle),
+            ClipboardEntry(text: text, copiedAt: Date(), isPinned: preservedPin, customTitle: preservedTitle, sortIndex: preservedSortIndex),
             at: 0
         )
         trimHistoryIfNeeded()
@@ -238,6 +316,7 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
             entries.append(pinnedItem)
         }
         trimHistoryIfNeeded()
+        renumberPinnedEntries()
     }
 
     private func loadUnpinnedHistory() {
@@ -323,6 +402,12 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
         let combined = pinned + keptUnpinned
         entries = combined.sorted { lhs, rhs in
             if lhs.isPinned != rhs.isPinned { return lhs.isPinned }
+            if lhs.isPinned {
+                // User-ordered pinned group; copiedAt only breaks sortIndex ties
+                // (e.g. legacy files that predate manual ordering).
+                if lhs.sortIndex != rhs.sortIndex { return lhs.sortIndex < rhs.sortIndex }
+                return lhs.copiedAt > rhs.copiedAt
+            }
             return lhs.copiedAt > rhs.copiedAt
         }
     }
@@ -374,6 +459,7 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
         newPanel.backgroundColor = .clear
         newPanel.hasShadow = true
         newPanel.hidesOnDeactivate = false
+        newPanel.acceptsMouseMovedEvents = true
         newPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
 
         let contentView = ClipboardPopoverView(
@@ -496,6 +582,10 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
 
             switch event.keyCode {
             case 53: // Escape
+                if self.popoverState.isDragging {
+                    self.popoverState.cancelActiveDrag()
+                    return nil
+                }
                 if let previewID = self.popoverState.previewEntryID {
                     if visible.contains(where: { $0.id == previewID }) {
                         self.popoverState.selectedEntryID = previewID
@@ -503,6 +593,11 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
                     self.popoverState.previewEntryID = nil
                 } else {
                     self.hidePopover()
+                }
+                return nil
+            case 125 where hasCommand, 126 where hasCommand: // ⌘ ↓ / ⌘ ↑ move the active pinned item
+                if let target = self.activeEntryForAction(in: visible), target.isPinned {
+                    self.movePinnedEntry(target, by: event.keyCode == 126 ? -1 : 1, within: visible)
                 }
                 return nil
             case 125: // Down Arrow

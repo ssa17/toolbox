@@ -23,10 +23,11 @@ struct PortKillerPopoverView: View {
             Divider()
             footerBar(count: items.count)
         }
+        .background(Color(nsColor: .windowBackgroundColor).opacity(0.76))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(Color.primary.opacity(0.14), lineWidth: 1)
+                .strokeBorder(Color.primary.opacity(0.18), lineWidth: 1)
         )
         .onAppear {
             isSearchFocused = true
