@@ -1828,6 +1828,32 @@ enum SelfTestRunner {
         expect(checks.contains(where: { $0.id == "security_hardening" }), "Expected security_hardening health check")
         expect(checks.contains(where: { $0.id == "login_app_policy" }), "Expected login_app_policy health check")
         expect(checks.contains(where: { $0.id == "simulation_guard" && $0.severity == .warning }), "Simulation guard check should warn while overrides are active")
+        if let lifecycleCheck = checks.first(where: { $0.id == "module_lifecycle" }) {
+            expect(
+                lifecycleCheck.detail?.contains("Keyboard Lock") != true,
+                "Module Lifecycle Consistency must not flag idle on-demand Keyboard Lock (got: \(lifecycleCheck.detail ?? "nil"))"
+            )
+        } else {
+            failures.append("Expected module_lifecycle health check")
+        }
+        expect(
+            DeveloperHealthCheckRunner.moduleLifecycleMismatch(
+                for: ModuleRegistry.shared.cleanLock,
+                config: ToolboxConfig(),
+                actualAX: true
+            ) == nil,
+            "Idle on-demand CleanLockModule must pass lifecycle consistency check"
+        )
+        let scenarios = ToastTestScenario.allCases
+        expect(scenarios.count == 4, "Expected 4 HUD toast visual test scenarios (got \(scenarios.count))")
+        if scenarios.count == 4 {
+            expect(
+                scenarios[0].title.count < scenarios[1].title.count
+                    && scenarios[1].title.count < scenarios[2].title.count
+                    && scenarios[2].title.count < scenarios[3].title.count,
+                "ToastTestScenario titles must increase strictly in length (short < standard < long < overflow)"
+            )
+        }
 
         let sampleSpctl = "/Applications/Toolbox.app: accepted\nsource=Notarized Developer ID\norigin=Developer ID Application: Example (TEAMID)"
         expect(
@@ -2668,9 +2694,7 @@ enum SelfTestRunner {
             "Simulated FaceTime video action outcome should mention FaceTime (got: \(callModule.lastSimulationOutcome ?? "nil"))"
         )
 
-        // (Toast sizing & positioning moved to testHUDToastSizingAndPositioning)
-
-        // 4. Floating pill top-right frame stability when toggling Mic / Camera
+        // 3. Floating pill top-right frame stability when toggling Mic / Camera
         let testScreenFrame = NSRect(x: 0, y: 0, width: 1512, height: 950)
         for deviceName in ["AirPods", "MacBook Pro Microphone"] {
             let pillState = FloatingMicIndicatorState()
@@ -2717,7 +2741,7 @@ enum SelfTestRunner {
             expect(micOnlySize.width > 160 && micOnlySize.width < liveSize.width - 60, "Mic-only pill should shrink cleanly when video is hidden (got: \(micOnlySize))")
         }
 
-        // 4b. Real FloatingMicIndicatorPanel: initial position == resetToDefaultPosition() and zero shift at very-most top-right
+        // 3b. Real FloatingMicIndicatorPanel: initial position == resetToDefaultPosition() and zero shift at very-most top-right
         if let screen = NSScreen.main ?? NSScreen.screens.first {
             let panel = FloatingMicIndicatorPanel(userDefaults: nil)
             panel.update(
@@ -2819,7 +2843,7 @@ enum SelfTestRunner {
             expect(panel.currentFrame == nil, "Floating pill currentFrame must be nil after onHidePill -> hide()")
         }
 
-        // 4c. New simulation presets, simulated scope override, device profile, and pill hide override
+        // 3c. New simulation presets, simulated scope override, device profile, and pill hide override
         callModule.applyDeveloperSimulationPreset(.teamsBackground)
         callModule.developerSimulation?.simulatedScopeOverride = .activeCallAppOnly
         expect(
@@ -2839,13 +2863,13 @@ enum SelfTestRunner {
         callModule.developerSimulation?.pillVisibilityMode = .forceHide
         expect(!callModule.isFloatingPillVisible, "pillVisibilityMode = .forceHide must hide desktop pill even if streams were active")
 
-        // 5. DeveloperModeManager.resetAllSimulations() clears Call Controls simulation cleanly
+        // 4. DeveloperModeManager.resetAllSimulations() clears Call Controls simulation cleanly
         devManager.resetAllSimulations()
         expect(callModule.developerSimulation == nil, "resetAllSimulations() must clear CallControlsModule.developerSimulation")
         expect(!callModule.isRemapperTapInstalled, "resetAllSimulations() must uninstall simulation event tap when module is off")
         expect(!devManager.hasActiveSimulation, "hasActiveSimulation must be false after resetAllSimulations()")
 
-        // 6. ToolboxConfigSection.callControls & pure ConfigCheckpointStore diff detection
+        // 5. ToolboxConfigSection.callControls & pure ConfigCheckpointStore diff detection
         expect(ToolboxConfigSection.allCases.contains(.callControls), "ToolboxConfigSection must include .callControls")
         let checkpointCfg = ToolboxConfig()
         var modifiedCfg = checkpointCfg
@@ -4055,33 +4079,15 @@ enum SelfTestRunner {
             .environment(\.controlActiveState, activeState)
 
             let size = NSSize(width: 160, height: 56)
-            let hosting = NSHostingView(rootView: view)
-            hosting.appearance = NSAppearance(named: appearanceName)
-            hosting.frame = NSRect(origin: .zero, size: size)
-
-            let window = NSWindow(
-                contentRect: NSRect(origin: NSPoint(x: -10000, y: -10000), size: size),
-                styleMask: [.borderless],
-                backing: .buffered,
-                defer: false
-            )
-            window.isReleasedWhenClosed = false
-            window.appearance = NSAppearance(named: appearanceName)
-            window.contentView = hosting
-            window.layoutIfNeeded()
-            hosting.layoutSubtreeIfNeeded()
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.08))
-            hosting.layoutSubtreeIfNeeded()
-
-            guard let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else {
+            guard let rep = renderOffscreenBitmap(
+                view,
+                size: size,
+                appearanceName: appearanceName,
+                settleSeconds: 0.08
+            ) else {
                 failures.append("Could not allocate bitmap rep for prominent button render check (\(label))")
-                window.close()
                 return
             }
-            NSAppearance(named: appearanceName)?.performAsCurrentDrawingAppearance {
-                hosting.cacheDisplay(in: hosting.bounds, to: rep)
-            }
-            window.close()
 
             var redCount = 0
             var minX = rep.pixelsWide
@@ -4135,10 +4141,51 @@ enum SelfTestRunner {
         verifyRedButtonRender(appearanceName: .darkAqua, activeState: .key, label: "Dark Mode + key")
     }
 
+    private static func renderOffscreenBitmap<V: View>(
+        _ view: V,
+        size: NSSize,
+        appearanceName: NSAppearance.Name,
+        settleSeconds: TimeInterval = 0.08
+    ) -> NSBitmapImageRep? {
+        let hosting = NSHostingView(rootView: view)
+        hosting.appearance = NSAppearance(named: appearanceName)
+        hosting.frame = NSRect(origin: .zero, size: size)
+
+        let window = NSWindow(
+            contentRect: NSRect(origin: NSPoint(x: -10000, y: -10000), size: size),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: appearanceName)
+        window.contentView = hosting
+        window.layoutIfNeeded()
+        hosting.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: settleSeconds))
+        hosting.layoutSubtreeIfNeeded()
+
+        guard let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else {
+            window.close()
+            return nil
+        }
+        NSAppearance(named: appearanceName)?.performAsCurrentDrawingAppearance {
+            hosting.cacheDisplay(in: hosting.bounds, to: rep)
+        }
+        window.close()
+        return rep
+    }
+
     private static func testHUDToastSizingAndPositioning() {
         let testScreen = NSRect(x: 0, y: 0, width: 1512, height: 950)
 
-        // 1. Height must stay constant across different SF Symbols (icon metrics vary).
+        // Geometry & timing defaults (explicit checks prevent silent regressions).
+        expect(HUDToast.fixedHeight == 44, "HUDToast.fixedHeight must be 44pt (got \(HUDToast.fixedHeight))")
+        expect(HUDToast.minWidth == 200, "HUDToast.minWidth must be 200pt (got \(HUDToast.minWidth))")
+        expect(HUDToast.topInset == 80, "HUDToast.topInset must be 80pt (got \(HUDToast.topInset))")
+        expect(HUDToast.defaultDuration == 2.0, "HUDToast.defaultDuration must be 2.0s (got \(HUDToast.defaultDuration))")
+
+        // 1. Height must stay constant across different SF Symbols (non-tautological: measuredSize returns real fitting height).
         let toastSymbols: [(String, Color)] = [
             ("checkmark.circle.fill", .green),
             ("doc.on.clipboard", .green),
@@ -4175,93 +4222,127 @@ enum SelfTestRunner {
             "Long HUDToast must measure full natural width instead of clamping (got: \(longSize.width))"
         )
         expect(
-            longSize.width >= shortSize.width - 0.5,
-            "HUDToast width must grow with title length (long \(longSize.width) < short \(shortSize.width))"
+            longSize.width > shortSize.width,
+            "HUDToast width must grow with title length (long \(longSize.width) <= short \(shortSize.width))"
         )
 
-        // 4. Pure placement math: horizontally centered, top edge exactly topInset below the visible frame top.
+        // 4. Pure placement math: pixel-rounded, horizontally centered, multi-display safe, and clamped on narrow screens.
         let frame = HUDToast.defaultTopCenterFrame(forSize: longSize, inVisibleFrame: testScreen)
         expect(
             abs(frame.width - longSize.width) < 0.5 && abs(frame.height - longSize.height) < 0.5,
             "HUDToast placement frame must preserve the measured size (got: \(frame))"
         )
         expect(
-            abs(frame.midX - testScreen.midX) < 0.5,
+            abs(frame.midX - testScreen.midX) <= 0.5,
             "HUDToast must be horizontally centered (got midX \(frame.midX), screen midX \(testScreen.midX))"
+        )
+        expect(
+            frame.origin.x == floor(frame.origin.x) && frame.origin.y == floor(frame.origin.y),
+            "HUDToast placement frame origin must be pixel-rounded (got: \(frame.origin))"
         )
         expect(
             abs(frame.maxY - (testScreen.maxY - HUDToast.topInset)) < 0.5,
             "HUDToast top edge must sit \(HUDToast.topInset)pt below the top of the visible frame (got maxY \(frame.maxY))"
         )
 
-        // 5. Live panel: show() presents, reuses the same panel, and auto-dismisses.
+        let oddFrame = HUDToast.defaultTopCenterFrame(forSize: NSSize(width: 221, height: 44), inVisibleFrame: testScreen)
+        expect(
+            oddFrame.origin.x == floor(oddFrame.origin.x) && abs(oddFrame.midX - testScreen.midX) <= 0.5,
+            "Odd-width HUDToast must stay pixel-aligned and centered (got: \(oddFrame))"
+        )
+
+        let secondaryScreen = NSRect(x: 1580, y: -200, width: 2560, height: 1415)
+        let secFrame = HUDToast.defaultTopCenterFrame(forSize: longSize, inVisibleFrame: secondaryScreen)
+        expect(
+            abs(secFrame.midX - secondaryScreen.midX) <= 0.5 && abs(secFrame.maxY - (secondaryScreen.maxY - HUDToast.topInset)) < 0.5,
+            "HUDToast placement must honor non-zero origin screens (got \(secFrame) for \(secondaryScreen))"
+        )
+
+        let narrowScreen = NSRect(x: 0, y: 0, width: 320, height: 600)
+        let narrowFrame = HUDToast.defaultTopCenterFrame(forSize: NSSize(width: 520, height: 44), inVisibleFrame: narrowScreen)
+        let expectedNarrowWidth = narrowScreen.width - HUDToast.screenHorizontalMargin * 2
+        expect(
+            abs(narrowFrame.width - expectedNarrowWidth) < 0.5
+                && narrowFrame.minX >= HUDToast.screenHorizontalMargin
+                && narrowFrame.maxX <= narrowScreen.width - HUDToast.screenHorizontalMargin,
+            "HUDToast must clamp width within horizontal margins on narrow screens (got: \(narrowFrame))"
+        )
+
+        // 5. Live panel: show() presents, reuses the same panel, resizes, cancels stale timers, auto-dismisses, and dismiss() hides immediately.
         let toast = HUDToast.shared
-        toast.show(title: "Self-test toast", symbol: "checkmark.circle.fill", tint: .green)
-        guard let panel = toast.panelForTesting else {
-            failures.append("HUDToast.show() must create the floating panel")
-            return
-        }
-        expect(panel.isVisible, "HUDToast panel must be visible after show()")
-        expect(panel.level == .statusBar, "HUDToast panel must float at .statusBar level (got: \(panel.level.rawValue))")
-        expect(panel.ignoresMouseEvents, "HUDToast panel must ignore mouse events so it never steals clicks")
-        expect(panel.collectionBehavior.contains(.canJoinAllSpaces), "HUDToast panel must join all spaces")
+        let firstTitle = "Self-test toast"
+        toast.show(title: firstTitle, symbol: "checkmark.circle.fill", tint: .green, duration: 0.12)
+        if let panel = toast.panelForTesting {
+            expect(panel.isVisible, "HUDToast panel must be visible after show()")
+            expect(panel.level == .statusBar, "HUDToast panel must float at .statusBar level (got: \(panel.level.rawValue))")
+            expect(panel.ignoresMouseEvents, "HUDToast panel must ignore mouse events so it never steals clicks")
+            expect(!panel.isOpaque, "HUDToast panel must be non-opaque for clean capsule edges")
+            expect(panel.appearance?.name == .darkAqua, "HUDToast panel must force .darkAqua appearance")
+            expect(panel.collectionBehavior.contains(.canJoinAllSpaces), "HUDToast panel must join all spaces")
 
-        if let screen = NSScreen.main ?? NSScreen.screens.first {
-            let expected = HUDToast.defaultTopCenterFrame(
-                forSize: HUDToast.measuredSize(title: "Self-test toast", symbol: "checkmark.circle.fill", tint: .green),
-                inVisibleFrame: screen.visibleFrame
-            )
+            if let screen = NSScreen.main ?? NSScreen.screens.first {
+                let expected = HUDToast.defaultTopCenterFrame(
+                    forSize: HUDToast.measuredSize(title: firstTitle, symbol: "checkmark.circle.fill", tint: .green),
+                    inVisibleFrame: screen.visibleFrame
+                )
+                expect(
+                    abs(panel.frame.midX - expected.midX) < 1
+                        && abs(panel.frame.maxY - expected.maxY) < 1
+                        && abs(panel.frame.width - expected.width) < 1,
+                    "HUDToast panel frame must match top-center placement math (got \(panel.frame), expected \(expected))"
+                )
+            }
+
+            let firstWidth = panel.frame.width
+            let longTitle = "A much longer replacement toast for the self-test run"
+            toast.show(title: longTitle, symbol: "info.circle.fill", tint: .blue, duration: 0.35)
+            expect(toast.panelForTesting === panel, "HUDToast must reuse the same panel instead of allocating a new one")
+            expect(panel.isVisible, "Re-showing a new toast must keep the panel visible")
             expect(
-                abs(panel.frame.midX - expected.midX) < 1 && abs(panel.frame.maxY - expected.maxY) < 1,
-                "HUDToast panel frame must match the top-center placement math (got \(panel.frame), expected \(expected))"
+                panel.frame.width > firstWidth + 80,
+                "Re-showing a longer toast must widen panel frame (first \(firstWidth), new \(panel.frame.width))"
             )
+            if let screen = NSScreen.main ?? NSScreen.screens.first {
+                let expectedLong = HUDToast.defaultTopCenterFrame(
+                    forSize: HUDToast.measuredSize(title: longTitle, symbol: "info.circle.fill", tint: .blue),
+                    inVisibleFrame: screen.visibleFrame
+                )
+                expect(
+                    abs(panel.frame.midX - expectedLong.midX) < 1
+                        && abs(panel.frame.maxY - expectedLong.maxY) < 1
+                        && abs(panel.frame.width - expectedLong.width) < 1,
+                    "Replacement HUDToast panel frame must match new size & center (got \(panel.frame), expected \(expectedLong))"
+                )
+            }
+
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.20))
+            expect(panel.isVisible, "Re-showing a toast must cancel the previous auto-dismiss timer")
+
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.25))
+            expect(!panel.isVisible, "HUDToast must auto-dismiss after replacement duration expires")
+
+            toast.show(title: "Dismiss test", duration: 2.0)
+            expect(panel.isVisible, "HUDToast panel must be visible before dismiss()")
+            toast.dismiss()
+            expect(!panel.isVisible, "HUDToast.dismiss() must immediately hide the floating panel")
+        } else {
+            failures.append("HUDToast.show() must create the floating panel")
         }
 
-        let firstPanel = panel
-        toast.show(title: "A much longer replacement toast for the self-test run", symbol: "info.circle.fill", tint: .blue)
-        expect(toast.panelForTesting === firstPanel, "HUDToast must reuse the same panel instead of allocating a new one")
-        expect(panel.isVisible, "Re-showing a new toast must keep the panel visible")
-
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 2.3))
-        expect(!panel.isVisible, "HUDToast must auto-dismiss about 2s after showing")
-        panel.orderOut(nil)
-
-        // 6. Offscreen render: the tinted icon and light title text must actually draw inside the pill.
+        // 6. Offscreen render: tinted icon, light title text, and clean capsule silhouette without stray side bars.
         let size = NSSize(width: 280, height: 88)
-        let hosting = NSHostingView(rootView:
+        guard let rep = renderOffscreenBitmap(
             ZStack {
                 Color(red: 0.145, green: 0.149, blue: 0.165)
                 HUDToast.makeToastView(title: "Copied to clipboard", symbol: "doc.on.clipboard", tint: .green)
-            }
-            .preferredColorScheme(.dark)
-            .environment(\.colorScheme, .dark)
-        )
-        hosting.appearance = NSAppearance(named: .darkAqua)
-        hosting.frame = NSRect(origin: .zero, size: size)
-
-        let window = NSWindow(
-            contentRect: NSRect(origin: NSPoint(x: -10000, y: -10000), size: size),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        window.appearance = NSAppearance(named: .darkAqua)
-        window.contentView = hosting
-        window.layoutIfNeeded()
-        hosting.layoutSubtreeIfNeeded()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
-        hosting.layoutSubtreeIfNeeded()
-
-        guard let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else {
+            },
+            size: size,
+            appearanceName: .darkAqua,
+            settleSeconds: 0.1
+        ) else {
             failures.append("Could not allocate bitmap rep for HUDToast render check")
-            window.close()
             return
         }
-        NSAppearance(named: .darkAqua)?.performAsCurrentDrawingAppearance {
-            hosting.cacheDisplay(in: hosting.bounds, to: rep)
-        }
-        window.close()
 
         var tintedIconPixels = 0
         var lightTextPixels = 0
@@ -4278,5 +4359,28 @@ enum SelfTestRunner {
         }
         expect(tintedIconPixels > 20, "HUDToast must render its tinted SF Symbol (found \(tintedIconPixels) green pixels)")
         expect(lightTextPixels > 40, "HUDToast must render light title text (found \(lightTextPixels) light pixels)")
+
+        if let bg = rep.colorAt(x: 2, y: 2)?.usingColorSpace(.sRGB) {
+            let topY = rep.pixelsHigh / 2 - max(4, Int(round(10 * CGFloat(rep.pixelsHigh) / size.height)))
+            var runs = 0
+            var inRun = false
+            for x in 0..<rep.pixelsWide {
+                guard let c = rep.colorAt(x: x, y: topY)?.usingColorSpace(.sRGB) else { continue }
+                let diff = abs(c.redComponent - bg.redComponent)
+                    + abs(c.greenComponent - bg.greenComponent)
+                    + abs(c.blueComponent - bg.blueComponent)
+                if diff > 0.02 {
+                    if !inRun {
+                        runs += 1
+                        inRun = true
+                    }
+                } else {
+                    inRun = false
+                }
+            }
+            expect(runs == 1, "HUDToast capsule edge must render as a single contiguous pill without stray side artifacts (found \(runs) runs)")
+        } else {
+            failures.append("Could not sample background pixel for HUDToast edge check")
+        }
     }
 }

@@ -7,10 +7,13 @@ final class HUDToast {
     static let fixedHeight: CGFloat = 44
     static let minWidth: CGFloat = 200
     /// Top edge inset from the top of the screen's visible frame.
-    static let topInset: CGFloat = 48
+    static let topInset: CGFloat = 80
+    static let screenHorizontalMargin: CGFloat = 16
+    static let defaultDuration: TimeInterval = 2.0
 
     private var panel: NSPanel?
     private var dismissTask: DispatchWorkItem?
+    private var dismissGeneration: UInt64 = 0
 
     internal var panelForTesting: NSPanel? {
         panel
@@ -18,7 +21,7 @@ final class HUDToast {
 
     private init() {}
 
-    static func makeToastView(title: String, symbol: String, tint: Color) -> some View {
+    static func makeToastView(title: String, symbol: String, tint: Color, fixedWidth: CGFloat? = nil) -> some View {
         HStack(spacing: 10) {
             Image(systemName: symbol)
                 .font(.system(size: 16, weight: .semibold))
@@ -27,65 +30,101 @@ final class HUDToast {
             Text(title)
                 .font(.title3.weight(.medium))
                 .lineLimit(1)
+                .truncationMode(.tail)
         }
         .padding(.horizontal, 18)
-        .frame(minWidth: minWidth)
+        .frame(minWidth: fixedWidth ?? minWidth, maxWidth: fixedWidth)
         .frame(height: fixedHeight)
+        .fixedSize(horizontal: fixedWidth == nil, vertical: true)
         .background(.ultraThickMaterial, in: Capsule())
         .overlay(
             Capsule()
                 .strokeBorder(Color.primary.opacity(0.14), lineWidth: 1)
         )
-        .fixedSize()
+        .clipShape(Capsule())
         .toolboxDarkAppearance()
     }
 
+    private static func makeHostedToast(
+        title: String,
+        symbol: String,
+        tint: Color,
+        fixedWidth: CGFloat? = nil
+    ) -> (hosting: NSView, size: NSSize) {
+        let hosting = NSHostingView(
+            rootView: makeToastView(title: title, symbol: symbol, tint: tint, fixedWidth: fixedWidth)
+        )
+        hosting.sizingOptions = [.intrinsicContentSize]
+        hosting.layoutSubtreeIfNeeded()
+        let fitting = hosting.fittingSize
+        let size = NSSize(
+            width: ceil(max(fixedWidth ?? minWidth, fitting.width)),
+            height: ceil(fitting.height)
+        )
+        return (hosting, size)
+    }
+
     static func measuredSize(title: String, symbol: String, tint: Color = .green) -> NSSize {
-        let hosting = NSHostingView(rootView: makeToastView(title: title, symbol: symbol, tint: tint))
-        hosting.sizingOptions = [.intrinsicContentSize]
-        hosting.layoutSubtreeIfNeeded()
-        let fitting = hosting.fittingSize
-        return NSSize(
-            width: ceil(max(minWidth, fitting.width)),
-            height: fixedHeight
-        )
+        makeHostedToast(title: title, symbol: symbol, tint: tint).size
     }
 
-    /// Top-center placement: horizontally centered, with `topInset` of space above the pill.
+    /// Top-center placement: horizontally centered, clamped within `screenHorizontalMargin`,
+    /// with `topInset` of space above the pill.
     static func defaultTopCenterFrame(forSize size: NSSize, inVisibleFrame frame: NSRect) -> NSRect {
-        NSRect(
-            x: frame.midX - size.width / 2,
-            y: frame.maxY - size.height - topInset,
-            width: size.width,
-            height: size.height
-        )
+        let maxAvailableWidth = max(0, frame.width - screenHorizontalMargin * 2)
+        let width = maxAvailableWidth > 0 ? min(size.width, maxAvailableWidth) : size.width
+        let x = round(frame.midX - width / 2)
+        let y = round(frame.maxY - size.height - topInset)
+        return NSRect(x: x, y: y, width: width, height: size.height)
     }
 
-    func show(title: String, symbol: String = "checkmark.circle.fill", tint: Color = .green) {
+    func dismiss() {
+        dismissGeneration &+= 1
         dismissTask?.cancel()
+        dismissTask = nil
+        panel?.orderOut(nil)
+    }
 
-        let view = Self.makeToastView(title: title, symbol: symbol, tint: tint)
-        let hosting = NSHostingView(rootView: view)
-        hosting.sizingOptions = [.intrinsicContentSize]
-        hosting.layoutSubtreeIfNeeded()
-        let fitting = hosting.fittingSize
-        let width = ceil(max(Self.minWidth, fitting.width))
-        let height = Self.fixedHeight
+    func show(
+        title: String,
+        symbol: String = "checkmark.circle.fill",
+        tint: Color = .green,
+        duration: TimeInterval = HUDToast.defaultDuration
+    ) {
+        dismissTask?.cancel()
+        dismissTask = nil
+        dismissGeneration &+= 1
+        let generation = dismissGeneration
+
+        var (hosting, size) = Self.makeHostedToast(title: title, symbol: symbol, tint: tint)
+
+        let targetFrame: NSRect?
+        if let screen = NSScreen.main ?? NSScreen.screens.first {
+            let frame = Self.defaultTopCenterFrame(forSize: size, inVisibleFrame: screen.visibleFrame)
+            if frame.width < size.width {
+                (hosting, _) = Self.makeHostedToast(title: title, symbol: symbol, tint: tint, fixedWidth: frame.width)
+            }
+            targetFrame = frame
+        } else {
+            targetFrame = nil
+        }
 
         let toastPanel: NSPanel
         if let existing = panel {
             toastPanel = existing
         } else {
             let p = NSPanel(
-                contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+                contentRect: NSRect(origin: .zero, size: size),
                 styleMask: [.nonactivatingPanel, .borderless],
                 backing: .buffered,
                 defer: false
             )
+            p.isReleasedWhenClosed = false
             p.isFloatingPanel = true
             p.level = .statusBar
             p.hidesOnDeactivate = false
             p.ignoresMouseEvents = true
+            p.isOpaque = false
             p.backgroundColor = .clear
             p.hasShadow = true
             p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
@@ -95,16 +134,18 @@ final class HUDToast {
         }
 
         toastPanel.contentView = hosting
-        if let screen = NSScreen.main ?? NSScreen.screens.first {
-            let size = NSSize(width: width, height: height)
-            toastPanel.setFrame(Self.defaultTopCenterFrame(forSize: size, inVisibleFrame: screen.visibleFrame), display: true)
+        if let targetFrame {
+            toastPanel.setFrame(targetFrame, display: true)
         }
+        toastPanel.invalidateShadow()
         toastPanel.orderFrontRegardless()
 
-        let work = DispatchWorkItem { [weak toastPanel] in
+        let work = DispatchWorkItem { [weak self, weak toastPanel] in
+            guard let self, self.dismissGeneration == generation else { return }
             toastPanel?.orderOut(nil)
+            self.dismissTask = nil
         }
         dismissTask = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0.05, duration), execute: work)
     }
 }

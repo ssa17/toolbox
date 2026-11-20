@@ -389,6 +389,7 @@ enum SnapshotRunner {
         )
 
         configManager.config.general.appEnabled = true
+        registry.reloadAll(with: configManager.config)
         DeveloperModeManager.shared.unlock()
         UpdateManager.shared.applySimulationPreset(.updateAvailable, version: "1.2.0", sizeBytes: 3_565_158)
 

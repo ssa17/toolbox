@@ -155,6 +155,54 @@ enum ToastPreviewPreset: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// One-click HUD toast test scenarios for verifying sizing, edge truncation, and placement live.
+enum ToastTestScenario: String, CaseIterable, Identifiable, Sendable {
+    case short
+    case standard
+    case long
+    case overflow
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .short: return "Short"
+        case .standard: return "Standard"
+        case .long: return "Long"
+        case .overflow: return "Overflow"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .short:
+            return "Hi"
+        case .standard:
+            return "Copied to clipboard"
+        case .long:
+            return "Focus Zoom or switch scope to Everywhere to toggle camera"
+        case .overflow:
+            return "Screen OCR captured an extra-long diagnostic line from an ultrawide window to verify screen-margin clamping and clean tail truncation"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .short: return "checkmark.circle.fill"
+        case .standard: return "doc.on.clipboard"
+        case .long: return "video.slash"
+        case .overflow: return "exclamationmark.triangle.fill"
+        }
+    }
+
+    var preset: ToastPreviewPreset {
+        switch self {
+        case .short, .standard: return .success
+        case .long, .overflow: return .warning
+        }
+    }
+}
+
 enum ReleaseNotesPreset: String, CaseIterable, Identifiable, Sendable {
     case standard
     case longScrollable

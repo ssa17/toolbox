@@ -5,7 +5,16 @@ import SwiftUI
 private final class DeveloperToolsUIState: ObservableObject {
     @Published var selectedAnimatedResult: UpdateSimulationPreset = .updateAvailable
     @Published var selectedToastPreset: ToastPreviewPreset = .success
+    @Published var selectedToastDuration: TimeInterval = HUDToast.defaultDuration
+    @Published var isRunningToastSequence = false
     @Published var isDesignatedRequirementExpanded = false
+    var toastSequenceTask: Task<Void, Never>?
+
+    func cancelToastSequence() {
+        toastSequenceTask?.cancel()
+        toastSequenceTask = nil
+        isRunningToastSequence = false
+    }
 }
 
 struct DeveloperToolsView: View {
@@ -65,6 +74,9 @@ struct DeveloperToolsView: View {
             if section == .checksAndDiagnostics {
                 healthChecks.runAllChecks()
             }
+        }
+        .onDisappear {
+            uiState.cancelToastSequence()
         }
     }
 
@@ -674,16 +686,26 @@ struct DeveloperToolsView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     SettingRow(
                         "HUD Toast Preview",
-                        subtitle: "Triggers the floating top-center notification pill."
+                        subtitle: "Trigger live toasts, test sizing/truncation edge cases, or run a rapid replacement sequence."
                     ) {
-                        Picker("", selection: $uiState.selectedToastPreset) {
-                            ForEach(ToastPreviewPreset.allCases) { preset in
-                                Text(preset.label).tag(preset)
+                        HStack(spacing: 8) {
+                            Picker("", selection: $uiState.selectedToastPreset) {
+                                ForEach(ToastPreviewPreset.allCases) { preset in
+                                    Text(preset.label).tag(preset)
+                                }
                             }
+                            .labelsHidden()
+                            .frame(width: 108)
+                            .pointerCursor()
+
+                            Picker("", selection: $uiState.selectedToastDuration) {
+                                Text("2s").tag(HUDToast.defaultDuration)
+                                Text("5s").tag(TimeInterval(5.0))
+                            }
+                            .labelsHidden()
+                            .frame(width: 68)
+                            .pointerCursor()
                         }
-                        .labelsHidden()
-                        .frame(width: 118)
-                        .pointerCursor()
                     }
 
                     HStack(spacing: 8) {
@@ -692,14 +714,23 @@ struct DeveloperToolsView: View {
                             .font(.callout)
 
                         Button("Show Toast") {
+                            uiState.cancelToastSequence()
                             let message = developerMode.toastPreviewMessage.trimmingCharacters(in: .whitespacesAndNewlines)
                             HUDToast.shared.show(
                                 title: message.isEmpty ? uiState.selectedToastPreset.defaultMessage : message,
                                 symbol: uiState.selectedToastPreset.symbol,
-                                tint: toastColor(uiState.selectedToastPreset)
+                                tint: toastColor(uiState.selectedToastPreset),
+                                duration: uiState.selectedToastDuration
                             )
                         }
                         .buttonStyle(.toolboxProminent)
+                        .pointerCursor()
+
+                        Button("Dismiss") {
+                            uiState.cancelToastSequence()
+                            HUDToast.shared.dismiss()
+                        }
+                        .buttonStyle(.bordered)
                         .pointerCursor()
                     }
                     .onChange(of: uiState.selectedToastPreset) { _, newPreset in
@@ -710,6 +741,38 @@ struct DeveloperToolsView: View {
                         if isDefaultText {
                             developerMode.toastPreviewMessage = newPreset.defaultMessage
                         }
+                    }
+
+                    HStack(spacing: 8) {
+                        Text("Visual Tests")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 8)
+                        ForEach(ToastTestScenario.allCases) { scenario in
+                            Button(scenario.label) {
+                                uiState.cancelToastSequence()
+                                HUDToast.shared.show(
+                                    title: scenario.title,
+                                    symbol: scenario.symbol,
+                                    tint: toastColor(scenario.preset),
+                                    duration: uiState.selectedToastDuration
+                                )
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .pointerCursor()
+                        }
+                        Button(uiState.isRunningToastSequence ? "Stop Sequence" : "Run Sequence") {
+                            if uiState.isRunningToastSequence {
+                                uiState.cancelToastSequence()
+                                HUDToast.shared.dismiss()
+                            } else {
+                                runToastSequence()
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .pointerCursor()
                     }
                 }
 
@@ -1254,6 +1317,32 @@ struct DeveloperToolsView: View {
         case .info: return .blue
         case .warning: return .orange
         case .error: return .red
+        }
+    }
+
+    private func runToastSequence() {
+        uiState.cancelToastSequence()
+        uiState.isRunningToastSequence = true
+        let finalDuration = uiState.selectedToastDuration
+        let steps: [(String, String, Color, TimeInterval)] = [
+            ("Hi", "checkmark.circle.fill", .green, 2.0),
+            ("Accessibility access recommended", "exclamationmark.triangle.fill", .orange, 2.0),
+            ("Focus Zoom or switch scope to Everywhere to toggle camera", "video.slash", .blue, 2.0),
+            ("All HUD toast sizes verified", "checkmark.seal.fill", .green, finalDuration)
+        ]
+
+        uiState.toastSequenceTask = Task { @MainActor in
+            defer {
+                uiState.isRunningToastSequence = false
+                uiState.toastSequenceTask = nil
+            }
+            for (index, step) in steps.enumerated() {
+                guard !Task.isCancelled else { return }
+                HUDToast.shared.show(title: step.0, symbol: step.1, tint: step.2, duration: step.3)
+                if index < steps.count - 1 {
+                    try? await Task.sleep(nanoseconds: 900_000_000)
+                }
+            }
         }
     }
 }

@@ -1004,30 +1004,51 @@ final class DeveloperHealthCheckRunner: ObservableObject {
         )
     }
 
+    static func moduleLifecycleMismatch(
+        for mod: any ToolboxModule,
+        config: ToolboxConfig,
+        actualAX: Bool
+    ) -> String? {
+        if !mod.supportsEnableToggle {
+            // On-demand modules (e.g. Keyboard Lock) are intentionally idle (`isRunning == false`)
+            // unless actively triggered, and must never stay running while paused or missing Accessibility.
+            let canRun = config.general.appEnabled && (!mod.requiresAccessibility || actualAX)
+            if mod.isRunning && !canRun {
+                return "\(mod.name) (expected running=false, actual=true)"
+            }
+            return nil
+        }
+        let requiresLiveAXToRun = (mod.id == "dock_minimize")
+        let shouldRun = config.general.appEnabled
+            && mod.isEnabled(in: config)
+            && (!requiresLiveAXToRun || actualAX)
+        if shouldRun != mod.isRunning {
+            return "\(mod.name) (expected running=\(shouldRun), actual=\(mod.isRunning))"
+        }
+        return nil
+    }
+
     private func checkModuleLifecycleConsistency() -> HealthCheckItem {
         let cfg = ConfigManager.shared.config
         let actualAX = PermissionsManager.isProcessTrusted()
         let modules = ModuleRegistry.shared.modules
 
-        var mismatches: [String] = []
-        for mod in modules {
-            let requiresLiveAXToRun = (mod.id == "dock_minimize")
-            let shouldRun = cfg.general.appEnabled
-                && mod.isEnabled(in: cfg)
-                && (!requiresLiveAXToRun || actualAX)
-            if shouldRun != mod.isRunning {
-                mismatches.append("\(mod.name) (expected running=\(shouldRun), actual=\(mod.isRunning))")
-            }
+        let mismatches = modules.compactMap {
+            Self.moduleLifecycleMismatch(for: $0, config: cfg, actualAX: actualAX)
         }
 
         if mismatches.isEmpty {
             let runningCount = modules.filter(\.isRunning).count
+            let onDemandIdleCount = modules.filter { !$0.supportsEnableToggle && !$0.isRunning }.count
+            let summary = onDemandIdleCount > 0
+                ? "All \(modules.count) modules consistent (\(runningCount) running, \(onDemandIdleCount) on-demand)"
+                : "All \(modules.count) modules consistent (\(runningCount) running)"
             return HealthCheckItem(
                 id: "module_lifecycle",
                 title: "Module Lifecycle Consistency",
                 category: "Runtime",
                 severity: .pass,
-                summary: "All \(modules.count) modules consistent (\(runningCount) running)",
+                summary: summary,
                 detail: nil
             )
         }
