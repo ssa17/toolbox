@@ -2,6 +2,7 @@ import SwiftUI
 
 struct CleanLockSettingsView: View {
     @ObservedObject private var configManager = ConfigManager.shared
+    @ObservedObject private var permissions = PermissionsManager.shared
     @ObservedObject var module: CleanLockModule
 
     private let durationPresets: [(Int, String)] = [
@@ -9,18 +10,47 @@ struct CleanLockSettingsView: View {
         (30, "30s"),
         (60, "1m"),
         (120, "2m"),
-        (180, "3m")
+        (180, "3m"),
+        (300, "5m")
     ]
 
+    private var clampedDurationSeconds: Int {
+        CleanLockConfig.clampedDuration(configManager.config.cleanLock.durationSeconds)
+    }
+
+    private var hasCustomDuration: Bool {
+        !durationPresets.contains(where: { $0.0 == clampedDurationSeconds })
+    }
+
+    private var canStartLock: Bool {
+        configManager.config.general.appEnabled && permissions.isAccessibilityGranted
+    }
+
+    private var formattedDurationLabel: String {
+        let secs = clampedDurationSeconds
+        return secs >= 60 && secs % 60 == 0 ? "\(secs / 60)m" : "\(secs)s"
+    }
+
     private var formattedDurationButtonLabel: String {
-        let secs = CleanLockConfig.clampedDuration(configManager.config.cleanLock.durationSeconds)
-        let durationLabel = secs >= 60 && secs % 60 == 0 ? "\(secs / 60)m" : "\(secs)s"
         if module.isLocked {
-            return "Locked (\(module.remainingSeconds)s)"
+            return "Unlock Now (\(module.remainingSeconds)s)"
         }
         return configManager.config.cleanLock.lockMouseAndTrackpad
-            ? "Lock Keyboard & Mouse (\(durationLabel))"
-            : "Lock Keyboard (\(durationLabel))"
+            ? "Lock Input (\(formattedDurationLabel))"
+            : "Lock Keyboard (\(formattedDurationLabel))"
+    }
+
+    private var lockActionSubtitle: String {
+        if module.isLocked {
+            return "Hold ⌃ ⌥ ⌘ Esc for 3s to unlock early, or wait for the countdown."
+        }
+        if !configManager.config.general.appEnabled {
+            return "Resume Toolbox in the top bar before starting a lock session."
+        }
+        if !permissions.isAccessibilityGranted {
+            return "Grant Accessibility permission above to enable Keyboard Lock."
+        }
+        return "Displays a large center-screen countdown and blocks accidental keypresses while dusting."
     }
 
     var body: some View {
@@ -31,10 +61,9 @@ struct CleanLockSettingsView: View {
             ) {
                 SettingRow(
                     module.isLocked ? "Keyboard Lock is active" : "Ready to lock input",
-                    subtitle: module.isLocked
-                        ? "Hold ⌃ ⌥ ⌘ Esc for 3s to unlock early, or wait for the countdown."
-                        : "Displays a large center-screen countdown and blocks accidental keypresses while dusting."
+                    subtitle: lockActionSubtitle
                 ) {
+                    let isActionAllowed = module.isLocked || canStartLock
                     Button {
                         if module.isLocked {
                             module.unlock(reason: .killSwitchHeld)
@@ -50,40 +79,40 @@ struct CleanLockSettingsView: View {
                     }
                     .buttonStyle(.toolboxProminent(.red))
                     .controlSize(.large)
-                    .pointerCursor()
+                    .disabled(!isActionAllowed)
+                    .help(
+                        isActionAllowed
+                            ? "Start or end the cleaning lock session"
+                            : (!configManager.config.general.appEnabled
+                                ? "Resume Toolbox first to use Keyboard Lock"
+                                : "Grant Accessibility permission first to use Keyboard Lock")
+                    )
+                    .pointerCursor(isActionAllowed)
                 }
 
                 Divider()
 
                 SettingRow(
                     "Lock duration",
-                    subtitle: "Bounded timer (15s – 3m) so input always restores automatically."
+                    subtitle: "Bounded timer (10s to 5m) so input always restores automatically."
                 ) {
                     HStack(spacing: 6) {
                         ForEach(durationPresets, id: \.0) { seconds, label in
-                            let isSelected = CleanLockConfig.clampedDuration(configManager.config.cleanLock.durationSeconds) == seconds
-                            Button {
+                            let isSelected = clampedDurationSeconds == seconds
+                            ToolboxPresetChip(
+                                label: label,
+                                isSelected: isSelected,
+                                accentColor: module.accentColor
+                            ) {
                                 configManager.config.cleanLock.durationSeconds = seconds
-                            } label: {
-                                Text(label)
-                                    .font(.caption.monospacedDigit().weight(isSelected ? .semibold : .medium))
-                                    .foregroundStyle(isSelected ? .white : .primary)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 5)
-                                    .background(
-                                        isSelected ? ToolboxProminentTone.red.fillColor : Color.primary.opacity(0.07),
-                                        in: RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                    )
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                            .strokeBorder(
-                                                isSelected ? ToolboxProminentTone.red.fillColor.opacity(0.9) : Color.primary.opacity(0.1),
-                                                lineWidth: 0.75
-                                            )
-                                    )
                             }
-                            .buttonStyle(.plain)
-                            .pointerCursor()
+                        }
+                        if hasCustomDuration {
+                            ToolboxPresetChip(
+                                label: formattedDurationLabel,
+                                isSelected: true,
+                                accentColor: module.accentColor
+                            ) {}
                         }
                     }
                 }
@@ -92,68 +121,46 @@ struct CleanLockSettingsView: View {
 
                 SettingRow(
                     "Also lock mouse & trackpad clicks",
-                    subtitle: "Swallows clicks and scrolling while keeping the cursor visible."
+                    subtitle: "Blocks clicks and scrolling while keeping the cursor visible."
                 ) {
                     Toggle("", isOn: $configManager.config.cleanLock.lockMouseAndTrackpad)
                         .labelsHidden()
-                        .toggleStyle(.switch)
+                        .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
                         .pointerCursor()
                 }
             }
 
-            FeatureSection(
+            FeatureCardGridSection(
                 "How Release Works",
                 subtitle: "Multiple independent safety layers ensure you can never get trapped."
             ) {
-                VStack(alignment: .leading, spacing: 12) {
-                    releaseRow(
-                        icon: "timer",
-                        tint: .red,
-                        title: "Automatic Countdown Release",
-                        detail: "A large monospaced countdown appears in the center of your screen and automatically restores full keyboard and trackpad control at 0."
-                    )
+                Grid(horizontalSpacing: 12, verticalSpacing: 12) {
+                    GridRow {
+                        InfoFeatureCard(
+                            title: "Auto Countdown",
+                            subtitle: "Restores full keyboard and trackpad input automatically at 0.",
+                            symbolName: "timer",
+                            accentColor: .red
+                        )
 
-                    Divider()
+                        InfoFeatureCard(
+                            title: "Emergency Kill Switch",
+                            subtitle: "Hold continuously for 3 seconds to unlock early.",
+                            symbolName: "key.fill",
+                            accentColor: .orange
+                        ) {
+                            ShortcutPill(tokens: ["⌃", "⌥", "⌘", "Esc"])
+                        }
 
-                    releaseRow(
-                        icon: "escape",
-                        tint: .orange,
-                        title: "Emergency Kill Switch: Hold ⌃ ⌥ ⌘ Esc (3s)",
-                        detail: "Press and hold Control + Option + Command + Escape continuously for 3 seconds to unlock early. Quick taps or accidental cloth brushes reset immediately."
-                    )
-
-                    Divider()
-
-                    releaseRow(
-                        icon: "power",
-                        tint: .secondary,
-                        title: "Hardware & OS Safety Net",
-                        detail: "macOS Power / Touch ID, Ctrl+Cmd+Q, and quitting Toolbox immediately tear down the input tap."
-                    )
+                        InfoFeatureCard(
+                            title: "OS & Hardware Safety",
+                            subtitle: "Touch ID, Lock Screen (⌃ ⌘ Q), or quitting Toolbox unlocks input immediately.",
+                            symbolName: "checkmark.shield.fill",
+                            accentColor: .blue
+                        )
+                    }
                 }
             }
         }
-    }
-
-    private func releaseRow(icon: String, tint: Color, title: String, detail: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(tint)
-                .frame(width: 24, height: 24)
-                .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Text(detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .textSelection(.enabled)
-        }
-        .padding(.vertical, 2)
     }
 }

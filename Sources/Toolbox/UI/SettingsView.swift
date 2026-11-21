@@ -20,6 +20,34 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
+                SectionCard(accentTint: ToolboxTheme.accentBlue) {
+                    HStack(spacing: 14) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 11)
+                                .fill(ToolboxTheme.accentBlue.opacity(0.18))
+                                .frame(width: 44, height: 44)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 11)
+                                        .strokeBorder(ToolboxTheme.accentBlue.opacity(0.28), lineWidth: 1)
+                                )
+                            Image(systemName: "gearshape.fill")
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(ToolboxTheme.accentBlue)
+                        }
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Settings & About")
+                                .font(.title3.bold())
+                            Text("Manage app presence, menu bar layout, permissions, and updates.")
+                                .font(.callout)
+                                .foregroundStyle(Color.primary.opacity(0.74))
+                        }
+                        .textSelection(.enabled)
+
+                        Spacer()
+                    }
+                }
+
                 FeatureSection("App Presence & Startup", subtitle: "Choose where Toolbox appears and when it opens.") {
                     SettingRow("Show icon in Menu Bar", subtitle: "Quick toggles and shortcuts from the top status bar.") {
                         Toggle("", isOn: Binding(
@@ -32,7 +60,7 @@ struct SettingsView: View {
                             }
                         ))
                         .labelsHidden()
-                        .toggleStyle(.switch)
+                        .toggleStyle(ToolboxSwitchToggleStyle(onColor: ToolboxTheme.accentBlue))
                         .pointerCursor()
                     }
 
@@ -49,7 +77,7 @@ struct SettingsView: View {
                             }
                         ))
                         .labelsHidden()
-                        .toggleStyle(.switch)
+                        .toggleStyle(ToolboxSwitchToggleStyle(onColor: ToolboxTheme.accentBlue))
                         .pointerCursor()
                     }
 
@@ -58,37 +86,44 @@ struct SettingsView: View {
                     SettingRow("Open Dashboard on launch", subtitle: "Show the Dashboard window when Toolbox starts.") {
                         Toggle("", isOn: $configManager.config.general.openDashboardOnLaunch)
                             .labelsHidden()
-                            .toggleStyle(.switch)
+                            .toggleStyle(ToolboxSwitchToggleStyle(onColor: ToolboxTheme.accentBlue))
                             .pointerCursor()
                     }
 
                     Divider()
 
+                    let dockEnabled = configManager.config.general.showInDock
                     SettingRow(
                         "Open Dashboard on Dock click",
-                        subtitle: "Reopen the window when clicking the Dock icon while Toolbox runs in the background."
+                        subtitle: dockEnabled
+                            ? "Reopen the window when clicking the Dock icon while Toolbox runs in the background."
+                            : "Reopen the window when clicking the Dock icon. Requires \"Show icon in Dock\" above."
                     ) {
                         Toggle("", isOn: $configManager.config.general.openDashboardOnDockClick)
                             .labelsHidden()
-                            .toggleStyle(.switch)
-                            .pointerCursor()
+                            .toggleStyle(ToolboxSwitchToggleStyle(onColor: ToolboxTheme.accentBlue))
+                            .pointerCursor(dockEnabled)
                     }
+                    .disabled(!dockEnabled)
+                    .opacity(dockEnabled ? 1.0 : 0.48)
 
                     Divider()
 
                     SettingRow(
                         "When clicking Quit on Dock",
-                        subtitle: "Close the Dashboard window when open (keep running in background), or quit Toolbox."
+                        subtitle: dockEnabled
+                            ? "Close the Dashboard window when open (keep running in background), or quit Toolbox."
+                            : "Choose Dock Quit behavior. Requires \"Show icon in Dock\" above."
                     ) {
-                        Picker("", selection: $configManager.config.general.dockQuitBehavior) {
-                            ForEach(DockQuitBehavior.allCases, id: \.self) { behavior in
-                                Text(behavior.displayName).tag(behavior)
-                            }
-                        }
-                        .labelsHidden()
-                        .frame(width: 220)
-                        .pointerCursor()
+                        ToolboxSegmentedControl(
+                            options: [DockQuitBehavior.closeWindow, DockQuitBehavior.quitApp],
+                            selection: $configManager.config.general.dockQuitBehavior,
+                            accentColor: ToolboxTheme.accentBlue,
+                            label: { $0 == .closeWindow ? "Close Window" : "Quit Toolbox" }
+                        )
                     }
+                    .disabled(!dockEnabled)
+                    .opacity(dockEnabled ? 1.0 : 0.48)
 
                     Divider()
 
@@ -101,7 +136,7 @@ struct SettingsView: View {
                             }
                         ))
                         .labelsHidden()
-                        .toggleStyle(.switch)
+                        .toggleStyle(ToolboxSwitchToggleStyle(onColor: ToolboxTheme.accentBlue))
                         .pointerCursor()
                     }
                 }
@@ -113,88 +148,11 @@ struct SettingsView: View {
                     statusBarMenuCustomizer
                 }
 
-                FeatureSection("Permissions", subtitle: "System access used locally on your Mac.") {
-                    HStack(alignment: .center, spacing: 14) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack(spacing: 8) {
-                                Text("Accessibility (Device Control & Data Access)")
-                                    .font(.callout.weight(.semibold))
-                                StatusBadge(
-                                    text: permissions.isAccessibilityGranted
-                                        ? "Granted"
-                                        : (permissions.isAwaitingAccessibilityGrant ? "Waiting for permission…" : "Not Granted"),
-                                    color: permissions.isAccessibilityGranted ? .green : .orange
-                                )
-                            }
-                            Text(
-                                permissions.isAccessibilityGranted
-                                    ? "All Accessibility-powered modules (Dock Minimize, Auto-Paste, Call Keybinds, Keyboard Lock, and Scroll Direction) are authorized."
-                                    : "Used locally for Dock Click to Minimize, auto-pasting (⌘ V), Unified Call Keybinds, Keyboard Lock, and Scroll Direction inversion."
-                            )
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        HStack(spacing: 8) {
-                            Button(permissions.isResettingAccessibility ? "Resetting…" : "Reset Entry") {
-                                permissions.resetAndRegrantAccessibility()
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.large)
-                            .disabled(permissions.isResettingAccessibility)
-                            .pointerCursor(!permissions.isResettingAccessibility)
-                            if !permissions.isAccessibilityGranted {
-                                Button(permissions.isAwaitingAccessibilityGrant ? "Open Settings…" : "Grant Access…") {
-                                    permissions.promptAndOpenSettings()
-                                }
-                                .buttonStyle(.toolboxProminent(.orange))
-                                .controlSize(.large)
-                                .pointerCursor()
-                            }
-                        }
-                    }
-
-                    Divider()
-
-                    HStack(alignment: .center, spacing: 14) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack(spacing: 8) {
-                                Text("Screen Recording (Screen OCR)")
-                                    .font(.callout.weight(.semibold))
-                                StatusBadge(
-                                    text: screenOCR.screenRecordingGranted
-                                        ? "Granted"
-                                        : (screenOCR.isAwaitingScreenPermission ? "Waiting for permission…" : "Not Granted"),
-                                    color: screenOCR.screenRecordingGranted ? .green : .orange
-                                )
-                            }
-                            Text(
-                                screenOCR.screenRecordingGranted
-                                    ? "Screen OCR is authorized to capture selected regions for on-device text and QR recognition."
-                                    : "Used locally by Screen OCR (⇧ ⌘ 0) to capture the region you drag-select for offline Vision recognition."
-                            )
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if !screenOCR.screenRecordingGranted {
-                            Button(screenOCR.isAwaitingScreenPermission ? "Open Settings…" : "Grant Screen Access…") {
-                                if screenOCR.isAwaitingScreenPermission {
-                                    screenOCR.openScreenSettings()
-                                } else {
-                                    screenOCR.requestScreenAccess()
-                                }
-                            }
-                            .buttonStyle(.toolboxProminent(.orange))
-                            .controlSize(.large)
-                            .pointerCursor()
-                        } else {
-                            Button("Open Settings…") {
-                                screenOCR.openScreenSettings()
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.large)
-                            .pointerCursor()
+                FeatureCardGridSection("Permissions", subtitle: "System access used locally on your Mac.") {
+                    Grid(horizontalSpacing: 14, verticalSpacing: 14) {
+                        GridRow {
+                            accessibilityPermissionCard
+                            screenRecordingPermissionCard
                         }
                     }
                 }
@@ -211,7 +169,7 @@ struct SettingsView: View {
                                 set: { updateManager.automaticallyChecksForUpdates = $0 }
                             ))
                             .labelsHidden()
-                            .toggleStyle(.switch)
+                            .toggleStyle(ToolboxSwitchToggleStyle(onColor: ToolboxTheme.accentBlue))
                             .pointerCursor()
                         }
                     }
@@ -257,7 +215,7 @@ struct SettingsView: View {
                                 if let hint = developerMode.unlockProgressHint {
                                     Text(hint)
                                         .font(.caption2.weight(.medium))
-                                        .foregroundStyle(.purple)
+                                        .foregroundStyle(ToolboxTheme.readableAccentText(for: .purple))
                                         .padding(.horizontal, 7)
                                         .padding(.vertical, 2)
                                         .background(Color.purple.opacity(0.12), in: Capsule())
@@ -267,10 +225,22 @@ struct SettingsView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .textSelection(.enabled)
-                            Text("Config file: \(configManager.configURL.path)")
-                                .font(.system(.caption2, design: .monospaced))
-                                .foregroundStyle(.tertiary)
-                                .textSelection(.enabled)
+                            HStack(spacing: 6) {
+                                Text("Config file: \(configManager.configURL.path)")
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .help(configManager.configURL.path)
+                                    .textSelection(.enabled)
+                                Button("Reveal") {
+                                    NSWorkspace.shared.activateFileViewerSelecting([configManager.configURL])
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .focusEffectDisabled()
+                                .pointerCursor()
+                            }
                         }
                         Spacer()
 
@@ -314,6 +284,156 @@ struct SettingsView: View {
                 }
             )
         }
+    }
+
+    private var accessibilityPermissionCard: some View {
+        let granted = permissions.isAccessibilityGranted
+        let tint: Color = granted ? .green : .orange
+
+        return SectionCard(accentTint: tint) {
+            HStack(alignment: .center, spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 9)
+                        .fill(tint.opacity(0.15))
+                        .frame(width: 38, height: 38)
+                    Image(systemName: "hand.raised.fill")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(ToolboxTheme.readableAccentText(for: tint))
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Accessibility")
+                        .font(.callout.weight(.semibold))
+                    StatusBadge(
+                        text: granted
+                            ? "Granted"
+                            : (permissions.isAwaitingAccessibilityGrant ? "Waiting…" : "Not Granted"),
+                        color: tint
+                    )
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            Text(
+                granted
+                    ? "All Accessibility-powered modules (Dock Minimize, Auto-Paste, Call Keybinds, Keyboard Lock, and Scroll Direction) are authorized."
+                    : "Used locally for Dock Click to Minimize, auto-pasting (⌘ V), Unified Call Keybinds, Keyboard Lock, and Scroll Direction inversion."
+            )
+            .font(.caption)
+            .foregroundStyle(Color.primary.opacity(0.72))
+            .lineSpacing(1.5)
+            .fixedSize(horizontal: false, vertical: true)
+            .textSelection(.enabled)
+
+            Spacer(minLength: 0)
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    accessibilityPermissionButtons(granted: granted)
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    accessibilityPermissionButtons(granted: granted)
+                }
+            }
+        }
+        .frame(maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private func accessibilityPermissionButtons(granted: Bool) -> some View {
+        if granted {
+            Button("Open Settings…") {
+                permissions.promptAndOpenSettings()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .pointerCursor()
+        } else {
+            if permissions.isAdHocSigned || permissions.hasAttemptedGrantWithoutSuccess {
+                Button(permissions.isResettingAccessibility ? "Resetting…" : "Reset Permission") {
+                    permissions.resetAndRegrantAccessibility()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+                .disabled(permissions.isResettingAccessibility)
+                .pointerCursor(!permissions.isResettingAccessibility)
+            }
+
+            Button(permissions.isAwaitingAccessibilityGrant ? "Open Settings…" : "Grant Access…") {
+                permissions.promptAndOpenSettings()
+            }
+            .buttonStyle(.toolboxProminent(.orange))
+            .controlSize(.regular)
+            .pointerCursor()
+        }
+    }
+
+    private var screenRecordingPermissionCard: some View {
+        let granted = screenOCR.screenRecordingGranted
+        let tint: Color = granted ? .green : .orange
+
+        return SectionCard(accentTint: tint) {
+            HStack(alignment: .center, spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 9)
+                        .fill(tint.opacity(0.15))
+                        .frame(width: 38, height: 38)
+                    Image(systemName: "text.viewfinder")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(ToolboxTheme.readableAccentText(for: tint))
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Screen Recording")
+                        .font(.callout.weight(.semibold))
+                    StatusBadge(
+                        text: granted
+                            ? "Granted"
+                            : (screenOCR.isAwaitingScreenPermission ? "Waiting…" : "Not Granted"),
+                        color: tint
+                    )
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            Text(
+                granted
+                    ? "Screen OCR is authorized to capture selected regions for on-device text and QR recognition."
+                    : "Used locally by Screen OCR (⇧ ⌘ 0) to capture the region you drag-select for offline Vision recognition."
+            )
+            .font(.caption)
+            .foregroundStyle(Color.primary.opacity(0.72))
+            .lineSpacing(1.5)
+            .fixedSize(horizontal: false, vertical: true)
+            .textSelection(.enabled)
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 8) {
+                if !granted {
+                    Button(screenOCR.isAwaitingScreenPermission ? "Open Settings…" : "Grant Screen Access…") {
+                        if screenOCR.isAwaitingScreenPermission {
+                            screenOCR.openScreenSettings()
+                        } else {
+                            screenOCR.requestScreenAccess()
+                        }
+                    }
+                    .buttonStyle(.toolboxProminent(.orange))
+                    .controlSize(.regular)
+                    .pointerCursor()
+                } else {
+                    Button("Open Settings…") {
+                        screenOCR.openScreenSettings()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+                    .pointerCursor()
+                }
+            }
+        }
+        .frame(maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func updateLoginItem(enabled: Bool) {
@@ -404,7 +524,7 @@ struct SettingsView: View {
             ) {
                 Toggle("", isOn: $configManager.config.general.showQuickActionsInMenuBar)
                     .labelsHidden()
-                    .toggleStyle(.switch)
+                    .toggleStyle(ToolboxSwitchToggleStyle(onColor: ToolboxTheme.accentBlue))
                     .pointerCursor()
             }
 
@@ -416,7 +536,7 @@ struct SettingsView: View {
             ) {
                 Toggle("", isOn: $configManager.config.general.showQuickCommandsInMenuBar)
                     .labelsHidden()
-                    .toggleStyle(.switch)
+                    .toggleStyle(ToolboxSwitchToggleStyle(onColor: ToolboxTheme.accentBlue))
                     .pointerCursor()
             }
         }
@@ -472,13 +592,16 @@ struct SettingsView: View {
                             .foregroundStyle(.tertiary)
                         Text(isVisible ? "Shown in menu" : "Hidden from menu")
                             .font(.caption2.weight(.medium))
-                            .foregroundStyle(isVisible ? Color.blue : Color.secondary)
+                            .foregroundStyle(isVisible ? ToolboxTheme.readableAccentText(for: .blue) : Color.secondary)
                     }
                 }
 
                 Spacer(minLength: 8)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 2)
+            .menuRowHover(cornerRadius: 6)
             .contentShape(Rectangle())
             .overlay(
                 ReorderRowDragSurface(
@@ -530,8 +653,9 @@ struct SettingsView: View {
                         Image(systemName: "chevron.up")
                             .font(.system(size: 10, weight: .bold))
                             .foregroundStyle(canMoveUp ? Color.primary : Color.secondary.opacity(0.35))
-                            .frame(width: 24, height: 22)
+                            .frame(width: 28, height: 26)
                             .contentShape(Rectangle())
+                            .menuRowHover(cornerRadius: 5)
                     }
                     .buttonStyle(.plain)
                     .focusEffectDisabled()
@@ -540,7 +664,7 @@ struct SettingsView: View {
                     .pointerCursor(canMoveUp)
 
                     Divider()
-                        .frame(height: 14)
+                        .frame(height: 16)
 
                     Button {
                         dragState.cancelActiveDrag()
@@ -555,8 +679,9 @@ struct SettingsView: View {
                         Image(systemName: "chevron.down")
                             .font(.system(size: 10, weight: .bold))
                             .foregroundStyle(canMoveDown ? Color.primary : Color.secondary.opacity(0.35))
-                            .frame(width: 24, height: 22)
+                            .frame(width: 28, height: 26)
                             .contentShape(Rectangle())
+                            .menuRowHover(cornerRadius: 5)
                     }
                     .buttonStyle(.plain)
                     .focusEffectDisabled()

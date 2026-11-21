@@ -135,7 +135,10 @@ struct SupportView: View {
     }
 
     private var heroCard: some View {
-        SectionCard {
+        let pinkFill = ToolboxProminentTone.pink.fillColor
+        let pinkText = ToolboxTheme.readableAccentText(for: .pink)
+
+        return SectionCard(accentTint: .pink) {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .center, spacing: 14) {
                     Button {
@@ -166,7 +169,7 @@ struct SupportView: View {
                                 )
                             Image(systemName: supportState.isSupporterUnlocked ? "heart.circle.fill" : "heart.fill")
                                 .font(.title2)
-                                .foregroundStyle(.pink)
+                                .foregroundStyle(pinkText)
                                 .scaleEffect(uiState.highFivePulse ? 1.22 : 1.0)
                         }
                     }
@@ -185,7 +188,7 @@ struct SupportView: View {
                             }
                         }
 
-                        Text("Built & maintained by one indie developer — free, local-first, with zero ads or tracking. If Toolbox saves you time every day, consider supporting its ongoing development.")
+                        Text("Built & maintained by one indie developer: free, local-first, with zero ads or tracking. If Toolbox saves you time every day, consider supporting its ongoing development.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -195,86 +198,87 @@ struct SupportView: View {
 
                 Divider()
 
-                HStack(alignment: .center, spacing: 10) {
-                    Button {
-                        triggerHighFive(origin: UnitPoint(x: 0.24, y: 0.26))
-                    } label: {
-                        Label(
-                            supportState.highFiveCount > 0
-                                ? "High-Five · \(supportState.highFiveCount)"
-                                : "Send a High-Five",
-                            systemImage: "hands.clap.fill"
-                        )
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 7)
-                        .background(
-                            LinearGradient(
-                                colors: [Color.pink, Color.pink.opacity(0.84)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            ),
-                            in: RoundedRectangle(cornerRadius: 8)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .focusEffectDisabled()
-                    .scaleEffect(uiState.highFivePulse ? 1.05 : 1.0)
-                    .pointerCursor()
-
-                    Button {
-                        let willUnlock = !supportState.isSupporterUnlocked
-                        supportState.toggleSupporterBadge()
-                        if willUnlock {
-                            launchConfetti(at: UnitPoint(x: 0.45, y: 0.26), count: 38)
-                            HUDToast.shared.show(
-                                title: "Thank you for supporting Toolbox!",
-                                symbol: "heart.fill",
-                                tint: .pink
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .center, spacing: 10) {
+                        Button {
+                            triggerHighFive(origin: UnitPoint(x: 0.24, y: 0.26))
+                        } label: {
+                            Label(
+                                supportState.highFiveCount > 0
+                                    ? "High-Five · \(supportState.highFiveCount)"
+                                    : "Send a High-Five",
+                                systemImage: "hands.clap.fill"
+                            )
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 7)
+                            .background(
+                                LinearGradient(
+                                    colors: [pinkFill, pinkFill.opacity(0.90)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                ),
+                                in: RoundedRectangle(cornerRadius: 8)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
                             )
                         }
-                    } label: {
-                        Label(
-                            supportState.isSupporterUnlocked ? "Supporter Badge Active" : "I Supported Toolbox!",
-                            systemImage: supportState.isSupporterUnlocked ? "checkmark.seal.fill" : "sparkles"
-                        )
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(supportState.isSupporterUnlocked ? .pink : .primary)
-                        .padding(.horizontal, 13)
-                        .padding(.vertical, 7)
-                        .background(
-                            supportState.isSupporterUnlocked
-                                ? Color.pink.opacity(0.14)
-                                : Color.primary.opacity(0.07),
-                            in: RoundedRectangle(cornerRadius: 8)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .strokeBorder(
-                                    supportState.isSupporterUnlocked
-                                        ? Color.pink.opacity(0.45)
-                                        : Color.primary.opacity(0.14),
-                                    lineWidth: 1
-                                )
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .focusEffectDisabled()
-                    .help("Honor-system supporter badge — unlocks a thank-you badge in the sidebar.")
-                    .pointerCursor()
+                        .buttonStyle(.plain)
+                        .focusEffectDisabled()
+                        .scaleEffect(uiState.highFivePulse ? 1.05 : 1.0)
+                        .pointerCursor()
 
-                    Spacer(minLength: 8)
+                        Button {
+                            let willUnlock = !supportState.isSupporterUnlocked
+                            supportState.toggleSupporterBadge()
+                            if willUnlock {
+                                launchConfetti(at: UnitPoint(x: 0.45, y: 0.26), count: 38)
+                                HUDToast.shared.show(
+                                    title: "Thank you for supporting Toolbox!",
+                                    symbol: "heart.fill",
+                                    tint: .pink
+                                )
+                            }
+                        } label: {
+                            Label(
+                                supportState.isSupporterUnlocked ? "Supporter Badge Active" : "I Supported Toolbox!",
+                                systemImage: supportState.isSupporterUnlocked ? "checkmark.seal.fill" : "sparkles"
+                            )
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(supportState.isSupporterUnlocked ? pinkText : .primary)
+                            .padding(.horizontal, 13)
+                            .padding(.vertical, 7)
+                            .background(
+                                supportState.isSupporterUnlocked
+                                    ? Color.pink.opacity(0.16)
+                                    : Color.primary.opacity(0.07),
+                                in: RoundedRectangle(cornerRadius: 8)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .strokeBorder(
+                                        supportState.isSupporterUnlocked
+                                            ? Color.pink.opacity(0.48)
+                                            : Color.primary.opacity(0.14),
+                                        lineWidth: 1
+                                    )
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .focusEffectDisabled()
+                        .help("Honor-system supporter badge: unlocks a thank-you badge in the sidebar.")
+                        .pointerCursor()
+
+                        Spacer(minLength: 0)
+                    }
 
                     if let status = supportState.highFiveStatusMessage {
                         Text(status)
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.trailing)
                     } else if supportState.isSupporterUnlocked {
                         Text("Thank you for keeping Toolbox free & open-source!")
                             .font(.caption)
@@ -287,8 +291,8 @@ struct SupportView: View {
 
     private var donateSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(
-                "Support Development",
+            FeatureSectionHeader(
+                title: "Support Development",
                 subtitle: "Every contribution helps cover Apple Developer notarization ($99/yr) and keeps Toolbox free for everyone."
             )
 
@@ -296,7 +300,7 @@ struct SupportView: View {
                 GridRow {
                     SupportActionCard(
                         title: "Sponsor on GitHub",
-                        subtitle: "Best for developers — 0% platform or card fees for personal sponsorships, so 100% reaches the developer.",
+                        subtitle: "Best for developers: 0% platform or card fees for personal sponsorships, so 100% reaches the developer.",
                         badge: "0% fees",
                         actionTitle: "Sponsor on GitHub",
                         symbolName: "heart.fill",
@@ -305,7 +309,7 @@ struct SupportView: View {
                             launchConfetti(at: UnitPoint(x: 0.36, y: 0.52), count: 28)
                             SupportLinks.open(SupportLinks.githubSponsors)
                             HUDToast.shared.show(
-                                title: "Opening GitHub Sponsors — thank you!",
+                                title: "Opening GitHub Sponsors. Thank you!",
                                 symbol: "heart.fill",
                                 tint: .pink
                             )
@@ -314,7 +318,7 @@ struct SupportView: View {
 
                     SupportActionCard(
                         title: "Support on Ko-fi",
-                        subtitle: "Quick one-time tip with Apple Pay, cards, or PayPal — no GitHub account needed (0% Ko-fi fee on tips).",
+                        subtitle: "Quick one-time tip with Apple Pay, cards, or PayPal. No GitHub account needed (0% Ko-fi fee on tips).",
                         badge: "Apple Pay · PayPal",
                         actionTitle: "Support on Ko-fi",
                         symbolName: "cup.and.saucer.fill",
@@ -323,7 +327,7 @@ struct SupportView: View {
                             launchConfetti(at: UnitPoint(x: 0.78, y: 0.52), count: 28)
                             SupportLinks.open(SupportLinks.koFi)
                             HUDToast.shared.show(
-                                title: "Opening Ko-fi — thank you!",
+                                title: "Opening Ko-fi. Thank you!",
                                 symbol: "cup.and.saucer.fill",
                                 tint: .orange
                             )
@@ -336,8 +340,8 @@ struct SupportView: View {
 
     private var freeWaysSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(
-                "Free Ways to Help",
+            FeatureSectionHeader(
+                title: "Free Ways to Help",
                 subtitle: "No budget right now? Stars, shares, and feedback help Toolbox grow just as much."
             )
 
@@ -394,20 +398,6 @@ struct SupportView: View {
         }
     }
 
-    private func sectionHeader(_ title: String, subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title.uppercased())
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .tracking(0.5)
-            Text(subtitle)
-                .font(.system(size: 11.5))
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 4)
-        .textSelection(.enabled)
-    }
-
     private func triggerHighFive(origin: UnitPoint) {
         supportState.sendHighFive()
         launchConfetti(at: origin, count: 28)
@@ -447,6 +437,20 @@ private struct SupportActionCard: View {
 
     @StateObject private var hoverState = SupportCardHoverState()
 
+    private var readableAccent: Color {
+        ToolboxTheme.readableAccentText(for: accentColor)
+    }
+
+    private var prominentButtonFill: Color {
+        if accentColor == .pink {
+            return ToolboxProminentTone.pink.fillColor
+        }
+        if accentColor == .orange {
+            return ToolboxProminentTone.orange.fillColor
+        }
+        return accentColor
+    }
+
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: isCompact ? 10 : 12) {
@@ -457,7 +461,7 @@ private struct SupportActionCard: View {
                             .frame(width: isCompact ? 34 : 40, height: isCompact ? 34 : 40)
                         Image(systemName: symbolName)
                             .font(isCompact ? .body.weight(.semibold) : .title3.weight(.semibold))
-                            .foregroundStyle(accentColor)
+                            .foregroundStyle(readableAccent)
                     }
 
                     Spacer(minLength: 8)
@@ -465,10 +469,10 @@ private struct SupportActionCard: View {
                     if let badge {
                         Text(badge)
                             .font(.caption2.weight(.semibold))
-                            .foregroundStyle(accentColor)
+                            .foregroundStyle(readableAccent)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
-                            .background(accentColor.opacity(0.13), in: Capsule())
+                            .background(accentColor.opacity(0.14), in: Capsule())
                     }
                 }
 
@@ -494,13 +498,13 @@ private struct SupportActionCard: View {
                     Image(systemName: actionSymbol)
                         .font((isCompact ? Font.caption2 : Font.caption).weight(.semibold))
                 }
-                .foregroundStyle(isCompact ? accentColor : .white)
+                .foregroundStyle(isCompact ? readableAccent : .white)
                 .padding(.horizontal, isCompact ? 10 : 14)
                 .padding(.vertical, isCompact ? 5 : 7)
                 .background(
                     isCompact
-                        ? accentColor.opacity(0.14)
-                        : accentColor.opacity(hoverState.isHovered ? 1.0 : 0.88),
+                        ? accentColor.opacity(hoverState.isHovered ? 0.22 : 0.14)
+                        : prominentButtonFill.opacity(hoverState.isHovered ? 0.90 : 1.0),
                     in: RoundedRectangle(cornerRadius: 7)
                 )
             }
@@ -508,10 +512,14 @@ private struct SupportActionCard: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background {
                 RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
-                    .fill(.regularMaterial)
+                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.58))
                     .overlay(
                         RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
-                            .fill(hoverState.isHovered ? accentColor.opacity(0.05) : Color.clear)
+                            .fill(Color.primary.opacity(0.025))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
+                            .fill(hoverState.isHovered ? accentColor.opacity(0.055) : Color.clear)
                     )
             }
             .overlay(

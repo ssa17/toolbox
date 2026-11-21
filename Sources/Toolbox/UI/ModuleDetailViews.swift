@@ -34,16 +34,31 @@ struct ModuleDetailContainerView: View {
         aboutState.isExpanded(module.id)
     }
 
+    private var statusBadgeColor: Color {
+        let missingScreenPermission = (module as? ScreenOCRModule).map { !$0.screenRecordingGranted } ?? false
+        if !isEnabled { return .secondary }
+        if !configManager.config.general.appEnabled { return .orange }
+        if module.requiresAccessibility && !permissions.isAccessibilityGranted { return .orange }
+        if missingScreenPermission { return .orange }
+        if !module.supportsEnableToggle {
+            return module.isRunning ? .red : .blue
+        }
+        return .green
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-
-                SectionCard {
+                VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 14) {
                         ZStack {
                             RoundedRectangle(cornerRadius: 11)
-                                .fill(module.accentColor.opacity(0.16))
+                                .fill(module.accentColor.opacity(0.18))
                                 .frame(width: 44, height: 44)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 11)
+                                        .strokeBorder(module.accentColor.opacity(0.28), lineWidth: 1)
+                                )
                             Image(systemName: module.symbolName)
                                 .font(.title3.weight(.semibold))
                                 .foregroundStyle(module.accentColor)
@@ -58,16 +73,12 @@ struct ModuleDetailContainerView: View {
                                         in: configManager.config,
                                         accessibilityGranted: permissions.isAccessibilityGranted
                                     ),
-                                    color: {
-                                        if !isEnabled { return .secondary }
-                                        if !configManager.config.general.appEnabled { return .orange }
-                                        return (module.requiresAccessibility && !permissions.isAccessibilityGranted) ? .orange : .green
-                                    }()
+                                    color: statusBadgeColor
                                 )
                             }
                             Text(module.tagline)
                                 .font(.callout)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Color.primary.opacity(0.74))
                         }
                         .textSelection(.enabled)
 
@@ -88,17 +99,23 @@ struct ModuleDetailContainerView: View {
                             .pointerCursor()
                         }
                     }
-                }
+                    .padding(16)
 
-                VStack(alignment: .leading, spacing: 0) {
+                    Divider()
+                        .opacity(0.55)
+
                     Button {
                         withAnimation(.easeInOut(duration: 0.16)) {
                             aboutState.toggle(module.id)
                         }
                     } label: {
                         HStack(spacing: 8) {
-                            Label("About This Feature", systemImage: "info.circle")
+                            Image(systemName: "info.circle")
                                 .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(ToolboxTheme.readableAccentText(for: module.accentColor))
+                            Text("About This Feature")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
                             Spacer()
                             Text(isAboutExpanded ? "Hide" : "Show details")
                                 .font(.caption)
@@ -108,83 +125,147 @@ struct ModuleDetailContainerView: View {
                                 .foregroundStyle(.secondary)
                                 .rotationEffect(.degrees(isAboutExpanded ? 90 : 0))
                         }
-                        .padding(16)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 11)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
+                        .menuRowHover(cornerRadius: 0, fillOpacity: 0.065, borderOpacity: 0)
                     }
                     .buttonStyle(.plain)
+                    .focusEffectDisabled()
                     .pointerCursor()
 
                     if isAboutExpanded {
-                        VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 10) {
                             Divider()
-                                .padding(.bottom, 4)
+                                .opacity(0.55)
 
                             Text(module.aboutSummary)
                                 .font(.callout)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Color.primary.opacity(0.76))
 
                             if !module.featureTips.isEmpty {
-                                VStack(alignment: .leading, spacing: 4) {
+                                VStack(alignment: .leading, spacing: 5) {
                                     ForEach(module.featureTips, id: \.self) { tip in
-                                        HStack(alignment: .top, spacing: 6) {
-                                            Text("•")
-                                                .foregroundStyle(module.accentColor)
+                                        HStack(alignment: .top, spacing: 7) {
+                                            Circle()
+                                                .fill(module.accentColor)
+                                                .frame(width: 5, height: 5)
+                                                .padding(.top, 5)
                                             Text(tip)
                                                 .font(.caption)
                                                 .foregroundStyle(.secondary)
                                         }
                                     }
                                 }
-                                .padding(.top, 2)
                             }
                         }
-                        .padding([.horizontal, .bottom], 16)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 14)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
                     }
                 }
-                .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius))
+                .background(
+                    RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
+                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.58))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
+                                .fill(Color.primary.opacity(0.03))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [module.accentColor.opacity(0.06), .clear],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                        )
+                )
+                .clipShape(RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius))
                 .overlay(
                     RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
-                        .strokeBorder(Color.primary.opacity(0.11), lineWidth: 1)
+                        .strokeBorder(
+                            isEnabled ? module.accentColor.opacity(0.22) : Color.primary.opacity(0.11),
+                            lineWidth: 1
+                        )
                 )
 
-                if module.requiresAccessibility && !permissions.isAccessibilityGranted {
-                    SectionCard {
+                if !configManager.config.general.appEnabled && isEnabled {
+                    SectionCard(accentTint: .orange) {
                         HStack(spacing: 14) {
-                            Image(systemName: "lock.shield")
-                                .font(.title2)
-                                .foregroundStyle(.orange)
-                            VStack(alignment: .leading, spacing: 3) {
-                                HStack(spacing: 8) {
-                                    Text("Accessibility Required for This Module")
-                                        .font(.headline)
-                                    if permissions.isAwaitingAccessibilityGrant {
-                                        StatusBadge(text: "Waiting…", color: .orange)
-                                    }
-                                }
-                                Text(module.accessibilityReason)
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(Color.orange.opacity(0.16))
+                                    .frame(width: 38, height: 38)
+                                Image(systemName: "pause.circle.fill")
+                                    .font(.title3.weight(.semibold))
+                                    .foregroundStyle(.orange)
+                            }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Toolbox is Paused")
+                                    .font(.headline)
+                                Text("All background features are temporarily suspended. Resume Toolbox to reactivate this module.")
                                     .font(.callout)
                                     .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                             .textSelection(.enabled)
-                            Spacer()
+                            Spacer(minLength: 8)
+                            Button("Resume Toolbox") {
+                                configManager.config.general.appEnabled = true
+                            }
+                            .buttonStyle(.toolboxProminent(.orange))
+                            .fixedSize(horizontal: true, vertical: false)
+                            .pointerCursor()
+                        }
+                    }
+                }
+
+                if module.requiresAccessibility && !permissions.isAccessibilityGranted {
+                    SectionCard(accentTint: .orange) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(alignment: .top, spacing: 14) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(Color.orange.opacity(0.16))
+                                        .frame(width: 40, height: 40)
+                                    Image(systemName: "lock.shield")
+                                        .font(.title3.weight(.semibold))
+                                        .foregroundStyle(.orange)
+                                }
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: 8) {
+                                        Text("Accessibility Required for This Module")
+                                            .font(.headline)
+                                        if permissions.isAwaitingAccessibilityGrant {
+                                            StatusBadge(text: "Waiting…", color: .orange)
+                                        }
+                                    }
+                                    Text(module.accessibilityReason)
+                                        .font(.callout)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .textSelection(.enabled)
+                            }
+
                             HStack(spacing: 8) {
+                                Spacer(minLength: 0)
                                 if permissions.isAdHocSigned || permissions.hasAttemptedGrantWithoutSuccess {
-                                    Button(permissions.isResettingAccessibility ? "Resetting…" : "Reset Entry") {
+                                    Button(permissions.isResettingAccessibility ? "Resetting…" : "Reset Permission") {
                                         permissions.resetAndRegrantAccessibility()
                                     }
                                     .buttonStyle(.bordered)
-                                    .controlSize(.large)
                                     .disabled(permissions.isResettingAccessibility)
                                     .pointerCursor(!permissions.isResettingAccessibility)
                                 }
-                                Button(permissions.isAwaitingAccessibilityGrant ? "Open Settings…" : "Grant Permission…") {
+                                Button(permissions.isAwaitingAccessibilityGrant ? "Open Settings…" : "Grant Access…") {
                                     permissions.promptAndOpenSettings()
                                 }
                                 .buttonStyle(.toolboxProminent(.orange))
-                                .controlSize(.large)
                                 .pointerCursor()
                             }
                         }

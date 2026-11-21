@@ -45,9 +45,22 @@ private final class ConfigEditorState: ObservableObject {
     @Published var collapsedPaths: Set<String> = []
     @Published var editingPath: String?
     @Published var editDraft: String = ""
+    @Published var copiedJSON = false
+
+    private var copiedResetTask: Task<Void, Never>?
 
     var hasUnsavedChanges: Bool {
         text != savedText
+    }
+
+    func markCopied() {
+        copiedJSON = true
+        copiedResetTask?.cancel()
+        copiedResetTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(900))
+            guard !Task.isCancelled else { return }
+            self?.copiedJSON = false
+        }
     }
 
     func syncFromManager() {
@@ -75,46 +88,17 @@ struct ConfigEditorView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SectionCard {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 10) {
-                        Text("JSON Configuration")
-                            .font(.title3.bold())
-                            .lineLimit(1)
-                        if editorState.hasUnsavedChanges {
-                            StatusBadge(text: "Unsaved changes", color: .orange)
-                        } else {
-                            StatusBadge(text: "Synced", color: .green)
-                        }
-                        Spacer()
-                        Picker("", selection: $editorState.mode) {
-                            ForEach(JSONEditorMode.allCases) { m in
-                                Text(m.rawValue).tag(m)
-                            }
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.segmented)
-                        .frame(width: 170)
-                        .pointerCursor()
+            SectionCard(accentTint: ToolboxTheme.accentBlue) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 14) {
+                        headerTitleBlock
+                        Spacer(minLength: 10)
+                        headerFileActions
                     }
 
-                    HStack(spacing: 10) {
-                        Text("Live-synced with \(configManager.configURL.path).")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Spacer()
-                        Button("Open in Editor") {
-                            NSWorkspace.shared.open(configManager.configURL)
-                        }
-                        .controlSize(.small)
-                        .pointerCursor()
-                        Button("Reveal in Finder") {
-                            NSWorkspace.shared.activateFileViewerSelecting([configManager.configURL])
-                        }
-                        .controlSize(.small)
-                        .pointerCursor()
+                    VStack(alignment: .leading, spacing: 10) {
+                        headerTitleBlock
+                        headerFileActions
                     }
                 }
             }
@@ -122,10 +106,10 @@ struct ConfigEditorView: View {
             if let err = editorState.formatError ?? configManager.lastConfigError {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
+                        .foregroundStyle(ToolboxTheme.readableAccentText(for: .red))
                     Text(err)
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(ToolboxTheme.readableAccentText(for: .red))
                     Spacer()
                 }
                 .padding(10)
@@ -133,7 +117,7 @@ struct ConfigEditorView: View {
             } else if let status = editorState.statusMessage {
                 HStack(spacing: 8) {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(ToolboxTheme.readableAccentText(for: .green))
                     Text(status)
                         .font(.caption)
                     Spacer()
@@ -142,120 +126,123 @@ struct ConfigEditorView: View {
                 .background(Color.green.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
             }
 
-            Group {
-                if editorState.mode == .tree {
-                    if let root = parsedRoot {
-                        JSONTreeEditorView(root: root, editorState: editorState)
-                    } else {
-                        VStack(spacing: 10) {
-                            Image(systemName: "exclamationmark.triangle")
-                                .font(.title2)
-                                .foregroundStyle(.orange)
-                            Text("JSON has syntax errors. Switch to Raw JSON to fix them.")
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                            Button("Switch to Raw JSON") {
-                                editorState.mode = .raw
-                            }
-                            .buttonStyle(.toolboxProminent)
-                            .pointerCursor()
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    ToolboxSegmentedControl(
+                        options: Array(JSONEditorMode.allCases),
+                        selection: $editorState.mode,
+                        accentColor: ToolboxTheme.accentBlue,
+                        label: { $0.rawValue },
+                        symbol: { $0 == .tree ? "list.bullet.indent" : "curlybraces" }
+                    )
+
+                    if editorState.mode == .tree {
+                        Text("Click any value to edit")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
-                } else {
-                    SyntaxHighlightedJSONView(text: $editorState.text)
+
+                    Spacer(minLength: 8)
+
+                    if editorState.mode == .tree {
+                        Button("Expand All") {
+                            editorState.collapsedPaths.removeAll()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .focusEffectDisabled()
+                        .pointerCursor()
+
+                        Button("Collapse All") {
+                            if let root = parsedRoot {
+                                editorState.collapsedPaths = collectAllContainerPaths(node: root, path: "root")
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .focusEffectDisabled()
+                        .pointerCursor()
+                    } else {
+                        Button {
+                            formatRawJSON()
+                        } label: {
+                            Label("Format", systemImage: "text.alignleft")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .focusEffectDisabled()
+                        .help("Pretty-print JSON in editor")
+                        .pointerCursor()
+                    }
+
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(editorState.text, forType: .string)
+                        editorState.markCopied()
+                    } label: {
+                        if editorState.copiedJSON {
+                            Label("Copied", systemImage: "checkmark")
+                        } else {
+                            Label("Copy", systemImage: "doc.on.doc")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .focusEffectDisabled()
+                    .help("Copy JSON to clipboard")
+                    .pointerCursor()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.primary.opacity(0.03))
+
+                Divider()
+
+                Group {
+                    if editorState.mode == .tree {
+                        if let root = parsedRoot {
+                            JSONTreeEditorView(root: root, editorState: editorState)
+                        } else {
+                            VStack(spacing: 10) {
+                                Image(systemName: "exclamationmark.triangle")
+                                    .font(.title2)
+                                    .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
+                                Text("JSON has syntax errors. Switch to Raw JSON to fix them.")
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                                Button("Switch to Raw JSON") {
+                                    editorState.mode = .raw
+                                }
+                                .buttonStyle(.toolboxProminent)
+                                .pointerCursor()
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                    } else {
+                        SyntaxHighlightedJSONView(text: $editorState.text)
+                    }
                 }
             }
-            .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 10))
+            .background(Color.black.opacity(0.20), in: RoundedRectangle(cornerRadius: 10))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
+                    .strokeBorder(Color.primary.opacity(0.11), lineWidth: 1)
             )
 
-            HStack(spacing: 8) {
-                Button("Apply & Save") {
-                    editorState.formatError = nil
-                    if configManager.applyRawJSON(editorState.text) {
-                        editorState.syncFromManager()
-                        editorState.statusMessage = "Saved and reloaded config.json"
-                    } else {
-                        editorState.statusMessage = nil
-                    }
-                }
-                .buttonStyle(.toolboxProminent)
-                .keyboardShortcut("s", modifiers: .command)
-                .disabled(!editorState.hasUnsavedChanges)
-                .help(editorState.hasUnsavedChanges ? "Apply & Save JSON (⌘S)" : "No unsaved changes")
-                .pointerCursor(editorState.hasUnsavedChanges)
-
-                if editorState.mode == .tree {
-                    Button("Expand All") {
-                        editorState.collapsedPaths.removeAll()
-                    }
-                    .buttonStyle(.bordered)
-                    .pointerCursor()
-
-                    Button("Collapse All") {
-                        if let root = parsedRoot {
-                            editorState.collapsedPaths = collectAllContainerPaths(node: root, path: "root")
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .pointerCursor()
-                } else {
-                    Button("Format") {
-                        do {
-                            guard let data = editorState.text.data(using: .utf8) else {
-                                editorState.formatError = "Invalid UTF-8 text"
-                                editorState.statusMessage = nil
-                                return
-                            }
-                            let obj = try JSONSerialization.jsonObject(with: data)
-                            let pretty = try JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys])
-                            if let formatted = String(data: pretty, encoding: .utf8) {
-                                editorState.formatError = nil
-                                editorState.text = formatted
-                                editorState.statusMessage = formatted == editorState.savedText ? nil : "Formatted JSON (not yet saved)"
-                            }
-                        } catch {
-                            editorState.formatError = "Invalid JSON: \(error.localizedDescription)"
-                            editorState.statusMessage = nil
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .help("Pretty-print JSON in editor")
-                    .pointerCursor()
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    applyAndDiscardButtons
+                    Spacer(minLength: 8)
+                    resetToDefaultsButton
                 }
 
-                Button("Reload") {
-                    configManager.loadFromDisk()
-                    editorState.syncFromManager()
-                    editorState.statusMessage = "Reloaded from disk"
-                }
-                .buttonStyle(.bordered)
-                .help("Reload from disk")
-                .pointerCursor()
-
-                Spacer()
-
-                Button("Reset to Defaults", role: .destructive) {
-                    editorState.showResetConfirmation = true
-                }
-                .buttonStyle(.bordered)
-                .pointerCursor()
-                .confirmationDialog(
-                    "Reset all Toolbox settings to defaults?",
-                    isPresented: $editorState.showResetConfirmation,
-                    titleVisibility: .visible
-                ) {
-                    Button("Reset to Defaults", role: .destructive) {
-                        configManager.resetToDefaults()
-                        editorState.syncFromManager()
-                        editorState.statusMessage = "Restored default settings"
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        applyAndDiscardButtons
                     }
-                    Button("Cancel", role: .cancel) {}
-                } message: {
-                    Text("This will overwrite custom commands, exclusions, shortcuts, and preferences.")
+                    resetToDefaultsButton
                 }
             }
         }
@@ -267,6 +254,145 @@ struct ConfigEditorView: View {
             if !editorState.hasUnsavedChanges {
                 editorState.syncFromManager()
             }
+        }
+    }
+
+    private var headerTitleBlock: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(ToolboxTheme.accentBlue.opacity(0.16))
+                    .frame(width: 40, height: 40)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(ToolboxTheme.accentBlue.opacity(0.26), lineWidth: 1)
+                    )
+                Image(systemName: "curlybraces")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(ToolboxTheme.accentBlue)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text("JSON Configuration")
+                        .font(.title3.bold())
+                        .lineLimit(1)
+                    if editorState.hasUnsavedChanges {
+                        StatusBadge(text: "Unsaved changes", color: .orange)
+                    } else {
+                        StatusBadge(text: "Synced", color: .green)
+                    }
+                }
+
+                Text("Live-synced with \(configManager.configURL.path).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(configManager.configURL.path)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+
+    private var headerFileActions: some View {
+        HStack(spacing: 6) {
+            Button("Open in Editor") {
+                NSWorkspace.shared.open(configManager.configURL)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .focusEffectDisabled()
+            .pointerCursor()
+
+            Button("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([configManager.configURL])
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .focusEffectDisabled()
+            .pointerCursor()
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    @ViewBuilder
+    private var applyAndDiscardButtons: some View {
+        Button {
+            editorState.formatError = nil
+            if configManager.applyRawJSON(editorState.text) {
+                editorState.syncFromManager()
+                editorState.statusMessage = "Saved and reloaded config.json"
+            } else {
+                editorState.statusMessage = nil
+            }
+        } label: {
+            Label("Apply & Save", systemImage: "checkmark.circle.fill")
+        }
+        .buttonStyle(.toolboxProminent)
+        .keyboardShortcut("s", modifiers: .command)
+        .disabled(!editorState.hasUnsavedChanges)
+        .help(editorState.hasUnsavedChanges ? "Apply & Save JSON (⌘S)" : "No unsaved changes")
+        .pointerCursor(editorState.hasUnsavedChanges)
+
+        Button {
+            configManager.loadFromDisk()
+            editorState.syncFromManager()
+            editorState.statusMessage = "Reloaded from disk"
+        } label: {
+            Label(
+                editorState.hasUnsavedChanges ? "Discard Changes" : "Reload",
+                systemImage: editorState.hasUnsavedChanges ? "arrow.uturn.backward" : "arrow.clockwise"
+            )
+        }
+        .buttonStyle(.bordered)
+        .focusEffectDisabled()
+        .help(editorState.hasUnsavedChanges ? "Discard edits and reload from disk" : "Reload from disk")
+        .pointerCursor()
+    }
+
+    private var resetToDefaultsButton: some View {
+        Button(role: .destructive) {
+            editorState.showResetConfirmation = true
+        } label: {
+            Label("Reset to Defaults", systemImage: "arrow.counterclockwise")
+        }
+        .buttonStyle(.toolboxDestructive)
+        .focusEffectDisabled()
+        .pointerCursor()
+        .confirmationDialog(
+            "Reset all Toolbox settings to defaults?",
+            isPresented: $editorState.showResetConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Reset to Defaults", role: .destructive) {
+                configManager.resetToDefaults()
+                editorState.syncFromManager()
+                editorState.statusMessage = "Restored default settings"
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will overwrite custom commands, exclusions, shortcuts, and preferences.")
+        }
+    }
+
+    private func formatRawJSON() {
+        do {
+            guard let data = editorState.text.data(using: .utf8) else {
+                editorState.formatError = "Invalid UTF-8 text"
+                editorState.statusMessage = nil
+                return
+            }
+            let obj = try JSONSerialization.jsonObject(with: data)
+            let pretty = try JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys])
+            if let formatted = String(data: pretty, encoding: .utf8) {
+                editorState.formatError = nil
+                editorState.text = formatted
+                editorState.statusMessage = formatted == editorState.savedText ? nil : "Formatted JSON (not yet saved)"
+            }
+        } catch {
+            editorState.formatError = "Invalid JSON: \(error.localizedDescription)"
+            editorState.statusMessage = nil
         }
     }
 
@@ -493,6 +619,9 @@ private struct JSONTreeNodeView: View {
                     .onSubmit {
                         commitLeafEdit()
                     }
+                    .onExitCommand {
+                        editorState.editingPath = nil
+                    }
                 Button("OK") {
                     commitLeafEdit()
                 }
@@ -506,6 +635,9 @@ private struct JSONTreeNodeView: View {
                 .controlSize(.mini)
                 .pointerCursor()
             }
+            .onExitCommand {
+                editorState.editingPath = nil
+            }
         } else if let num = value as? NSNumber {
             Button {
                 editorState.editDraft = num.stringValue
@@ -514,6 +646,9 @@ private struct JSONTreeNodeView: View {
                 Text(num.stringValue)
                     .font(.system(.callout, design: .monospaced))
                     .foregroundStyle(JSONDepthPalette.numberColor)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .menuRowHover(cornerRadius: 4)
             }
             .buttonStyle(.plain)
             .help("Click to edit number")
@@ -528,6 +663,9 @@ private struct JSONTreeNodeView: View {
                     .foregroundStyle(JSONDepthPalette.stringColor)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .menuRowHover(cornerRadius: 4)
             }
             .buttonStyle(.plain)
             .help("Click to edit string")

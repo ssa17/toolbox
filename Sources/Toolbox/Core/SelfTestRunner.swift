@@ -941,7 +941,27 @@ enum SelfTestRunner {
         expect(ids.count >= 4, "Expected at least 4 built-in modules")
         for module in registry.modules {
             expect(!module.name.isEmpty, "Module \(module.id) name must not be empty")
+            expect(NSImage(systemSymbolName: module.symbolName, accessibilityDescription: nil) != nil,
+                   "Module \(module.id) symbol \(module.symbolName) must exist on macOS")
             _ = module.makeSettingsView()
+        }
+        let uiSymbols = [
+            "eye.slash.fill", "square.2.layers.3d.bottom.filled", "rectangle.compress.vertical",
+            "rectangle.stack.badge.minus", "rectangle.badge.minus", "cursorarrow.click", "cursorarrow.click.2",
+            "arrow.up.right.square", "bolt.fill", "gauge.medium", "leaf.fill",
+            "slider.horizontal.3", "rectangle", "rectangle.expand.vertical", "aspectratio",
+            "hand.raised.circle.fill", "bolt.slash.circle.fill", "bolt.shield.fill",
+            "cursorarrow.motionlines", "battery.100.bolt", "timer", "key.fill", "checkmark.shield.fill",
+            "escape", "power", "hand.draw", "mic.fill", "chevron.down", "chevron.up",
+            "doc.on.doc", "arrow.uturn.backward", "arrow.clockwise", "text.alignleft",
+            "text.viewfinder", "qrcode", "hands.clap.fill", "sparkles",
+            "terminal", "app.badge", "globe", "doc.on.clipboard", "computermouse",
+            "rectangle.and.hand.point.up.left", "macwindow.on.rectangle", "macwindow",
+            "list.bullet.indent", "curlybraces", "gearshape.fill"
+        ]
+        for sym in uiSymbols {
+            expect(NSImage(systemSymbolName: sym, accessibilityDescription: nil) != nil,
+                   "UI symbol \(sym) must exist on macOS")
         }
     }
 
@@ -2059,6 +2079,11 @@ enum SelfTestRunner {
         expect(module.isLocked, "Countdown session should be locked before stop()")
         module.stop()
         expect(!module.isLocked, "stop() must cancel countdown and clear locked state")
+
+        let prevAppEnabled = ConfigManager.shared.config.general.appEnabled
+        ConfigManager.shared.config.general.appEnabled = false
+        expect(!module.lock(), "CleanLockModule.lock() must refuse when general.appEnabled is false")
+        ConfigManager.shared.config.general.appEnabled = prevAppEnabled
     }
 
     private static func testCallControlsConfigAndCoreAudioEnumeration() {

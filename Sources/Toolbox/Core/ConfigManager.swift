@@ -19,13 +19,13 @@ enum DockActionMode: String, Codable, CaseIterable, Sendable {
     var explanation: String {
         switch self {
         case .hideApp:
-            return "Makes the active app's windows disappear completely without using the Dock's minimized tray, focuses the window underneath, and brings the app right back to the front when clicked again."
+            return "Hides the active app completely without minimizing, then brings it back when clicked again."
         case .sendToBack:
-            return "Switches focus to the window directly behind the active app while keeping the current window visible on screen underneath."
+            return "Switches focus to the window behind the active app while keeping it open underneath."
         case .minimizeAll:
-            return "Minimizes every open window of the active app into the right side of the Dock and focuses the window underneath."
+            return "Minimizes all windows of the active app into the Dock tray and focuses the window underneath."
         case .minimizeFrontWindow:
-            return "Minimizes only the frontmost window into the Dock tray while leaving the app's other windows visible."
+            return "Minimizes only the frontmost window into the Dock tray while keeping its other windows open."
         }
     }
 }

@@ -43,8 +43,10 @@ struct CallControlsSettingsView: View {
             }
 
             unifiedCallKeybindsSection
+            overrideScopeSection
             callAppsSection
-            hardwareMicAndTypingSection
+            floatingPillAndNotificationsSection
+            typingGuardAndFallbackSection
             audioDevicesSection
         }
         .onAppear {
@@ -58,191 +60,231 @@ struct CallControlsSettingsView: View {
     // MARK: - Live Status & Quick Controls
 
     private var liveStatusSection: some View {
-        let input = module.defaultInputDevice
-        let output = module.defaultOutputDevice
-
         return FeatureSection(
             "LIVE CALL & AUDIO STATUS",
-            subtitle: "Control your macOS microphone, check camera state, and switch audio outputs immediately."
+            subtitle: "Mute or unmute your mic, check camera state, and switch audio outputs."
         ) {
             VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 12) {
-                    // Microphone Quick Card
-                    HStack(spacing: 10) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill((module.isInputMuted ? Color.red : Color.green).opacity(0.15))
-                                .frame(width: 34, height: 34)
-                            Image(systemName: module.isTypingMuted ? "keyboard" : (module.isInputMuted ? "mic.slash.fill" : "mic.fill"))
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(module.isTypingMuted ? .orange : (module.isInputMuted ? .red : .green))
-                        }
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 6) {
-                                Text("Microphone")
-                                    .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                                StatusBadge(
-                                    text: module.isTypingMuted ? "Typing Mute" : (module.isInputMuted ? "Muted" : "Live"),
-                                    color: module.isTypingMuted ? .orange : (module.isInputMuted ? .red : .green)
-                                )
-                            }
-                            Text(input?.name ?? "No input device")
-                                .font(.callout.weight(.medium))
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
-
-                        Spacer(minLength: 6)
-
-                        Button {
-                            module.toggleHardwareMicMute()
-                        } label: {
-                            Label(
-                                module.isInputMuted ? "Unmute" : "Mute",
-                                systemImage: module.isInputMuted ? "mic.fill" : "mic.slash.fill"
-                            )
-                            .font(.caption.weight(.semibold))
-                        }
-                        .buttonStyle(.toolboxProminent(module.isInputMuted ? .green : .red))
-                        .controlSize(.small)
-                        .disabled(input == nil)
-                        .pointerCursor(input != nil)
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        micQuickCard
+                        outputQuickCard
                     }
-                    .padding(10)
-                    .frame(maxWidth: .infinity)
-                    .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 9))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 9)
-                            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-                    )
 
-                    // Output Quick Card
-                    HStack(spacing: 10) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.blue.opacity(0.15))
-                                .frame(width: 34, height: 34)
-                            Image(systemName: output?.transport.symbolName(isInput: false) ?? "speaker.wave.2.fill")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(.blue)
-                        }
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 6) {
-                                Text("Output")
-                                    .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                                if let transport = output?.transport {
-                                    Text(transport.label)
-                                        .font(.caption2.weight(.medium))
-                                        .foregroundStyle(.tertiary)
-                                }
-                            }
-                            Text(output?.name ?? "No output device")
-                                .font(.callout.weight(.medium))
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
-
-                        Spacer(minLength: 6)
-
-                        Button {
-                            module.cycleOutputDevice()
-                        } label: {
-                            Label("Cycle", systemImage: "arrow.triangle.2.circlepath")
-                                .font(.caption.weight(.semibold))
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .disabled(module.outputDevices.count < 2)
-                        .help("Switch to the next favorite output device")
-                        .pointerCursor(module.outputDevices.count >= 2)
+                    VStack(spacing: 10) {
+                        micQuickCard
+                        outputQuickCard
                     }
-                    .padding(10)
-                    .frame(maxWidth: .infinity)
-                    .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 9))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 9)
-                            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-                    )
                 }
 
-                HStack(spacing: 10) {
-                    HStack(spacing: 6) {
-                        Image(systemName: module.isCameraActive ? "video.fill" : "video.slash.fill")
-                            .font(.caption)
-                            .foregroundStyle(module.hasCameraDevice ? (module.isCameraActive ? .green : .red) : .secondary)
-                        Text(
-                            !module.hasCameraDevice
-                                ? "No camera detected"
-                                : (module.isCameraActive
-                                    ? "Camera Live: \(module.activeCameraName ?? "Active")"
-                                    : "Camera Off")
-                        )
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) {
+                        cameraStatusPill
+                        if let lastAction = module.lastRelayedActionLabel {
+                            lastRelayedPill(lastAction)
+                        }
+                        Spacer(minLength: 0)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(
-                        (module.isCameraActive ? Color.green : Color.red).opacity(module.hasCameraDevice ? 0.10 : 0.05),
-                        in: Capsule()
-                    )
 
-                    if let lastAction = module.lastRelayedActionLabel {
-                        HStack(spacing: 5) {
-                            Image(systemName: "bolt.horizontal.circle.fill")
-                                .font(.caption)
-                                .foregroundStyle(.green)
-                            Text("Last relayed: \(lastAction)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
+                    VStack(alignment: .leading, spacing: 6) {
+                        cameraStatusPill
+                        if let lastAction = module.lastRelayedActionLabel {
+                            lastRelayedPill(lastAction)
                         }
                     }
-
-                    Spacer()
                 }
             }
+        }
+    }
+
+    private var micQuickCard: some View {
+        let input = module.defaultInputDevice
+        let statusColor: Color = module.isTypingMuted ? .orange : (module.isInputMuted ? .red : .green)
+
+        return HStack(spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(statusColor.opacity(0.15))
+                    .frame(width: 34, height: 34)
+                Image(systemName: module.isTypingMuted ? "keyboard" : (module.isInputMuted ? "mic.slash.fill" : "mic.fill"))
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(ToolboxTheme.readableAccentText(for: statusColor))
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text("Microphone")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    StatusBadge(
+                        text: module.isTypingMuted ? "Typing Mute" : (module.isInputMuted ? "Muted" : "Live"),
+                        color: statusColor
+                    )
+                }
+                Text(input?.name ?? "No input device")
+                    .font(.callout.weight(.medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+
+            Spacer(minLength: 6)
+
+            Button {
+                module.toggleHardwareMicMute()
+            } label: {
+                Label(
+                    module.isInputMuted ? "Unmute" : "Mute",
+                    systemImage: module.isInputMuted ? "mic.fill" : "mic.slash.fill"
+                )
+                .font(.caption.weight(.semibold))
+            }
+            .buttonStyle(.toolboxProminent(module.isInputMuted ? .green : .red))
+            .controlSize(.small)
+            .fixedSize(horizontal: true, vertical: false)
+            .focusEffectDisabled()
+            .disabled(input == nil)
+            .pointerCursor(input != nil)
+        }
+        .padding(11)
+        .frame(maxWidth: .infinity)
+        .background(statusColor.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(statusColor.opacity(0.22), lineWidth: 1)
+        )
+    }
+
+    private var outputQuickCard: some View {
+        let output = module.defaultOutputDevice
+
+        return HStack(spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.blue.opacity(0.15))
+                    .frame(width: 34, height: 34)
+                Image(systemName: output?.transport.symbolName(isInput: false) ?? "speaker.wave.2.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(ToolboxTheme.readableAccentText(for: .blue))
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text("Output")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    if let transport = output?.transport {
+                        Text(transport.label)
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Text(output?.name ?? "No output device")
+                    .font(.callout.weight(.medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+
+            Spacer(minLength: 6)
+
+            Button {
+                module.cycleOutputDevice()
+            } label: {
+                Label("Cycle", systemImage: "arrow.triangle.2.circlepath")
+                    .font(.caption.weight(.semibold))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .fixedSize(horizontal: true, vertical: false)
+            .focusEffectDisabled()
+            .disabled(module.outputDevices.count < 2)
+            .help("Switch to the next favorite output device")
+            .pointerCursor(module.outputDevices.count >= 2)
+        }
+        .padding(11)
+        .frame(maxWidth: .infinity)
+        .background(Color.blue.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(Color.blue.opacity(0.20), lineWidth: 1)
+        )
+    }
+
+    private var cameraStatusPill: some View {
+        let tint: Color = module.hasCameraDevice ? (module.isCameraActive ? .green : .red) : .secondary
+        return HStack(spacing: 6) {
+            Image(systemName: module.isCameraActive ? "video.fill" : "video.slash.fill")
+                .font(.caption)
+                .foregroundStyle(ToolboxTheme.readableAccentText(for: tint))
+            Text(
+                !module.hasCameraDevice
+                    ? "No camera detected"
+                    : (module.isCameraActive
+                        ? "Camera Live: \(module.activeCameraName ?? "Active")"
+                        : "Camera Off")
+            )
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4)
+        .background(tint.opacity(module.hasCameraDevice ? 0.11 : 0.06), in: Capsule())
+    }
+
+    private func lastRelayedPill(_ lastAction: String) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: "bolt.horizontal.circle.fill")
+                .font(.caption)
+                .foregroundStyle(ToolboxTheme.readableAccentText(for: .green))
+            Text("Last relayed: \(lastAction)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
         }
     }
 
     // MARK: - Inline Accessibility Banner
 
     private var accessibilityInlineBanner: some View {
-        SectionCard {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "lock.shield")
-                    .font(.title2)
-                    .foregroundStyle(.orange)
+        SectionCard(accentTint: .orange) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "lock.shield")
+                        .font(.title2)
+                        .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Accessibility Required for Keybind Override & Typing Guard")
-                        .font(.headline)
-                    Text(module.accessibilityReason)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Accessibility Required for Keybind Override & Typing Guard")
+                            .font(.headline)
+                        Text(module.accessibilityReason)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .textSelection(.enabled)
+
+                    Spacer(minLength: 0)
                 }
-                .textSelection(.enabled)
 
-                Spacer()
+                HStack(spacing: 8) {
+                    if permissions.isAdHocSigned || permissions.hasAttemptedGrantWithoutSuccess {
+                        Button(permissions.isResettingAccessibility ? "Resetting…" : "Reset Permission") {
+                            permissions.resetAndRegrantAccessibility()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.regular)
+                        .disabled(permissions.isResettingAccessibility)
+                        .pointerCursor(!permissions.isResettingAccessibility)
+                    }
 
-                VStack(alignment: .trailing, spacing: 8) {
-                    Button(permissions.isAwaitingAccessibilityGrant ? "Open Settings…" : "Grant Permission…") {
+                    Spacer(minLength: 0)
+
+                    Button(permissions.isAwaitingAccessibilityGrant ? "Open Settings…" : "Grant Access…") {
                         permissions.promptAndOpenSettings()
                     }
                     .buttonStyle(.toolboxProminent(.orange))
+                    .controlSize(.regular)
                     .pointerCursor()
-
-                    Button(permissions.isResettingAccessibility ? "Resetting…" : "Reset Entry") {
-                        permissions.resetAndRegrantAccessibility()
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(permissions.isResettingAccessibility)
-                    .pointerCursor(!permissions.isResettingAccessibility)
                 }
             }
         }
@@ -255,7 +297,7 @@ struct CallControlsSettingsView: View {
 
         return FeatureSection(
             "MY MIC & VIDEO KEYBINDS",
-            subtitle: "Set your own Mic and Video shortcuts once and use them in whichever app you're in — Toolbox toggles your mic and overrides enabled call apps."
+            subtitle: "Set your own Mic and Video shortcuts once and use them in any app to toggle your mic and override enabled call apps."
         ) {
             VStack(alignment: .leading, spacing: 0) {
                 keybindReadinessStrip(cfg: cfg)
@@ -288,6 +330,7 @@ struct CallControlsSettingsView: View {
 
                         ShortcutRecorderView(
                             shortcut: configManager.config.callControls.micShortcut,
+                            defaultShortcut: CallControlsConfig.defaultMicShortcut,
                             sourceID: "call_controls.mic"
                         ) { newShortcut in
                             configManager.config.callControls.micShortcut = newShortcut
@@ -301,7 +344,7 @@ struct CallControlsSettingsView: View {
 
                 SettingRow(
                     "My Video Keybind",
-                    subtitle: "Toggles camera inside apps with a native video shortcut (\(CallControlsModule.videoCapableAppsSummary(from: cfg.appShortcutMappings))). macOS and FaceTime have no OS/app camera mute."
+                    subtitle: "Toggles camera inside apps with a video shortcut (\(CallControlsModule.videoCapableAppsSummary(from: cfg.appShortcutMappings))). macOS and FaceTime have no camera mute shortcut."
                 ) {
                     HStack(spacing: 6) {
                         Menu("Presets") {
@@ -321,6 +364,7 @@ struct CallControlsSettingsView: View {
 
                         ShortcutRecorderView(
                             shortcut: configManager.config.callControls.videoShortcut,
+                            defaultShortcut: CallControlsConfig.defaultVideoShortcut,
                             sourceID: "call_controls.video"
                         ) { newShortcut in
                             configManager.config.callControls.videoShortcut = newShortcut
@@ -332,34 +376,56 @@ struct CallControlsSettingsView: View {
                 Divider()
                     .padding(.vertical, 10)
 
-                VStack(alignment: .leading, spacing: 6) {
-                    SettingRow("Where Keybinds Apply") {
-                        Picker("", selection: $configManager.config.callControls.overrideScope) {
-                            ForEach(CallOverrideScope.allCases, id: \.self) { scope in
-                                Text(scope.label).tag(scope)
-                            }
-                        }
-                        .labelsHidden()
-                        .fixedSize()
-                        .pointerCursor()
-                    }
-                    Text(configManager.config.callControls.overrideScope.explanation)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Divider()
-                    .padding(.vertical, 10)
-
                 SettingRow(
                     "Also Mute macOS Hardware Mic",
-                    subtitle: "Also mutes system input via CoreAudio during call-app toggles. Leave off to prevent Slack/Teams system-mute warning banners."
+                    subtitle: "Also mutes system input alongside call-app toggles. Leave off to prevent Slack or Teams system-mute warning banners."
                 ) {
                     Toggle("", isOn: $configManager.config.callControls.syncHardwareMuteWithAppMicToggle)
                         .labelsHidden()
-                        .toggleStyle(.switch)
+                        .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
                         .pointerCursor()
+                }
+            }
+        }
+    }
+
+    private var overrideScopeSection: some View {
+        FeatureCardGridSection(
+            "Where Keybinds Apply",
+            subtitle: "Choose when your unified Mic & Video shortcuts intercept."
+        ) {
+            Grid(horizontalSpacing: 12, verticalSpacing: 12) {
+                GridRow {
+                    SelectableOptionCard(
+                        title: "Everywhere",
+                        subtitle: "Toggles your macOS mic in any app and relays to active or background call apps.",
+                        symbolName: "globe",
+                        accentColor: module.accentColor,
+                        badge: "Default",
+                        isSelected: configManager.config.callControls.overrideScope == .everywhere
+                    ) {
+                        configManager.config.callControls.overrideScope = .everywhere
+                    }
+
+                    SelectableOptionCard(
+                        title: "Open Call Apps",
+                        subtitle: "Intercepts while an enabled call app is active or in the background; passes through when idle.",
+                        symbolName: "macwindow.on.rectangle",
+                        accentColor: module.accentColor,
+                        isSelected: configManager.config.callControls.overrideScope == .activeOrRunningBackground
+                    ) {
+                        configManager.config.callControls.overrideScope = .activeOrRunningBackground
+                    }
+
+                    SelectableOptionCard(
+                        title: "Focused App Only",
+                        subtitle: "Zero interference: intercepts only when an enabled call app window is frontmost.",
+                        symbolName: "macwindow",
+                        accentColor: module.accentColor,
+                        isSelected: configManager.config.callControls.overrideScope == .activeCallAppOnly
+                    ) {
+                        configManager.config.callControls.overrideScope = .activeCallAppOnly
+                    }
                 }
             }
         }
@@ -374,14 +440,24 @@ struct CallControlsSettingsView: View {
 
         if hasShortcut {
             VStack(alignment: .leading, spacing: 5) {
-                if !permissions.isAccessibilityGranted {
+                if !configManager.config.general.appEnabled {
+                    readinessDotRow(
+                        color: .secondary.opacity(0.6),
+                        text: "Toolbox is paused. Resume Toolbox to activate Call Controls shortcuts."
+                    )
+                } else if !cfg.enabled {
+                    readinessDotRow(
+                        color: .secondary.opacity(0.6),
+                        text: "Call Controls is off. Turn the toggle above on to activate your Mic and Video shortcuts."
+                    )
+                } else if !permissions.isAccessibilityGranted {
                     HStack(spacing: 6) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.caption)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
                         Text("Waiting for Accessibility permission before your keybinds can intercept.")
                             .font(.caption.weight(.medium))
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
                     }
                 } else {
                     if !cfg.micShortcut.isEmpty {
@@ -392,20 +468,20 @@ struct CallControlsSettingsView: View {
                     }
                 }
 
-                if !matchingMicApps.isEmpty {
-                    Text("Same shortcut as \(matchingMicApps.joined(separator: ", "))'s native binding — passes cleanly through.")
+                if cfg.enabled && configManager.config.general.appEnabled && !matchingMicApps.isEmpty {
+                    Text("Same shortcut as \(matchingMicApps.joined(separator: ", "))'s native binding: passes cleanly through.")
                         .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
                 }
 
                 if !cfg.micShortcut.isEmpty && cfg.micShortcut == cfg.osMuteShortcut {
                     HStack(spacing: 6) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.caption)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
                         Text("Warning: My Mic Keybind and Hardware-Only Mic Shortcut both use \(cfg.micShortcut.displayString). Clear one so they don't collide.")
                             .font(.caption2)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
                     }
                     .padding(.top, 2)
                 }
@@ -490,9 +566,10 @@ struct CallControlsSettingsView: View {
         ) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
-                    Text("\(enabledCount) of \(mappings.count) call apps active")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    StatusBadge(
+                        text: "\(enabledCount) of \(mappings.count) active",
+                        color: enabledCount > 0 ? module.accentColor : .secondary
+                    )
 
                     Spacer()
 
@@ -502,6 +579,7 @@ struct CallControlsSettingsView: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+                    .focusEffectDisabled()
                     .pointerCursor()
 
                     Button {
@@ -520,6 +598,7 @@ struct CallControlsSettingsView: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+                    .focusEffectDisabled()
                     .pointerCursor()
                 }
 
@@ -527,12 +606,21 @@ struct CallControlsSettingsView: View {
                     addCustomAppBuilder
                 }
 
-                VStack(spacing: 0) {
-                    ForEach($configManager.config.callControls.appShortcutMappings) { $mapping in
-                        if mapping.id != mappings.first?.id {
-                            Divider()
+                let rows = stride(from: 0, to: mappings.count, by: 2).map { start in
+                    Array($configManager.config.callControls.appShortcutMappings[start..<min(start + 2, mappings.count)])
+                }
+
+                Grid(horizontalSpacing: 10, verticalSpacing: 10) {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { _, pair in
+                        GridRow {
+                            ForEach(pair) { $mapping in
+                                callAppCard(for: $mapping)
+                            }
+                            if pair.count < 2 {
+                                Color.clear
+                                    .gridCellUnsizedAxes([.vertical])
+                            }
                         }
-                        callAppRow(for: $mapping)
                     }
                 }
             }
@@ -666,32 +754,17 @@ struct CallControlsSettingsView: View {
                     "Manual Shortcut Fallback",
                     isExpanded: $uiState.showManualShortcutFallback
                 ) {
-                    HStack(spacing: 14) {
-                        HStack(spacing: 6) {
-                            Text("Mic")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            ShortcutRecorderView(
-                                shortcut: uiState.customMicShortcut,
-                                showConflictWarnings: false
-                            ) { newVal in
-                                uiState.customMicShortcut = newVal
-                            }
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 14) {
+                            manualMicShortcutField
+                            manualVideoShortcutField
+                            Spacer(minLength: 0)
                         }
 
-                        HStack(spacing: 6) {
-                            Text("Video")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            ShortcutRecorderView(
-                                shortcut: uiState.customVideoShortcut,
-                                showConflictWarnings: false
-                            ) { newVal in
-                                uiState.customVideoShortcut = newVal
-                            }
+                        VStack(alignment: .leading, spacing: 8) {
+                            manualMicShortcutField
+                            manualVideoShortcutField
                         }
-
-                        Spacer()
                     }
                     .padding(.top, 6)
                 }
@@ -700,34 +773,59 @@ struct CallControlsSettingsView: View {
                 .pointerCursor()
             }
 
-            HStack(spacing: 10) {
-                Toggle("Brief focus switch in background", isOn: $uiState.customAllowFocusRestore)
-                    .font(.caption)
-                    .toggleStyle(.checkbox)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 10) {
+                    HStack(spacing: 8) {
+                        Toggle("", isOn: $uiState.customAllowFocusRestore)
+                            .labelsHidden()
+                            .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
+                            .pointerCursor()
+                        Text("Brief focus switch in background")
+                            .font(.caption)
+                    }
                     .help("Recommended for Electron/browser apps so shortcuts still land when another window is focused.")
+
+                    Spacer()
+
+                    Button("Cancel") {
+                        resetAddAppState()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .focusEffectDisabled()
                     .pointerCursor()
 
-                Spacer()
+                    Button("Add App") {
+                        let cleanName = uiState.selectedAppName.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let cleanBundle = uiState.selectedBundleID.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !cleanName.isEmpty, !cleanBundle.isEmpty else { return }
 
-                Button("Add App") {
-                    let cleanName = uiState.selectedAppName.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let cleanBundle = uiState.selectedBundleID.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !cleanName.isEmpty, !cleanBundle.isEmpty else { return }
-
-                    let entry = CallAppShortcutMapping(
-                        appName: cleanName,
-                        bundleIdentifier: cleanBundle,
-                        enabled: true,
-                        micShortcut: uiState.customMicShortcut,
-                        videoShortcut: uiState.customVideoShortcut,
-                        allowBriefFocusRestore: uiState.customAllowFocusRestore
-                    )
-                    configManager.config.callControls.appShortcutMappings.append(entry)
-                    resetAddAppState()
+                        let entry = CallAppShortcutMapping(
+                            appName: cleanName,
+                            bundleIdentifier: cleanBundle,
+                            enabled: true,
+                            micShortcut: uiState.customMicShortcut,
+                            videoShortcut: uiState.customVideoShortcut,
+                            allowBriefFocusRestore: uiState.customAllowFocusRestore
+                        )
+                        configManager.config.callControls.appShortcutMappings.append(entry)
+                        resetAddAppState()
+                    }
+                    .buttonStyle(.toolboxProminent)
+                    .disabled(!canAdd)
+                    .focusEffectDisabled()
+                    .pointerCursor(canAdd)
                 }
-                .buttonStyle(.toolboxProminent)
-                .disabled(!canAdd)
-                .pointerCursor(canAdd)
+
+                if !canAdd {
+                    Text(
+                        !hasSelection
+                            ? "Select a call application above to continue."
+                            : "Choose or record at least one Mic or Video shortcut above to enable Add App."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(12)
@@ -736,6 +834,34 @@ struct CallControlsSettingsView: View {
             RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
         )
+    }
+
+    private var manualMicShortcutField: some View {
+        HStack(spacing: 6) {
+            Text("Mic")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            ShortcutRecorderView(
+                shortcut: uiState.customMicShortcut,
+                showConflictWarnings: false
+            ) { newVal in
+                uiState.customMicShortcut = newVal
+            }
+        }
+    }
+
+    private var manualVideoShortcutField: some View {
+        HStack(spacing: 6) {
+            Text("Video")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            ShortcutRecorderView(
+                shortcut: uiState.customVideoShortcut,
+                showConflictWarnings: false
+            ) { newVal in
+                uiState.customVideoShortcut = newVal
+            }
+        }
     }
 
     @ViewBuilder
@@ -824,7 +950,7 @@ struct CallControlsSettingsView: View {
                 if !primaryCandidates.isEmpty {
                     Section("Suggested Matches") {
                         ForEach(primaryCandidates) { item in
-                            Button("\(item.menuPath) — \(item.shortcut.displayString)") {
+                            Button("\(item.menuPath) · \(item.shortcut.displayString)") {
                                 selectedShortcut.wrappedValue = item.shortcut
                             }
                         }
@@ -836,7 +962,7 @@ struct CallControlsSettingsView: View {
                 if !remaining.isEmpty {
                     Menu("All Menu Controls") {
                         ForEach(remaining) { item in
-                            Button("\(item.menuPath) — \(item.shortcut.displayString)") {
+                            Button("\(item.menuPath) · \(item.shortcut.displayString)") {
                                 selectedShortcut.wrappedValue = item.shortcut
                             }
                         }
@@ -867,10 +993,14 @@ struct CallControlsSettingsView: View {
     }
 
     @ViewBuilder
-    private func callAppRow(for mappingBinding: Binding<CallAppShortcutMapping>) -> some View {
+    private func callAppCard(for mappingBinding: Binding<CallAppShortcutMapping>) -> some View {
         let mapping = mappingBinding.wrappedValue
         let isRunning = module.isAppRunning(for: mapping)
         let isBuiltIn = CallAppShortcutMapping.defaults.contains { $0.id == mapping.id }
+        let isBrowserMeet = mapping.appName.hasSuffix(" (Browsers)")
+        let displayAppName = isBrowserMeet
+            ? String(mapping.appName.dropLast(" (Browsers)".count))
+            : mapping.appName
         let capabilityText: String = {
             switch (!mapping.micShortcut.isEmpty, !mapping.videoShortcut.isEmpty) {
             case (true, true): return "Mic & Video"
@@ -883,68 +1013,85 @@ struct CallControlsSettingsView: View {
         HStack(spacing: 10) {
             appIconBadge(for: mapping)
 
-            HStack(spacing: 6) {
-                Text(mapping.appName)
-                    .font(.callout.weight(.medium))
-                    .opacity(mapping.enabled ? 1.0 : 0.55)
-                    .lineLimit(1)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 5) {
+                    Text(displayAppName)
+                        .font(.callout.weight(.medium))
+                        .opacity(mapping.enabled ? 1.0 : 0.60)
+                        .lineLimit(1)
 
-                if isRunning {
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(Color.green)
-                            .frame(width: 5, height: 5)
-                        Text("Running")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.green)
+                    if isRunning {
+                        HStack(spacing: 3) {
+                            Circle()
+                                .fill(Color.green)
+                                .frame(width: 5, height: 5)
+                            Text("Running")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(ToolboxTheme.readableAccentText(for: .green))
+                        }
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color.green.opacity(0.12), in: Capsule())
+                        .fixedSize(horizontal: true, vertical: false)
                     }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 1.5)
-                    .background(Color.green.opacity(0.12), in: Capsule())
                 }
 
-                if let titleGate = mapping.requiredWindowTitleSubstring, !titleGate.isEmpty {
-                    Text("Title: \"\(titleGate)\"")
+                HStack(spacing: 5) {
+                    Text(isBrowserMeet ? "Web · \(capabilityText)" : capabilityText)
                         .font(.caption2.weight(.medium))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1.5)
-                        .background(Color.primary.opacity(0.06), in: Capsule())
-                }
-            }
+                        .background(Color.primary.opacity(0.05), in: Capsule())
+                        .lineLimit(1)
 
-            Spacer(minLength: 8)
-
-            HStack(spacing: 10) {
-                Text(capabilityText)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2.5)
-                    .background(Color.primary.opacity(0.05), in: Capsule())
-
-                if !isBuiltIn {
-                    Button(role: .destructive) {
-                        let idToRemove = mapping.id
-                        configManager.config.callControls.appShortcutMappings.removeAll { $0.id == idToRemove }
-                    } label: {
-                        Image(systemName: "trash")
-                            .font(.system(size: 11, weight: .medium))
-                            .frame(width: 24, height: 24)
+                    if !isBrowserMeet, let titleGate = mapping.requiredWindowTitleSubstring, !titleGate.isEmpty {
+                        Text("Title: \"\(titleGate)\"")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
-                    .buttonStyle(.borderless)
-                    .help("Remove \(mapping.appName)")
-                    .pointerCursor()
                 }
-
-                Toggle("", isOn: mappingBinding.enabled)
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                    .pointerCursor()
             }
+
+            Spacer(minLength: 6)
+
+            if !isBuiltIn {
+                Button(role: .destructive) {
+                    let idToRemove = mapping.id
+                    configManager.config.callControls.appShortcutMappings.removeAll { $0.id == idToRemove }
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(ToolboxTheme.readableAccentText(for: .red))
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                        .menuRowHover(cornerRadius: 6)
+                }
+                .buttonStyle(.plain)
+                .help("Remove \(displayAppName)")
+                .pointerCursor()
+            }
+
+            Toggle("", isOn: mappingBinding.enabled)
+                .labelsHidden()
+                .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
+                .pointerCursor()
         }
-        .padding(.vertical, 9)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .background(
+            mapping.enabled ? module.accentColor.opacity(0.045) : Color.primary.opacity(0.025),
+            in: RoundedRectangle(cornerRadius: 10)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(
+                    mapping.enabled ? module.accentColor.opacity(0.22) : Color.primary.opacity(0.08),
+                    lineWidth: 1
+                )
+        )
     }
 
     @ViewBuilder
@@ -955,6 +1102,7 @@ struct CallControlsSettingsView: View {
             }
             return NSWorkspace.shared.icon(forFile: url.path)
         }.first
+        let fallbackSymbol = !mapping.videoShortcut.isEmpty ? "video.fill" : "mic.fill"
 
         if let icon {
             Image(nsImage: icon)
@@ -967,19 +1115,19 @@ struct CallControlsSettingsView: View {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(Color.primary.opacity(mapping.enabled ? 0.08 : 0.04))
                     .frame(width: 26, height: 26)
-                Image(systemName: "video.fill")
+                Image(systemName: fallbackSymbol)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
         }
     }
 
-    // MARK: - OS Hardware Mic & Typing Guard
+    // MARK: - Floating Pill, Typing Guard & Fallback
 
-    private var hardwareMicAndTypingSection: some View {
+    private var floatingPillAndNotificationsSection: some View {
         FeatureSection(
-            "FLOATING PILL, TYPING GUARD & FALLBACK HOTKEY",
-            subtitle: "Customize the floating Mic & Camera status pill, toast notifications, Auto-Mute While Typing, or an optional separate hardware mute key."
+            "FLOATING PILL & NOTIFICATIONS",
+            subtitle: "Customize the floating Mic & Camera badge and HUD toast confirmations."
         ) {
             VStack(spacing: 0) {
                 SettingRow(
@@ -988,18 +1136,25 @@ struct CallControlsSettingsView: View {
                 ) {
                     HStack(spacing: 8) {
                         if configManager.config.callControls.showFloatingMicIndicator {
+                            let hasCustomPosition = module.hasCustomFloatingPillPosition
                             Button("Reset Corner") {
                                 module.resetFloatingPillPosition()
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
-                            .help("Move floating pill back to the top-right corner")
-                            .pointerCursor()
+                            .focusEffectDisabled()
+                            .disabled(!hasCustomPosition)
+                            .help(
+                                hasCustomPosition
+                                    ? "Move floating pill back to the top-right corner"
+                                    : "Already at the default top-right corner"
+                            )
+                            .pointerCursor(hasCustomPosition)
                         }
 
                         Toggle("", isOn: $configManager.config.callControls.showFloatingMicIndicator)
                             .labelsHidden()
-                            .toggleStyle(.switch)
+                            .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
                             .pointerCursor()
                     }
                 }
@@ -1015,7 +1170,7 @@ struct CallControlsSettingsView: View {
                         ) {
                             Toggle("", isOn: $configManager.config.callControls.showFloatingPillOnlyDuringCalls)
                                 .labelsHidden()
-                                .toggleStyle(.switch)
+                                .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
                                 .pointerCursor()
                         }
 
@@ -1026,8 +1181,8 @@ struct CallControlsSettingsView: View {
                                     .frame(width: 6, height: 6)
                                 Text(
                                     module.isCallOrMediaActive
-                                        ? "Call or media stream active now — pill is visible."
-                                        : "No mic or camera stream active right now — pill stays hidden until a call starts."
+                                        ? "Call or media stream active now: pill is visible."
+                                        : "No mic or camera stream active right now: pill stays hidden until a call starts."
                                 )
                                 .font(.caption2.weight(.medium))
                                 .foregroundStyle(.secondary)
@@ -1040,11 +1195,11 @@ struct CallControlsSettingsView: View {
 
                     SettingRow(
                         "Include Video Camera Status in Pill",
-                        subtitle: "Shows live green/red camera status via CoreMediaIO. Clickable to toggle video in \(CallControlsModule.videoCapableAppsSummary(from: configManager.config.callControls.appShortcutMappings)); monitor-only elsewhere."
+                        subtitle: "Shows live camera status in the pill. Clickable to toggle video in \(CallControlsModule.videoCapableAppsSummary(from: configManager.config.callControls.appShortcutMappings)); monitor-only elsewhere."
                     ) {
                         Toggle("", isOn: $configManager.config.callControls.showVideoInFloatingIndicator)
                             .labelsHidden()
-                            .toggleStyle(.switch)
+                            .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
                             .pointerCursor()
                     }
                 }
@@ -1058,16 +1213,22 @@ struct CallControlsSettingsView: View {
                 ) {
                     Toggle("", isOn: $configManager.config.callControls.showToasts)
                         .labelsHidden()
-                        .toggleStyle(.switch)
+                        .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
                         .pointerCursor()
                 }
+            }
+        }
+    }
 
-                Divider()
-                    .padding(.vertical, 10)
-
+    private var typingGuardAndFallbackSection: some View {
+        FeatureSection(
+            "TYPING GUARD & HARDWARE FALLBACK",
+            subtitle: "Automatically mute while typing, or bind an optional hardware-only mic mute key."
+        ) {
+            VStack(spacing: 0) {
                 SettingRow(
                     "Auto-Mute Mic While Typing",
-                    subtitle: "Passively mutes your OS mic while typing and unmutes after a pause. Manual mute always takes precedence."
+                    subtitle: "Passively mutes your macOS mic while typing and unmutes after a pause. Manual mute always takes precedence."
                 ) {
                     Toggle("", isOn: Binding(
                         get: { configManager.config.callControls.autoMuteWhileTyping },
@@ -1079,7 +1240,7 @@ struct CallControlsSettingsView: View {
                         }
                     ))
                     .labelsHidden()
-                    .toggleStyle(.switch)
+                    .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
                     .pointerCursor()
                 }
 
@@ -1087,7 +1248,7 @@ struct CallControlsSettingsView: View {
                     Divider()
                         .padding(.vertical, 10)
 
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Typing Restore Delay")
@@ -1114,6 +1275,14 @@ struct CallControlsSettingsView: View {
                             step: 50
                         )
                         .pointerCursor()
+
+                        HStack {
+                            Text("250 ms")
+                            Spacer()
+                            Text("1000 ms")
+                        }
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.tertiary)
                     }
                 }
 
@@ -1142,7 +1311,6 @@ struct CallControlsSettingsView: View {
         let outputs = module.outputDevices
         let inputs = module.inputDevices
         let favOutputs = Set(configManager.config.callControls.favoriteOutputUIDs)
-        let favInputs = Set(configManager.config.callControls.favoriteInputUIDs)
 
         return FeatureSection(
             "AUDIO DEVICES & QUICK SWITCHING",
@@ -1153,31 +1321,34 @@ struct CallControlsSettingsView: View {
                     "Cycle Favorite Outputs Shortcut",
                     subtitle: "Cycles through your starred output devices (or all outputs if fewer than 2 are starred)."
                 ) {
-                    HStack(spacing: 8) {
-                        ShortcutRecorderView(
-                            shortcut: configManager.config.callControls.cycleOutputShortcut,
-                            sourceID: "call_controls.cycle_output",
-                            registrationKey: module.cycleOutputHotKeyName
-                        ) { newShortcut in
-                            configManager.config.callControls.cycleOutputShortcut = newShortcut
-                        }
-
-                        Button("Refresh") {
-                            module.refreshAudioDevices()
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .pointerCursor()
+                    ShortcutRecorderView(
+                        shortcut: configManager.config.callControls.cycleOutputShortcut,
+                        sourceID: "call_controls.cycle_output",
+                        registrationKey: module.cycleOutputHotKeyName
+                    ) { newShortcut in
+                        configManager.config.callControls.cycleOutputShortcut = newShortcut
                     }
                 }
 
                 Divider()
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("OUTPUT DEVICES (\(outputs.count))")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .tracking(0.4)
+                    HStack {
+                        Text("OUTPUT DEVICES (\(outputs.count))")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .tracking(0.4)
+                        Spacer()
+                        Button {
+                            module.refreshAudioDevices()
+                        } label: {
+                            Label("Refresh", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .focusEffectDisabled()
+                        .pointerCursor()
+                    }
 
                     if outputs.isEmpty {
                         Text("No output devices detected.")
@@ -1193,7 +1364,11 @@ struct CallControlsSettingsView: View {
                                     isInput: false,
                                     isDefault: device.isDefaultOutput,
                                     isFavorite: favOutputs.contains(device.uid),
-                                    onSelect: { _ = module.selectOutputDevice(device) },
+                                    onSelect: {
+                                        if !device.isDefaultOutput {
+                                            _ = module.selectOutputDevice(device)
+                                        }
+                                    },
                                     onToggleFavorite: { module.toggleFavoriteOutput(device.uid) }
                                 )
                             }
@@ -1225,9 +1400,13 @@ struct CallControlsSettingsView: View {
                                     device: device,
                                     isInput: true,
                                     isDefault: device.isDefaultInput,
-                                    isFavorite: favInputs.contains(device.uid),
-                                    onSelect: { _ = module.selectInputDevice(device) },
-                                    onToggleFavorite: { module.toggleFavoriteInput(device.uid) }
+                                    isFavorite: false,
+                                    onSelect: {
+                                        if !device.isDefaultInput {
+                                            _ = module.selectInputDevice(device)
+                                        }
+                                    },
+                                    onToggleFavorite: nil
                                 )
                             }
                         }
@@ -1248,20 +1427,21 @@ struct CallControlsSettingsView: View {
         isDefault: Bool,
         isFavorite: Bool,
         onSelect: @escaping () -> Void,
-        onToggleFavorite: @escaping () -> Void
+        onToggleFavorite: (() -> Void)?
     ) -> some View {
         let volumePct: Int? = {
             let scalar = isInput ? device.inputVolumeScalar : device.outputVolumeScalar
             return scalar.map { Int(($0 * 100).rounded()) }
         }()
         let isMuted = isInput ? device.isInputMuted : device.isOutputMuted
+        let tint: Color = isInput ? .green : .blue
 
         return HStack(spacing: 10) {
             Button(action: onSelect) {
                 HStack(spacing: 10) {
                     Image(systemName: device.transport.symbolName(isInput: isInput))
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(isDefault ? (isInput ? Color.green : Color.blue) : .secondary)
+                        .foregroundStyle(isDefault ? ToolboxTheme.readableAccentText(for: tint) : .secondary)
                         .frame(width: 22)
 
                     VStack(alignment: .leading, spacing: 2) {
@@ -1272,7 +1452,7 @@ struct CallControlsSettingsView: View {
                                 .lineLimit(1)
 
                             if isDefault {
-                                StatusBadge(text: "Active", color: isInput ? .green : .blue)
+                                StatusBadge(text: "Active", color: tint)
                             }
                         }
 
@@ -1295,7 +1475,7 @@ struct CallControlsSettingsView: View {
                                     .foregroundStyle(.tertiary)
                                 Text("Muted")
                                     .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(.red)
+                                    .foregroundStyle(ToolboxTheme.readableAccentText(for: .red))
                             } else if let volumePct {
                                 Text("·")
                                     .font(.caption2)
@@ -1314,20 +1494,31 @@ struct CallControlsSettingsView: View {
             .buttonStyle(.plain)
             .focusEffectDisabled()
             .help(isDefault ? "Currently active device" : "Click to set as default")
-            .pointerCursor()
+            .pointerCursor(!isDefault)
 
-            Button(action: onToggleFavorite) {
-                Image(systemName: isFavorite ? "star.fill" : "star")
-                    .font(.caption)
-                    .foregroundStyle(isFavorite ? Color.orange : Color.secondary.opacity(0.55))
-                    .frame(width: 24, height: 24)
+            if let onToggleFavorite {
+                Button(action: onToggleFavorite) {
+                    Image(systemName: isFavorite ? "star.fill" : "star")
+                        .font(.caption)
+                        .foregroundStyle(isFavorite ? Color.orange : Color.secondary.opacity(0.55))
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                        .menuRowHover(cornerRadius: 6)
+                }
+                .buttonStyle(.plain)
+                .focusEffectDisabled()
+                .help(isFavorite ? "Remove from favorite outputs" : "Star output to include when cycling")
+                .pointerCursor()
             }
-            .buttonStyle(.plain)
-            .help(isFavorite ? "Remove from favorites" : "Star as favorite")
-            .pointerCursor()
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        .background(
+            isDefault
+                ? tint.opacity(0.08)
+                : Color.clear
+        )
+        .menuRowHover(cornerRadius: 6)
     }
 
     // MARK: - Helpers

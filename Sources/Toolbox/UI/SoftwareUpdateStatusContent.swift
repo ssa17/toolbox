@@ -76,7 +76,7 @@ struct SoftwareUpdateStatusContent: View {
                 HStack(spacing: 12) {
                     Image(systemName: "arrow.down.circle.fill")
                         .font(.title3)
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(ToolboxTheme.accentBlue)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text("New update available: Toolbox v\(newVer)")
@@ -88,19 +88,10 @@ struct SoftwareUpdateStatusContent: View {
 
                     Spacer(minLength: 8)
 
-                    Button {
+                    Button("Update to v\(newVer)…") {
                         updateManager.openPendingUpdateOrCheck()
-                    } label: {
-                        Text("Update to v\(newVer)…")
-                            .font(.callout.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(Color.blue, in: RoundedRectangle(cornerRadius: 7))
-                            .contentShape(RoundedRectangle(cornerRadius: 7))
                     }
-                    .buttonStyle(.plain)
-                    .focusEffectDisabled()
+                    .buttonStyle(.toolboxProminent)
                     .pointerCursor()
                 }
                 .padding(11)
@@ -118,10 +109,10 @@ struct SoftwareUpdateStatusContent: View {
         let color: Color
         if updateManager.isChecking {
             symbol = "arrow.triangle.2.circlepath"
-            color = .blue
+            color = ToolboxTheme.accentBlue
         } else if updateManager.pendingUpdateVersion != nil {
             symbol = "arrow.down.circle.fill"
-            color = .blue
+            color = ToolboxTheme.accentBlue
         } else if updateManager.lastCheckFailed {
             symbol = "exclamationmark.triangle.fill"
             color = .orange
@@ -135,13 +126,13 @@ struct SoftwareUpdateStatusContent: View {
                 .frame(width: 34, height: 34)
             Image(systemName: symbol)
                 .font(.body.weight(.semibold))
-                .foregroundStyle(color)
+                .foregroundStyle(ToolboxTheme.readableAccentText(for: color))
         }
     }
 
     private var updateBadgeText: String {
         if updateManager.isChecking {
-            return "Checking…"
+            return "In Progress"
         }
         if let ver = updateManager.pendingUpdateVersion {
             return "v\(ver) Available"

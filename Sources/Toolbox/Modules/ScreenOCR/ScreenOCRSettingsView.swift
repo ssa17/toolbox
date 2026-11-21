@@ -4,6 +4,22 @@ import SwiftUI
 @MainActor
 private final class ScreenOCRSettingsUIState: ObservableObject {
     @Published var permissionPollTask: Task<Void, Never>?
+    @Published var copiedCaptureID: String?
+    @Published var expandedCaptureID: String?
+
+    private var copiedResetTask: Task<Void, Never>?
+
+    func markCopied(_ id: String) {
+        copiedCaptureID = id
+        copiedResetTask?.cancel()
+        copiedResetTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(900))
+            guard !Task.isCancelled else { return }
+            if self?.copiedCaptureID == id {
+                self?.copiedCaptureID = nil
+            }
+        }
+    }
 }
 
 struct ScreenOCRSettingsView: View {
@@ -13,7 +29,7 @@ struct ScreenOCRSettingsView: View {
     @StateObject private var uiState = ScreenOCRSettingsUIState()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 22) {
             captureAndShortcutSection
             recognitionOptionsSection
             recentCapturesSection
@@ -44,73 +60,89 @@ struct ScreenOCRSettingsView: View {
     // MARK: - Capture & Shortcut
 
     private var captureAndShortcutSection: some View {
-        FeatureSection(
-            "CAPTURE & SHORTCUT",
+        let appEnabled = configManager.config.general.appEnabled
+
+        return FeatureSection(
+            "Capture & Permission",
             subtitle: "Grab text or QR codes from anywhere on screen with a single crosshair selection."
         ) {
-            VStack(spacing: 0) {
-                SettingRow(
-                    "Global Capture Shortcut",
-                    subtitle: "Opens the crosshair region selector. Release to copy; Esc cancels."
-                ) {
-                    HStack(spacing: 8) {
-                        ShortcutRecorderView(
-                            shortcut: configManager.config.screenOCR.shortcut,
-                            defaultShortcut: ShortcutSpec(key: "0", modifiers: [.command, .shift]),
-                            sourceID: "screen_ocr",
-                            registrationKey: module.hotKeyName
-                        ) { newShortcut in
-                            configManager.config.screenOCR.shortcut = newShortcut
+            SettingRow(
+                "On-Screen Text & QR Capture",
+                subtitle: appEnabled
+                    ? "Select any region on screen to copy recognized text or QR codes immediately."
+                    : "Resume Toolbox in the top bar before capturing on-screen text or QR codes."
+            ) {
+                Button {
+                    if !configManager.config.screenOCR.enabled {
+                        configManager.config.screenOCR.enabled = true
+                    }
+                    module.captureRegion()
+                } label: {
+                    HStack(spacing: 6) {
+                        if module.isCaptureInFlight {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "text.viewfinder")
                         }
-
-                        Button {
-                            module.captureRegion()
-                        } label: {
-                            HStack(spacing: 5) {
-                                if module.isCaptureInFlight {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                }
-                                Text(module.isCapturing ? "Selecting region..." : module.isRecognizing ? "Recognizing..." : "Capture Region Now")
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .disabled(module.isCaptureInFlight)
-                        .focusEffectDisabled()
-                        .pointerCursor(!module.isCaptureInFlight)
+                        Text(module.isCapturing ? "Selecting region…" : module.isRecognizing ? "Recognizing…" : "Capture Region Now")
                     }
                 }
+                .buttonStyle(.toolboxProminent(.teal))
+                .controlSize(.regular)
+                .disabled(!appEnabled || module.isCaptureInFlight)
+                .focusEffectDisabled()
+                .help(appEnabled ? "Capture a screen region now" : "Resume Toolbox first to capture")
+                .pointerCursor(appEnabled && !module.isCaptureInFlight)
+            }
 
-                Divider()
+            Divider()
 
-                SettingRow(
-                    "Screen Recording Permission",
-                    subtitle: "macOS must allow Toolbox to capture the region you select. Recognition runs on-device and never uploads anything."
-                ) {
-                    HStack(spacing: 8) {
-                        StatusBadge(
-                            text: module.screenRecordingGranted ? "Granted" : "Not Granted",
-                            color: module.screenRecordingGranted ? .green : .orange
-                        )
+            SettingRow(
+                "Global Capture Shortcut",
+                subtitle: "Opens the crosshair region selector from anywhere. Release to copy; Esc cancels."
+            ) {
+                ShortcutRecorderView(
+                    shortcut: configManager.config.screenOCR.shortcut,
+                    defaultShortcut: ShortcutSpec(key: "0", modifiers: [.command, .shift]),
+                    sourceID: "screen_ocr",
+                    registrationKey: module.hotKeyName
+                ) { newShortcut in
+                    configManager.config.screenOCR.shortcut = newShortcut
+                }
+            }
 
-                        Button("Request Access") {
+            Divider()
+
+            SettingRow(
+                "Screen Recording Permission",
+                subtitle: "macOS must allow Toolbox to capture your selected region. Recognition runs on-device."
+            ) {
+                HStack(spacing: 8) {
+                    StatusBadge(
+                        text: module.screenRecordingGranted ? "Granted" : "Not Granted",
+                        color: module.screenRecordingGranted ? .green : .orange
+                    )
+
+                    if !module.screenRecordingGranted {
+                        Button("Grant Access…") {
                             module.requestScreenAccess()
                         }
-                        .buttonStyle(.bordered)
-                        .disabled(module.screenRecordingGranted)
-                        .focusEffectDisabled()
-                        .pointerCursor(!module.screenRecordingGranted)
-
-                        Button("Open Settings") {
-                            module.openScreenSettings()
-                        }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.toolboxProminent(.orange))
+                        .controlSize(.regular)
                         .focusEffectDisabled()
                         .pointerCursor()
                     }
-                    .fixedSize(horizontal: true, vertical: false)
+
+                    Button("Open Settings") {
+                        module.openScreenSettings()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+                    .focusEffectDisabled()
+                    .pointerCursor()
                 }
+                .fixedSize(horizontal: true, vertical: false)
             }
         }
     }
@@ -119,43 +151,41 @@ struct ScreenOCRSettingsView: View {
 
     private var recognitionOptionsSection: some View {
         FeatureSection(
-            "RECOGNITION OPTIONS",
-            subtitle: "Tune how Apple Vision reads the selected region."
+            "Recognition Options",
+            subtitle: "Tune how Apple Vision reads selected regions."
         ) {
-            VStack(spacing: 0) {
-                SettingRow(
-                    "Preserve Line Breaks",
-                    subtitle: "Off joins wrapped paragraph lines with spaces instead of newlines."
-                ) {
-                    Toggle("", isOn: $configManager.config.screenOCR.preserveLineBreaks)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .pointerCursor()
-                }
+            SettingRow(
+                "Preserve Line Breaks",
+                subtitle: "Off joins wrapped lines with spaces instead of keeping newlines."
+            ) {
+                Toggle("", isOn: $configManager.config.screenOCR.preserveLineBreaks)
+                    .labelsHidden()
+                    .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
+                    .pointerCursor()
+            }
 
-                Divider()
+            Divider()
 
-                SettingRow(
-                    "Detect QR & Barcodes",
-                    subtitle: "Decodes QR and barcode payloads in the same recognition pass."
-                ) {
-                    Toggle("", isOn: $configManager.config.screenOCR.detectQRCodes)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .pointerCursor()
-                }
+            SettingRow(
+                "Detect QR & Barcodes",
+                subtitle: "Decodes QR and barcode payloads in the same capture pass."
+            ) {
+                Toggle("", isOn: $configManager.config.screenOCR.detectQRCodes)
+                    .labelsHidden()
+                    .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
+                    .pointerCursor()
+            }
 
-                Divider()
+            Divider()
 
-                SettingRow(
-                    "Show Toast Notification",
-                    subtitle: "Confirms each capture with a short status toast."
-                ) {
-                    Toggle("", isOn: $configManager.config.screenOCR.showToast)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .pointerCursor()
-                }
+            SettingRow(
+                "Show Toast Notification",
+                subtitle: "Confirms each capture with a short status toast."
+            ) {
+                Toggle("", isOn: $configManager.config.screenOCR.showToast)
+                    .labelsHidden()
+                    .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
+                    .pointerCursor()
             }
         }
     }
@@ -164,93 +194,147 @@ struct ScreenOCRSettingsView: View {
 
     private var recentCapturesSection: some View {
         FeatureSection(
-            "RECENT CAPTURES",
+            "Recent Captures",
             subtitle: "Session only: kept in memory for this Toolbox session and never written to disk."
         ) {
-            VStack(spacing: 0) {
-                if module.recentCaptures.isEmpty {
-                    VStack(spacing: 6) {
-                        Image(systemName: "text.viewfinder")
-                            .font(.title2)
-                            .foregroundStyle(.secondary)
-                        Text("No captures yet this session")
-                            .font(.callout.weight(.medium))
-                            .foregroundStyle(.secondary)
-                        Text("Press the shortcut or Capture Region Now to grab text or a QR code.")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 28)
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(Array(module.recentCaptures.enumerated()), id: \.element.id) { idx, capture in
-                            if idx > 0 {
-                                Divider()
-                            }
-                            recentRow(capture)
+            if module.recentCaptures.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "text.viewfinder")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                    Text("No captures yet this session")
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    if !configManager.config.screenOCR.shortcut.isEmpty {
+                        HStack(spacing: 6) {
+                            Text("Press")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            ShortcutPill(text: configManager.config.screenOCR.shortcut.displayString)
+                            Text("or Capture Region Now to grab text or a QR code.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
-                    }
-
-                    Divider()
-
-                    HStack(spacing: 8) {
-                        Text("Text is processed locally by Apple Vision and the screenshot is deleted right after capture.")
+                    } else {
+                        Text("Use Capture Region Now above to grab text or a QR code.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                        Spacer()
-                        Button("Clear Session") {
-                            module.clearRecentCaptures()
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .focusEffectDisabled()
-                        .pointerCursor()
                     }
-                    .padding(12)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 20)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(module.recentCaptures) { capture in
+                        recentRow(capture)
+                    }
+                }
+
+                Divider()
+
+                HStack(spacing: 8) {
+                    Text("Text is processed locally by Apple Vision and the screenshot is deleted right after capture.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                    Spacer()
+                    Button("Clear Session", role: .destructive) {
+                        module.clearRecentCaptures()
+                    }
+                    .buttonStyle(.toolboxDestructive)
+                    .controlSize(.small)
+                    .focusEffectDisabled()
+                    .pointerCursor()
                 }
             }
         }
     }
 
     private func recentRow(_ capture: RecentOCRCapture) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: capture.isQR ? "qrcode" : "text.viewfinder")
-                .font(.body.weight(.medium))
-                .foregroundStyle(module.accentColor)
-                .frame(width: 20)
+        let accentText = ToolboxTheme.readableAccentText(for: module.accentColor)
+        let canExpand = capture.lineCount > 2 || capture.text.count > 110
+        let isExpanded = uiState.expandedCaptureID == capture.id
+        let isCopied = uiState.copiedCaptureID == capture.id
 
-            VStack(alignment: .leading, spacing: 3) {
+        let rowContent = HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(module.accentColor.opacity(0.14))
+                    .frame(width: 30, height: 30)
+                Image(systemName: capture.isQR ? "qrcode" : "text.viewfinder")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(accentText)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
                 Text(capture.text)
                     .font(.caption.monospaced())
-                    .lineLimit(2)
+                    .lineLimit(isExpanded ? nil : 2)
                     .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: isExpanded)
                     .textSelection(.enabled)
 
-                HStack(spacing: 5) {
-                    Text(capture.isQR ? "QR code" : "\(capture.lineCount) \(capture.lineCount == 1 ? "line" : "lines")")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Text(capture.isQR ? "QR Code" : "\(capture.lineCount) \(capture.lineCount == 1 ? "line" : "lines")")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(accentText)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1.5)
+                        .background(module.accentColor.opacity(0.14), in: Capsule())
                     Text("·")
                         .foregroundStyle(.tertiary)
                     Text(capture.createdAt.formatted(.relative(presentation: .named)))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if canExpand {
+                        Text("·")
+                            .foregroundStyle(.tertiary)
+                        Text(isExpanded ? "Show less" : "Show more")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(accentText)
+                    }
                 }
             }
 
-            Spacer()
+            Spacer(minLength: 8)
 
-            Button("Copy") {
+            Button {
                 module.copyRecent(capture)
+                uiState.markCopied(capture.id)
+            } label: {
+                if isCopied {
+                    Label("Copied", systemImage: "checkmark")
+                } else {
+                    Text("Copy")
+                }
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
             .focusEffectDisabled()
             .pointerCursor()
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.primary.opacity(0.07), lineWidth: 0.75)
+        )
+
+        return Group {
+            if canExpand {
+                rowContent
+                    .contentShape(RoundedRectangle(cornerRadius: 8))
+                    .menuRowHover(cornerRadius: 8)
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.16)) {
+                            uiState.expandedCaptureID = isExpanded ? nil : capture.id
+                        }
+                    }
+                    .pointerCursor()
+            } else {
+                rowContent
+            }
+        }
     }
 }

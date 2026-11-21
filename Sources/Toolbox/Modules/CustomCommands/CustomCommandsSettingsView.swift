@@ -10,6 +10,20 @@ private final class NewCommandDraft: ObservableObject {
     @Published var kind: CustomCommandKind = .shell
     @Published var payload = ""
     @Published var shortcut = ShortcutSpec(key: "r", modifiers: [.command, .option])
+    @Published var showNotification = true
+    @Published var copiedOutput = false
+
+    private var copiedOutputTask: Task<Void, Never>?
+
+    func markOutputCopied() {
+        copiedOutput = true
+        copiedOutputTask?.cancel()
+        copiedOutputTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(900))
+            guard !Task.isCancelled else { return }
+            self?.copiedOutput = false
+        }
+    }
 }
 
 struct CustomCommandsSettingsView: View {
@@ -23,46 +37,22 @@ struct CustomCommandsSettingsView: View {
         let showingBuilder = draft.isAddingNew || commands.isEmpty
 
         VStack(alignment: .leading, spacing: 22) {
-            if let output = module.lastOutput {
-                FeatureSection("Last Run Output") {
-                    HStack(alignment: .top, spacing: 10) {
-                        Text(output)
-                            .font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Button {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(output, forType: .string)
-                        } label: {
-                            Image(systemName: "doc.on.doc")
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Copy output")
-                        .pointerCursor()
-
-                        Button {
-                            module.clearLastOutput()
-                        } label: {
-                            Image(systemName: "xmark.circle")
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Clear output")
-                        .pointerCursor()
-                    }
-                }
-            }
-
             FeatureSection("Configured Commands", subtitle: "Enable, customize, or run saved commands.") {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 10) {
-                        Text(
-                            commands.isEmpty
-                                ? "Add your first command below or pick from Templates."
-                                : "\(enabledCount) of \(commands.count) enabled · Click a command to edit"
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        if commands.isEmpty {
+                            Text("Add your first command below or pick from Templates.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            StatusBadge(
+                                text: "\(enabledCount) of \(commands.count) enabled",
+                                color: enabledCount > 0 ? module.accentColor : .secondary
+                            )
+                            Text("Click a command to edit")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
 
                         Spacer()
 
@@ -83,6 +73,7 @@ struct CustomCommandsSettingsView: View {
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
+                            .focusEffectDisabled()
                             .pointerCursor()
                         }
                     }
@@ -92,11 +83,8 @@ struct CustomCommandsSettingsView: View {
                     }
 
                     if !commands.isEmpty {
-                        VStack(spacing: 0) {
+                        VStack(spacing: 8) {
                             ForEach($configManager.config.customCommands.commands) { $cmd in
-                                if cmd.id != commands.first?.id {
-                                    Divider()
-                                }
                                 commandRow(for: $cmd)
                             }
                         }
@@ -104,14 +92,59 @@ struct CustomCommandsSettingsView: View {
                 }
             }
 
+            if let output = module.lastOutput {
+                FeatureSection("Last Run Output") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 8) {
+                            Spacer()
+                            Button {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(output, forType: .string)
+                                draft.markOutputCopied()
+                            } label: {
+                                if draft.copiedOutput {
+                                    Label("Copied", systemImage: "checkmark")
+                                } else {
+                                    Label("Copy", systemImage: "doc.on.doc")
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .focusEffectDisabled()
+                            .pointerCursor()
+
+                            Button {
+                                module.clearLastOutput()
+                            } label: {
+                                Label("Clear", systemImage: "xmark.circle")
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .focusEffectDisabled()
+                            .pointerCursor()
+                        }
+
+                        ScrollView(.vertical) {
+                            Text(output)
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(maxHeight: 140)
+                        .padding(10)
+                        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+                    }
+                }
+            }
+
             FeatureSection("Menu Bar") {
                 SettingRow(
                     "Show Quick Commands list",
-                    subtitle: "Include active Custom Commands in the status bar menu when Custom Commands is enabled."
+                    subtitle: "Shows up to 4 enabled Custom Commands in the status bar menu when Custom Commands is enabled."
                 ) {
                     Toggle("", isOn: $configManager.config.general.showQuickCommandsInMenuBar)
                         .labelsHidden()
-                        .toggleStyle(.switch)
+                        .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
                         .pointerCursor()
                 }
             }
@@ -122,17 +155,14 @@ struct CustomCommandsSettingsView: View {
     private func newCommandBuilder(canCancel: Bool) -> some View {
         let trimmedName = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedPayload = draft.payload.trimmingCharacters(in: .whitespacesAndNewlines)
+        let canAdd = !trimmedName.isEmpty && !trimmedPayload.isEmpty
 
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                Picker("", selection: $draft.kind) {
-                    ForEach(CustomCommandKind.allCases, id: \.self) { kind in
-                        Text(shortLabel(for: kind)).tag(kind)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-                .pointerCursor()
+            HStack(spacing: 8) {
+                Text("New Command")
+                    .font(.callout.weight(.semibold))
+
+                Spacer()
 
                 Menu("Templates") {
                     ForEach(Self.templates, id: \.name) { tpl in
@@ -144,29 +174,40 @@ struct CustomCommandsSettingsView: View {
                         }
                     }
                 }
-                .frame(width: 112)
                 .pointerCursor()
 
                 if canCancel {
                     Button("Cancel") {
                         draft.isAddingNew = false
                     }
-                    .buttonStyle(.borderless)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .focusEffectDisabled()
                     .pointerCursor()
                 }
             }
 
+            ToolboxSegmentedControl(
+                options: Array(CustomCommandKind.allCases),
+                selection: $draft.kind,
+                accentColor: module.accentColor,
+                isFullWidth: true,
+                label: { shortLabel(for: $0) },
+                symbol: { iconName(for: $0) }
+            )
+
             TextField("Command name (e.g. Open VS Code)", text: $draft.name)
                 .textFieldStyle(.roundedBorder)
 
-            HStack(spacing: 8) {
-                TextField(draft.kind.placeholder, text: $draft.payload)
+            HStack(alignment: .top, spacing: 8) {
+                TextField(draft.kind.placeholder, text: $draft.payload, axis: .vertical)
+                    .lineLimit(1...4)
                     .textFieldStyle(.roundedBorder)
-                    .font(.system(.body, design: .monospaced))
+                    .font(.system(.callout, design: .monospaced))
                     .onSubmit {
-                        addDraftCommand()
+                        if canAdd {
+                            addDraftCommand()
+                        }
                     }
 
                 if draft.kind == .openApp {
@@ -197,6 +238,20 @@ struct CustomCommandsSettingsView: View {
                 }
 
                 Spacer()
+            }
+
+            HStack(spacing: 10) {
+                HStack(spacing: 8) {
+                    Toggle("", isOn: $draft.showNotification)
+                        .labelsHidden()
+                        .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
+                        .pointerCursor()
+                    Text("Show toast")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
 
                 Button("Test") {
                     guard !trimmedPayload.isEmpty else { return }
@@ -206,27 +261,43 @@ struct CustomCommandsSettingsView: View {
                         shortcut: draft.shortcut,
                         kind: draft.kind,
                         payload: trimmedPayload,
-                        showNotification: true
+                        showNotification: draft.showNotification
                     )
                     module.runCommand(temp)
                 }
                 .buttonStyle(.bordered)
                 .disabled(trimmedPayload.isEmpty)
+                .focusEffectDisabled()
                 .pointerCursor(!trimmedPayload.isEmpty)
 
                 Button("Add Command") {
                     addDraftCommand()
                 }
-                .buttonStyle(.toolboxProminent)
-                .disabled(trimmedName.isEmpty || trimmedPayload.isEmpty)
-                .pointerCursor(!trimmedName.isEmpty && !trimmedPayload.isEmpty)
+                .buttonStyle(.toolboxProminent(.purple))
+                .disabled(!canAdd)
+                .focusEffectDisabled()
+                .pointerCursor(canAdd)
             }
 
-            ShortcutConflictStatusView(
-                shortcut: draft.shortcut,
-                sourceID: nil,
-                onAssignHere: nil
-            )
+            if !canAdd {
+                Text(
+                    trimmedName.isEmpty && trimmedPayload.isEmpty
+                        ? "Enter a command name and payload to enable Add Command."
+                        : (trimmedName.isEmpty
+                            ? "Enter a command name to enable Add Command."
+                            : "Enter a command, app path, URL, or text snippet to enable Add Command.")
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            if !draft.shortcut.isEmpty {
+                ShortcutConflictStatusView(
+                    shortcut: draft.shortcut,
+                    sourceID: nil,
+                    onAssignHere: nil
+                )
+            }
         }
         .padding(12)
         .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
@@ -245,27 +316,29 @@ struct CustomCommandsSettingsView: View {
         let displayTitle = cmd.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? "Untitled Command"
             : cmd.name
+        let kindTint = kindColor(for: cmd.kind)
+        let readableKindTint = ToolboxTheme.readableAccentText(for: kindTint)
 
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 Button {
                     draft.expandedCommandID = isExpanded ? nil : cmd.id
                 } label: {
                     HStack(spacing: 10) {
                         ZStack {
-                            RoundedRectangle(cornerRadius: 7)
-                                .fill(Color.primary.opacity(cmd.enabled ? 0.07 : 0.035))
-                                .frame(width: 28, height: 28)
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(kindTint.opacity(cmd.enabled ? 0.16 : 0.08))
+                                .frame(width: 30, height: 30)
                             Image(systemName: iconName(for: cmd.kind))
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(.secondary)
+                                .font(.system(size: 12.5, weight: .semibold))
+                                .foregroundStyle(cmd.enabled ? readableKindTint : .secondary)
                         }
 
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 6) {
                                 Text(displayTitle)
-                                    .font(.callout.weight(.medium))
-                                    .opacity(cmd.enabled ? 1.0 : 0.55)
+                                    .font(.callout.weight(.semibold))
+                                    .opacity(cmd.enabled ? 1.0 : 0.65)
                                     .lineLimit(1)
 
                                 if cmd.showNotification {
@@ -278,11 +351,14 @@ struct CustomCommandsSettingsView: View {
 
                             HStack(spacing: 5) {
                                 Text(shortLabel(for: cmd.kind))
-                                    .font(.caption2.weight(.medium))
-                                    .foregroundStyle(.secondary)
-                                Text("·")
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(cmd.enabled ? readableKindTint : .secondary)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 1)
+                                    .background(
+                                        cmd.enabled ? kindTint.opacity(0.14) : Color.primary.opacity(0.06),
+                                        in: Capsule()
+                                    )
                                 Text(payloadPreview(for: cmd))
                                     .font(.system(.caption, design: .monospaced))
                                     .foregroundStyle(.secondary)
@@ -314,10 +390,14 @@ struct CustomCommandsSettingsView: View {
                         module.runCommand(cmd)
                     } label: {
                         Image(systemName: "play.fill")
-                            .font(.system(size: 11))
-                            .frame(width: 24, height: 24)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(canRun ? .primary : .secondary)
+                            .frame(width: 28, height: 28)
+                            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+                            .contentShape(Rectangle())
+                            .menuRowHover(cornerRadius: 6)
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.plain)
                     .disabled(!canRun)
                     .help("Run now")
                     .pointerCursor(canRun)
@@ -325,24 +405,29 @@ struct CustomCommandsSettingsView: View {
                     Button {
                         draft.expandedCommandID = isExpanded ? nil : cmd.id
                     } label: {
-                        Image(systemName: isExpanded ? "chevron.up" : "pencil")
-                            .font(.system(size: 11, weight: .medium))
-                            .frame(width: 24, height: 24)
-                            .foregroundStyle(isExpanded ? Color.accentColor : Color.secondary)
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 11, weight: .semibold))
+                            .frame(width: 28, height: 28)
+                            .foregroundStyle(isExpanded ? ToolboxTheme.readableAccentText(for: module.accentColor) : Color.secondary)
+                            .background(
+                                isExpanded ? module.accentColor.opacity(0.14) : Color.primary.opacity(0.06),
+                                in: RoundedRectangle(cornerRadius: 6)
+                            )
+                            .contentShape(Rectangle())
+                            .menuRowHover(cornerRadius: 6)
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.plain)
                     .help(isExpanded ? "Collapse editor" : "Edit command")
                     .pointerCursor()
 
                     Toggle("", isOn: cmdBinding.enabled)
                         .labelsHidden()
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
+                        .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
                         .pointerCursor()
                 }
             }
 
-            if cmd.enabled {
+            if !cmd.shortcut.isEmpty {
                 ShortcutConflictStatusView(
                     shortcut: cmd.shortcut,
                     sourceID: sourceID,
@@ -353,27 +438,26 @@ struct CustomCommandsSettingsView: View {
 
             if isExpanded {
                 VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 8) {
-                        TextField("Command name", text: cmdBinding.name)
-                            .textFieldStyle(.roundedBorder)
+                    TextField("Command name", text: cmdBinding.name)
+                        .textFieldStyle(.roundedBorder)
 
-                        Picker("", selection: cmdBinding.kind) {
-                            ForEach(CustomCommandKind.allCases, id: \.self) { kind in
-                                Text(kind.label).tag(kind)
-                            }
-                        }
-                        .labelsHidden()
-                        .frame(width: 155)
-                        .pointerCursor()
-                    }
+                    ToolboxSegmentedControl(
+                        options: Array(CustomCommandKind.allCases),
+                        selection: cmdBinding.kind,
+                        accentColor: module.accentColor,
+                        isFullWidth: true,
+                        label: { shortLabel(for: $0) },
+                        symbol: { iconName(for: $0) }
+                    )
 
-                    HStack(spacing: 8) {
-                        TextField(cmd.kind.placeholder, text: cmdBinding.payload)
+                    HStack(alignment: .top, spacing: 8) {
+                        TextField(cmd.kind.placeholder, text: cmdBinding.payload, axis: .vertical)
+                            .lineLimit(1...4)
                             .textFieldStyle(.roundedBorder)
-                            .font(.system(.caption, design: .monospaced))
+                            .font(.system(.callout, design: .monospaced))
 
                         if cmd.kind == .openApp {
-                            Button("Browse…") {
+                            Button("Choose App…") {
                                 pickAppPath { path, _ in
                                     cmdBinding.wrappedValue.payload = path
                                 }
@@ -384,10 +468,15 @@ struct CustomCommandsSettingsView: View {
                     }
 
                     HStack(spacing: 10) {
-                        Toggle("Show toast", isOn: cmdBinding.showNotification)
-                            .font(.caption)
-                            .toggleStyle(.checkbox)
-                            .pointerCursor()
+                        HStack(spacing: 8) {
+                            Toggle("", isOn: cmdBinding.showNotification)
+                                .labelsHidden()
+                                .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
+                                .pointerCursor()
+                            Text("Show toast")
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.secondary)
+                        }
 
                         Spacer()
 
@@ -395,7 +484,7 @@ struct CustomCommandsSettingsView: View {
                             let copy = CustomCommand(
                                 name: "\(cmd.name) Copy",
                                 enabled: false,
-                                shortcut: cmd.shortcut,
+                                shortcut: .none,
                                 kind: cmd.kind,
                                 payload: cmd.payload,
                                 showNotification: cmd.showNotification
@@ -407,6 +496,7 @@ struct CustomCommandsSettingsView: View {
                         }
                         .controlSize(.small)
                         .buttonStyle(.bordered)
+                        .focusEffectDisabled()
                         .pointerCursor()
 
                         Button(role: .destructive) {
@@ -419,26 +509,52 @@ struct CustomCommandsSettingsView: View {
                             Label("Delete", systemImage: "trash")
                         }
                         .controlSize(.small)
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.toolboxDestructive)
+                        .focusEffectDisabled()
                         .pointerCursor()
 
                         Button("Done") {
                             draft.expandedCommandID = nil
                         }
                         .controlSize(.small)
-                        .buttonStyle(.toolboxProminent)
+                        .buttonStyle(.toolboxProminent(.purple))
+                        .focusEffectDisabled()
                         .pointerCursor()
                     }
                 }
                 .padding(12)
-                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+                .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
+                        .strokeBorder(Color.primary.opacity(0.09), lineWidth: 1)
                 )
             }
         }
+        .padding(.horizontal, 12)
         .padding(.vertical, 10)
+        .background(
+            cmd.enabled ? module.accentColor.opacity(0.045) : Color.primary.opacity(0.03),
+            in: RoundedRectangle(cornerRadius: 10)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(
+                    isExpanded
+                        ? module.accentColor.opacity(0.45)
+                        : (cmd.enabled ? module.accentColor.opacity(0.20) : Color.primary.opacity(0.08)),
+                    lineWidth: 1
+                )
+        )
+        .menuRowHover(cornerRadius: 10)
+    }
+
+    private func kindColor(for kind: CustomCommandKind) -> Color {
+        switch kind {
+        case .shell: return .purple
+        case .openApp: return .blue
+        case .openURL: return .cyan
+        case .pasteText: return .orange
+        }
     }
 
     private func iconName(for kind: CustomCommandKind) -> String {

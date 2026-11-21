@@ -124,7 +124,8 @@ struct DashboardView: View {
     }
 
     private var headerBanner: some View {
-        SectionCard {
+        let isAppEnabled = configManager.config.general.appEnabled
+        return SectionCard(accentTint: isAppEnabled ? ToolboxTheme.accentBlue : .orange) {
             HStack(spacing: 14) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 12)
@@ -153,31 +154,31 @@ struct DashboardView: View {
                             .padding(.vertical, 2)
                             .background(Color.primary.opacity(0.08), in: Capsule())
                         StatusBadge(
-                            text: configManager.config.general.appEnabled
+                            text: isAppEnabled
                                 ? "\(activeCount)/\(toggleableModules.count) enabled"
                                 : "Paused",
-                            color: configManager.config.general.appEnabled
+                            color: isAppEnabled
                                 ? (activeCount > 0 ? .green : .secondary)
                                 : .orange
                         )
                     }
                     Text(
-                        configManager.config.general.appEnabled
+                        isAppEnabled
                             ? "Lightweight, config-driven utilities tailored to how you use your Mac."
-                            : "Toolbox is paused from the status bar. Resume to reactivate your enabled modules."
+                            : "Toolbox is paused. Resume to reactivate your enabled modules."
                     )
                         .font(.callout)
                         .foregroundStyle(Color.primary.opacity(0.76))
                 }
                 .textSelection(.enabled)
 
-                if !configManager.config.general.appEnabled {
+                if !isAppEnabled {
                     Spacer()
 
                     Button("Resume") {
                         configManager.config.general.appEnabled = true
                     }
-                    .buttonStyle(.toolboxProminent)
+                    .buttonStyle(.toolboxProminent(.orange))
                     .fixedSize(horizontal: true, vertical: false)
                     .pointerCursor()
                 }
@@ -186,38 +187,41 @@ struct DashboardView: View {
     }
 
     private var accessibilityBanner: some View {
-        SectionCard {
-            VStack(alignment: .leading, spacing: 14) {
+        SectionCard(accentTint: .orange) {
+            VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top, spacing: 14) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 10)
                             .fill(Color.orange.opacity(0.16))
-                            .frame(width: 42, height: 42)
+                            .frame(width: 40, height: 40)
                         Image(systemName: "hand.raised.fill")
                             .font(.title3.weight(.semibold))
                             .foregroundStyle(.orange)
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 8) {
-                            Text("Enable Accessibility for Input & Window Shortcuts")
-                                .font(.headline)
-                            if configManager.config.screenOCR.enabled && !screenOCR.screenRecordingGranted {
-                                StatusBadge(text: "Step 1 of 2", color: .orange)
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 8) {
+                                Text("Enable Accessibility for Input & Window Shortcuts")
+                                    .font(.headline)
+                                accessibilityBannerBadges
                             }
-                            if permissions.isAwaitingAccessibilityGrant {
-                                StatusBadge(text: "Waiting for permission…", color: .orange)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Enable Accessibility for Input & Window Shortcuts")
+                                    .font(.headline)
+                                accessibilityBannerBadges
                             }
                         }
-                        Text("In System Settings → Privacy & Security → Device Control and Data Access (Accessibility), turn on Toolbox.app for Dock Minimize, Scroll Direction, Unified Call Keybinds, Keyboard Lock, and Auto-Paste. Runs 100% locally on your Mac.")
-                            .font(.system(size: 13))
+
+                        Text("Turn on Toolbox.app in Privacy & Security → Accessibility for Dock Minimize, Scroll Direction, Call Keybinds, Keyboard Lock, and Auto-Paste. Runs 100% locally.")
+                            .font(.system(size: 12.5))
                             .foregroundStyle(Color.primary.opacity(0.78))
                             .fixedSize(horizontal: false, vertical: true)
 
                         if permissions.isAdHocSigned || permissions.hasAttemptedGrantWithoutSuccess {
-                            Text("Already enabled in System Settings? Click Reset Permission to clear any stale entry from an earlier build and re-authorize this app.")
+                            Text("Already enabled in System Settings? Click Reset Permission to clear any stale entry and re-authorize.")
                                 .font(.system(size: 12))
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
                                 .fixedSize(horizontal: false, vertical: true)
                                 .padding(.top, 2)
                         }
@@ -225,7 +229,7 @@ struct DashboardView: View {
                     .textSelection(.enabled)
                 }
 
-                HStack(spacing: 10) {
+                HStack(spacing: 8) {
                     Spacer(minLength: 0)
 
                     if permissions.isAdHocSigned || permissions.hasAttemptedGrantWithoutSuccess {
@@ -237,10 +241,8 @@ struct DashboardView: View {
                                 systemImage: "arrow.counterclockwise"
                             )
                             .font(.callout.weight(.medium))
-                            .padding(.horizontal, 4)
                         }
                         .buttonStyle(.bordered)
-                        .controlSize(.large)
                         .disabled(permissions.isResettingAccessibility)
                         .help("Re-bind Accessibility permission if already enabled in System Settings from an earlier build.")
                         .pointerCursor(!permissions.isResettingAccessibility)
@@ -251,10 +253,8 @@ struct DashboardView: View {
                     } label: {
                         Label("Why This Is Needed", systemImage: "questionmark.circle")
                             .font(.callout.weight(.medium))
-                            .padding(.horizontal, 4)
                     }
                     .buttonStyle(.bordered)
-                    .controlSize(.large)
                     .pointerCursor()
 
                     Button {
@@ -265,18 +265,28 @@ struct DashboardView: View {
                             systemImage: "hand.raised.fill"
                         )
                         .font(.callout.weight(.semibold))
-                        .padding(.horizontal, 6)
                     }
                     .buttonStyle(.toolboxProminent(.orange))
-                    .controlSize(.large)
                     .pointerCursor()
                 }
             }
         }
     }
 
+    @ViewBuilder
+    private var accessibilityBannerBadges: some View {
+        HStack(spacing: 6) {
+            if configManager.config.screenOCR.enabled && !screenOCR.screenRecordingGranted {
+                StatusBadge(text: "Step 1 of 2", color: .orange)
+            }
+            if permissions.isAwaitingAccessibilityGrant {
+                StatusBadge(text: "Waiting for permission…", color: .orange)
+            }
+        }
+    }
+
     private var screenRecordingBanner: some View {
-        SectionCard {
+        SectionCard(accentTint: .orange) {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top, spacing: 14) {
                     ZStack {
@@ -358,73 +368,22 @@ private struct DashboardDensityPicker: View {
     let showDetails: Bool
     let onSelect: (Bool) -> Void
 
-    @Namespace private var pillNamespace
-
     var body: some View {
-        HStack(spacing: 2) {
-            segment(
-                title: "Compact",
-                symbol: "rectangle.grid.2x2",
-                isSelected: !showDetails,
-                helpText: "Hide descriptions for compact Dashboard cards"
-            ) {
-                onSelect(false)
+        ToolboxSegmentedControl(
+            options: [false, true],
+            selection: Binding(
+                get: { showDetails },
+                set: { onSelect($0) }
+            ),
+            accentColor: ToolboxTheme.accentBlue,
+            label: { $0 ? "Detailed" : "Compact" },
+            symbol: { $0 ? "list.bullet.rectangle" : "rectangle.grid.2x2" },
+            helpText: {
+                $0
+                    ? "Show module descriptions on Dashboard cards"
+                    : "Hide descriptions for compact Dashboard cards"
             }
-
-            segment(
-                title: "Detailed",
-                symbol: "list.bullet.rectangle",
-                isSelected: showDetails,
-                helpText: "Show module descriptions on Dashboard cards"
-            ) {
-                onSelect(true)
-            }
-        }
-        .padding(2.5)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.primary.opacity(0.055))
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.75)
-        )
-    }
-
-    private func segment(
-        title: String,
-        symbol: String,
-        isSelected: Bool,
-        helpText: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: symbol)
-                    .font(.system(size: 11, weight: .semibold))
-                Text(title)
-                    .font(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
-            }
-            .foregroundStyle(isSelected ? Color.primary : Color.secondary)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 4)
-            .background {
-                if isSelected {
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.primary.opacity(0.14))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .strokeBorder(Color.primary.opacity(0.18), lineWidth: 0.75)
-                        )
-                        .matchedGeometryEffect(id: "dashboardDensityPill", in: pillNamespace)
-                }
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 6))
-        }
-        .buttonStyle(.plain)
-        .focusEffectDisabled()
-        .help(helpText)
-        .pointerCursor()
     }
 }
 
@@ -506,10 +465,13 @@ private struct CollapsibleContainer<Content: View>: View, @MainActor Animatable 
 private struct CleanLockDashboardButton: View {
     @ObservedObject var cleanLock: CleanLockModule
     let durationSeconds: Int
+    let isAppEnabled: Bool
+    let accessibilityGranted: Bool
 
     var body: some View {
         let secs = CleanLockConfig.clampedDuration(durationSeconds)
         let durationLabel = secs >= 60 && secs % 60 == 0 ? "\(secs / 60)m" : "\(secs)s"
+        let canLockNow = isAppEnabled && accessibilityGranted
         Button {
             _ = cleanLock.lock()
         } label: {
@@ -522,8 +484,10 @@ private struct CleanLockDashboardButton: View {
         }
         .buttonStyle(.toolboxProminent(.red))
         .controlSize(.small)
+        .disabled(!canLockNow)
         .fixedSize(horizontal: true, vertical: false)
-        .pointerCursor()
+        .help(!isAppEnabled ? "Resume Toolbox to lock input" : (!accessibilityGranted ? "Grant Accessibility to lock input" : "Lock keyboard & pointer for \(durationLabel)"))
+        .pointerCursor(canLockNow)
     }
 }
 
@@ -549,27 +513,133 @@ private struct DashboardModuleCard: View {
         if !config.general.appEnabled { return .orange }
         if module.requiresAccessibility && !accessibilityGranted { return .orange }
         if missingScreenPermission { return .orange }
-        return module.isRunning ? .green : .blue
+        if !module.supportsEnableToggle {
+            return module.isRunning ? .red : .blue
+        }
+        return .green
+    }
+
+    private var isModuleTinted: Bool {
+        guard config.general.appEnabled else { return false }
+        return module.supportsEnableToggle ? module.isEnabled(in: config) : module.isRunning
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center, spacing: 8) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(module.accentColor.opacity(0.15))
-                        .frame(width: 30, height: 30)
-                    Image(systemName: module.symbolName)
-                        .font(.system(size: 13.5, weight: .semibold))
-                        .foregroundStyle(module.accentColor)
+        let isHighlighted = hoverState.isHovered
+        let isTinted = isModuleTinted
+        let shortcut = module.shortcutText(in: config)
+        let compactStatusText = (shortcut != nil && status == "Needs Accessibility") ? "Needs Access" : status
+
+        Button(action: onSelect) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .center, spacing: 8) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(module.accentColor.opacity(isTinted ? (isHighlighted ? 0.22 : 0.17) : (isHighlighted ? 0.16 : 0.12)))
+                            .frame(width: 30, height: 30)
+                        Image(systemName: module.symbolName)
+                            .font(.system(size: 13.5, weight: .semibold))
+                            .foregroundStyle(
+                                isTinted || isHighlighted
+                                    ? ToolboxTheme.readableAccentText(for: module.accentColor)
+                                    : ToolboxTheme.readableAccentText(for: module.accentColor).opacity(0.85)
+                            )
+                    }
+
+                    Text(module.name)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Color.clear
+                        .frame(width: module.supportsEnableToggle ? 44 : 88, height: 1)
+                }
+                .frame(minHeight: 30)
+
+                CollapsibleContainer(progress: showDetails ? 1 : 0, reduceMotion: reduceMotion) {
+                    Text(module.tagline)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.primary.opacity(0.74))
+                        .lineSpacing(2)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 9)
+                        .padding(.bottom, 2)
                 }
 
-                Text(module.name)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                Spacer(minLength: 12)
 
+                HStack(alignment: .center, spacing: 6) {
+                    StatusBadge(text: compactStatusText, color: badgeColor)
+                        .help(status)
+
+                    Spacer(minLength: 0)
+
+                    if let shortcut {
+                        ShortcutPill(text: shortcut)
+                    }
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(
+                            isHighlighted
+                                ? ToolboxTheme.readableAccentText(for: module.accentColor)
+                                : Color.secondary.opacity(0.55)
+                        )
+                        .offset(x: isHighlighted ? 2 : 0)
+                        .animation(.easeOut(duration: 0.14), value: isHighlighted)
+                }
+                .frame(minHeight: 22)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, showDetails ? 15 : 14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(
+                RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
+                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.58))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
+                            .fill(
+                                isTinted
+                                    ? Color.clear
+                                    : Color.primary.opacity(isHighlighted ? 0.055 : 0.025)
+                            )
+                    )
+                    .overlay {
+                        if isTinted {
+                            RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [
+                                            module.accentColor.opacity(isHighlighted ? 0.10 : 0.05),
+                                            Color.primary.opacity(isHighlighted ? 0.03 : 0.01)
+                                        ],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                        }
+                    }
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
+                    .strokeBorder(
+                        isTinted
+                            ? module.accentColor.opacity(isHighlighted ? 0.44 : 0.22)
+                            : Color.primary.opacity(isHighlighted ? 0.22 : 0.10),
+                        lineWidth: 1
+                    )
+            )
+            .contentShape(RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius))
+        }
+        .buttonStyle(ToolboxPressFeedbackButtonStyle(pressScale: 0.99, pressOpacity: 0.93))
+        .focusEffectDisabled()
+        .overlay(alignment: .topTrailing) {
+            Group {
                 if module.supportsEnableToggle {
                     Toggle("", isOn: enabledBinding)
                         .labelsHidden()
@@ -578,62 +648,17 @@ private struct DashboardModuleCard: View {
                 } else if let cleanLock = module as? CleanLockModule {
                     CleanLockDashboardButton(
                         cleanLock: cleanLock,
-                        durationSeconds: config.cleanLock.durationSeconds
+                        durationSeconds: config.cleanLock.durationSeconds,
+                        isAppEnabled: config.general.appEnabled,
+                        accessibilityGranted: accessibilityGranted
                     )
                 }
             }
-            .frame(minHeight: 30)
-
-            CollapsibleContainer(progress: showDetails ? 1 : 0, reduceMotion: reduceMotion) {
-                Text(module.tagline)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color.primary.opacity(0.76))
-                    .lineSpacing(2)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 9)
-                    .padding(.bottom, 2)
-            }
-
-            Spacer(minLength: 12)
-
-            HStack(alignment: .center, spacing: 6) {
-                StatusBadge(text: status, color: badgeColor)
-
-                Spacer(minLength: 0)
-
-                if let shortcut = module.shortcutText(in: config) {
-                    ShortcutPill(text: shortcut)
-                }
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(hoverState.isHovered ? ToolboxTheme.accentBlue : Color.secondary.opacity(0.55))
-                    .offset(x: hoverState.isHovered ? 2 : 0)
-                    .animation(.easeOut(duration: 0.14), value: hoverState.isHovered)
-            }
-            .frame(minHeight: 22)
+            .padding(.top, showDetails ? 15 : 14)
+            .padding(.trailing, 14)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, showDetails ? 15 : 14)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.62))
-                .overlay(
-                    RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
-                        .fill(Color.primary.opacity(hoverState.isHovered ? 0.065 : 0.035))
-                )
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
-                .strokeBorder(Color.primary.opacity(hoverState.isHovered ? 0.24 : 0.14), lineWidth: 1)
-        )
-        .animation(.easeOut(duration: 0.14), value: hoverState.isHovered)
-        .contentShape(RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius))
+        .animation(.easeOut(duration: 0.14), value: isHighlighted)
         .onHover { hoverState.isHovered = $0 }
-        .onTapGesture(perform: onSelect)
         .pointerCursor()
         .accessibilityElement(children: .contain)
     }
@@ -643,117 +668,124 @@ struct AccessibilityOnboardingModalView: View {
     @ObservedObject var permissions: PermissionsManager
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .center, spacing: 14) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.orange.opacity(0.24), Color.accentColor.opacity(0.16)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .center, spacing: 14) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.orange.opacity(0.24), Color.accentColor.opacity(0.16)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
                             )
-                        )
-                        .frame(width: 48, height: 48)
-                    Image(systemName: "hand.raised.fill")
-                        .font(.title2.weight(.semibold))
-                        .foregroundStyle(.orange)
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Enable Accessibility for Input & Window Shortcuts")
-                        .font(.title3.bold())
-                    HStack(spacing: 6) {
-                        Image(systemName: "checkmark.shield.fill")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.green)
-                        Text("100% Local · Zero Keystroke Logging · Zero Network Access")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.green)
+                            .frame(width: 48, height: 48)
+                        Image(systemName: "hand.raised.fill")
+                            .font(.title2.weight(.semibold))
+                            .foregroundStyle(.orange)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Color.green.opacity(0.12), in: Capsule())
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Enable Accessibility Access")
+                            .font(.title3.bold())
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.shield.fill")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.green)
+                            Text("100% Local · Zero Keystroke Logging · Zero Network Access")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(ToolboxTheme.readableAccentText(for: .green))
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.green.opacity(0.12), in: Capsule())
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Button {
+                        permissions.dismissOnboardingModal(markSeen: true)
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 28, height: 28)
+                            .background(Color.primary.opacity(0.08), in: Circle())
+                            .menuRowHover(cornerRadius: 14)
+                    }
+                    .buttonStyle(.plain)
+                    .focusEffectDisabled()
+                    .accessibilityLabel("Close")
+                    .help("Close")
+                    .pointerCursor()
                 }
 
-                Spacer(minLength: 8)
+                Text("In System Settings → Privacy & Security → Device Control and Data Access (Accessibility), toggle on Toolbox.app to enable features that react to Dock clicks, scroll events, or global shortcuts:")
+                    .font(.callout)
+                    .foregroundStyle(Color.primary.opacity(0.84))
+                    .fixedSize(horizontal: false, vertical: true)
 
-                Button {
-                    permissions.dismissOnboardingModal(markSeen: true)
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 24, height: 24)
-                        .background(Color.primary.opacity(0.08), in: Circle())
+                VStack(alignment: .leading, spacing: 12) {
+                    onboardingFeatureRow(
+                        symbol: "dock.rectangle",
+                        tint: .blue,
+                        title: "Window & Mouse Utilities",
+                        detail: "Dock Click to Minimize, Scroll Direction inversion, and Keyboard Lock."
+                    )
+                    Divider()
+                    onboardingFeatureRow(
+                        symbol: "mic.fill",
+                        tint: .green,
+                        title: "Unified Call Keybinds",
+                        detail: "Single Mic & Video shortcut across Teams, Zoom, Slack & Meet, plus Auto-Mute While Typing."
+                    )
+                    Divider()
+                    onboardingFeatureRow(
+                        symbol: "doc.on.clipboard",
+                        tint: .teal,
+                        title: "Clipboard Auto-Paste",
+                        detail: "Automatically send ⌘ V into your active app when selecting a clipboard item."
+                    )
                 }
-                .buttonStyle(.plain)
-                .help("Close")
-                .pointerCursor()
-            }
-
-            Text("In System Settings → Privacy & Security → Device Control and Data Access (Accessibility), toggle on Toolbox.app to enable features that react to Dock clicks, scroll events, or global shortcuts:")
-                .font(.callout)
-                .foregroundStyle(Color.primary.opacity(0.84))
-                .fixedSize(horizontal: false, vertical: true)
-
-            VStack(alignment: .leading, spacing: 12) {
-                onboardingFeatureRow(
-                    symbol: "dock.rectangle",
-                    tint: .blue,
-                    title: "Window & Mouse Utilities",
-                    detail: "Dock Click to Minimize, Scroll Direction inversion, and Keyboard Lock."
+                .padding(14)
+                .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
                 )
-                Divider()
-                onboardingFeatureRow(
-                    symbol: "mic.fill",
-                    tint: .green,
-                    title: "Unified Call Keybinds",
-                    detail: "Single Mic & Video shortcut across Teams, Zoom, Slack & Meet, plus Auto-Mute While Typing."
-                )
-                Divider()
-                onboardingFeatureRow(
-                    symbol: "doc.on.clipboard",
-                    tint: .teal,
-                    title: "Clipboard Auto-Paste",
-                    detail: "Automatically send ⌘ V into your active app when selecting a clipboard item."
-                )
-            }
-            .padding(14)
-            .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
-            )
 
-            Text("One toggle covers all Accessibility & Input Monitoring shortcuts. If Screen OCR is enabled, Toolbox will guide you to Screen Recording next.")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                Text("One toggle covers all Accessibility & Input Monitoring shortcuts. If Screen OCR is enabled, Toolbox will guide you to Screen Recording next.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 12) {
-                Button("Skip for Now") {
-                    permissions.dismissOnboardingModal(markSeen: true)
+                HStack(spacing: 12) {
+                    Button("Skip for Now") {
+                        permissions.dismissOnboardingModal(markSeen: true)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .keyboardShortcut(.cancelAction)
+                    .pointerCursor()
+
+                    Spacer()
+
+                    Button("Grant Accessibility Access…") {
+                        permissions.dismissOnboardingModal(markSeen: true)
+                        permissions.promptAndOpenSettings()
+                    }
+                    .buttonStyle(.toolboxProminent(.orange))
+                    .controlSize(.large)
+                    .keyboardShortcut(.defaultAction)
+                    .pointerCursor()
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .keyboardShortcut(.cancelAction)
-                .pointerCursor()
-
-                Spacer()
-
-                Button("Grant Accessibility Access…") {
-                    permissions.dismissOnboardingModal(markSeen: true)
-                    permissions.promptAndOpenSettings()
-                }
-                .buttonStyle(.toolboxProminent(.orange))
-                .controlSize(.large)
-                .keyboardShortcut(.defaultAction)
-                .pointerCursor()
             }
+            .padding(22)
         }
-        .padding(22)
-        .frame(width: 520)
+        .frame(maxWidth: 520, maxHeight: 520)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func onboardingFeatureRow(

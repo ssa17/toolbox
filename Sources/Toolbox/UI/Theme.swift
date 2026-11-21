@@ -19,6 +19,43 @@ enum ToolboxTheme {
     static func applyDarkAppearance(to window: NSWindow) {
         window.appearance = darkAppearance
     }
+
+    /// Brightened dark-mode foreground tint for small text, badges, and glyphs on dark card surfaces.
+    static func readableAccentText(for color: Color) -> Color {
+        switch color {
+        case .indigo: return Color(red: 0.64, green: 0.68, blue: 1.0)
+        case .blue:   return Color(red: 0.42, green: 0.72, blue: 1.0)
+        case .red:    return Color(red: 1.0, green: 0.46, blue: 0.44)
+        case .purple: return Color(red: 0.80, green: 0.60, blue: 1.0)
+        case .orange: return Color(red: 1.0, green: 0.68, blue: 0.30)
+        case .pink:   return Color(red: 1.0, green: 0.48, blue: 0.66)
+        case .mint:   return Color(red: 0.38, green: 0.90, blue: 0.82)
+        case .teal:   return Color(red: 0.34, green: 0.84, blue: 0.86)
+        case .green:  return Color(red: 0.32, green: 0.86, blue: 0.48)
+        default:      return color
+        }
+    }
+
+    /// Calibrated dark-mode switch track color so pure white switch thumbs retain crisp contrast.
+    static func switchTrackColor(for color: Color) -> Color {
+        switch color {
+        case .mint:   return Color(red: 0.12, green: 0.62, blue: 0.56)
+        case .teal:   return Color(red: 0.10, green: 0.56, blue: 0.62)
+        case .indigo: return Color(red: 0.38, green: 0.40, blue: 0.92)
+        default:      return color
+        }
+    }
+}
+
+private struct ToolboxInsideModalKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var toolboxInsideModal: Bool {
+        get { self[ToolboxInsideModalKey.self] }
+        set { self[ToolboxInsideModalKey.self] = newValue }
+    }
 }
 
 extension View {
@@ -104,11 +141,16 @@ private struct MenuRowHover<Content: View>: View {
 }
 
 private struct PointerCursorOverlay: NSViewRepresentable {
+    @Environment(\.toolboxInsideModal) private var isInsideModal
+
     func makeNSView(context: Context) -> PointerCursorNSView {
-        PointerCursorNSView()
+        let view = PointerCursorNSView()
+        view.isInsideModalOverlay = isInsideModal
+        return view
     }
 
     func updateNSView(_ nsView: PointerCursorNSView, context: Context) {
+        nsView.isInsideModalOverlay = isInsideModal
         nsView.reapplyCursorIfHovered()
     }
 }
@@ -122,6 +164,8 @@ final class PointerCursorNSView: NSView {
     private var hoverTrackingArea: NSTrackingArea?
     private var cursorTrackingArea: NSTrackingArea?
     private var isHovered = false
+    var isInsideModalOverlay = false
+    static var modalSuppressionActive = false
     private static var localEventMonitor: Any?
     /// Non-nil while an in-app row drag gesture owns the cursor (e.g. `.closedHand`),
     /// preventing hover/click cursor-sync passes from flashing `.pointingHand` mid-drag.
@@ -138,6 +182,9 @@ final class PointerCursorNSView: NSView {
 
     static func isPoint(_ ptInWindow: NSPoint, inside view: NSView) -> Bool {
         guard !view.isHidden, view.alphaValue > 0.01 else { return false }
+        if modalSuppressionActive, let pointerView = view as? PointerCursorNSView, !pointerView.isInsideModalOverlay {
+            return false
+        }
         let localPt = view.convert(ptInWindow, from: nil)
         // On macOS SwiftUI NSHostingView, visibleRect can report an unclipped ancestor container rect
         // larger than bounds; always intersect with bounds so hover never leaks to the surrounding page.
@@ -512,6 +559,18 @@ final class PointerCursorHostingView<Content: View>: NSHostingView<Content> {
     }
 }
 
+struct ToolboxPressFeedbackButtonStyle: ButtonStyle {
+    var pressScale: CGFloat = 0.985
+    var pressOpacity: Double = 0.88
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? pressScale : 1.0)
+            .opacity(configuration.isPressed ? pressOpacity : 1.0)
+            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+    }
+}
+
 struct BackToDashboardBar: View {
     let onBackToDashboard: () -> Void
 
@@ -524,15 +583,16 @@ struct BackToDashboardBar: View {
                     Text("Back to Dashboard")
                         .font(.callout.weight(.medium))
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 6)
                 .background(Color.primary.opacity(0.06), in: Capsule())
                 .overlay(
                     Capsule()
-                        .strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.75)
+                        .strokeBorder(Color.primary.opacity(0.11), lineWidth: 0.75)
                 )
+                .menuRowHover(cornerRadius: 999)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(ToolboxPressFeedbackButtonStyle())
             .focusEffectDisabled()
             .pointerCursor()
 
@@ -552,12 +612,16 @@ struct StatusBadge: View {
                 .frame(width: 6, height: 6)
             Text(text)
                 .font(.caption.weight(.medium))
-                .foregroundStyle(color)
+                .foregroundStyle(ToolboxTheme.readableAccentText(for: color))
                 .lineLimit(1)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
-        .background(color.opacity(0.14), in: Capsule())
+        .background(color.opacity(0.15), in: Capsule())
+        .overlay(
+            Capsule()
+                .strokeBorder(color.opacity(0.24), lineWidth: 0.5)
+        )
         .fixedSize(horizontal: true, vertical: false)
     }
 }
@@ -584,7 +648,8 @@ struct ShortcutPill: View {
             ForEach(Array(tokens.enumerated()), id: \.offset) { _, token in
                 Text(token)
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.primary.opacity(0.84))
+                    .lineLimit(1)
                     .frame(minWidth: 16, minHeight: 18)
                     .padding(.horizontal, token.count > 1 ? 4 : 2)
                     .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4))
@@ -592,15 +657,46 @@ struct ShortcutPill: View {
                         RoundedRectangle(cornerRadius: 4)
                             .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
                     )
+                    .fixedSize(horizontal: true, vertical: false)
             }
         }
     }
 }
 
+struct FeatureSectionHeader: View {
+    let title: String
+    var subtitle: String? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title.uppercased())
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .tracking(0.55)
+            if let subtitle, !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 4)
+        .textSelection(.enabled)
+    }
+}
+
 struct SectionCard<Content: View>: View {
+    var accentTint: Color? = nil
+    var borderOpacity: Double = 0.11
     let content: () -> Content
 
-    init(@ViewBuilder content: @escaping () -> Content) {
+    init(
+        accentTint: Color? = nil,
+        borderOpacity: Double = 0.11,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.accentTint = accentTint
+        self.borderOpacity = borderOpacity
         self.content = content
     }
 
@@ -612,15 +708,30 @@ struct SectionCard<Content: View>: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.62))
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.58))
                 .overlay(
                     RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
-                        .fill(Color.primary.opacity(0.035))
+                        .fill(Color.primary.opacity(0.03))
                 )
+                .overlay {
+                    if let accentTint {
+                        RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
+                            .fill(
+                                LinearGradient(
+                                    colors: [accentTint.opacity(0.07), .clear],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    }
+                }
         )
         .overlay(
             RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
-                .strokeBorder(Color.primary.opacity(0.14), lineWidth: 1)
+                .strokeBorder(
+                    accentTint?.opacity(0.26) ?? Color.primary.opacity(borderOpacity),
+                    lineWidth: 1
+                )
         )
     }
 }
@@ -643,24 +754,403 @@ struct FeatureSection<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title.uppercased())
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .tracking(0.5)
-                if let subtitle, !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .padding(.horizontal, 4)
-            .textSelection(.enabled)
+            FeatureSectionHeader(title: title, subtitle: subtitle)
 
             SectionCard {
                 content()
             }
         }
+    }
+}
+
+/// Airy section header paired directly with card-grid content (without an outer `SectionCard`).
+struct FeatureCardGridSection<Content: View>: View {
+    let title: String
+    var subtitle: String? = nil
+    let content: () -> Content
+
+    init(
+        _ title: String,
+        subtitle: String? = nil,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.content = content
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            FeatureSectionHeader(title: title, subtitle: subtitle)
+            content()
+        }
+    }
+}
+
+@MainActor
+private final class SelectableOptionCardHoverState: ObservableObject {
+    @Published var isHovered = false
+}
+
+/// Interactive Sponsor-style selectable card used for multi-option settings pickers.
+struct SelectableOptionCard: View {
+    let title: String
+    let subtitle: String
+    let symbolName: String
+    let accentColor: Color
+    var badge: String? = nil
+    let isSelected: Bool
+    var isCompact: Bool = false
+    var isDisabled: Bool = false
+    var isPulsing: Bool = false
+    let action: () -> Void
+
+    @StateObject private var hoverState = SelectableOptionCardHoverState()
+
+    var body: some View {
+        let radius: CGFloat = isCompact ? 10 : ToolboxTheme.cardCornerRadius
+        let isHighlighted = !isDisabled && hoverState.isHovered
+        let iconSize: CGFloat = isCompact ? 28 : 34
+        let iconRadius: CGFloat = isCompact ? 8 : 9
+        let readableAccent = ToolboxTheme.readableAccentText(for: accentColor)
+
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: isCompact ? 8 : 10) {
+                HStack(alignment: .center, spacing: 6) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: iconRadius)
+                            .fill(accentColor.opacity(isSelected ? 0.22 : (isHighlighted ? 0.18 : 0.13)))
+                            .frame(width: iconSize, height: iconSize)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: iconRadius)
+                                    .strokeBorder(accentColor.opacity(isSelected ? 0.32 : 0.18), lineWidth: 0.75)
+                            )
+                        Image(systemName: symbolName)
+                            .font(.system(size: isCompact ? 12.5 : 14.5, weight: .semibold))
+                            .foregroundStyle(isSelected || isHighlighted ? readableAccent : readableAccent.opacity(0.88))
+                    }
+
+                    Spacer(minLength: 4)
+
+                    if let badge {
+                        Text(badge)
+                            .font(.system(size: isCompact ? 10 : 10.5, weight: .semibold))
+                            .foregroundStyle(isSelected ? readableAccent : .secondary)
+                            .padding(.horizontal, isCompact ? 6 : 8)
+                            .padding(.vertical, 2.5)
+                            .background(
+                                isSelected ? accentColor.opacity(0.16) : Color.primary.opacity(0.06),
+                                in: Capsule()
+                            )
+                            .lineLimit(1)
+                    }
+
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: isCompact ? 13 : 15, weight: .semibold))
+                            .foregroundStyle(readableAccent)
+                    } else if !isCompact {
+                        Circle()
+                            .strokeBorder(
+                                Color.primary.opacity(isHighlighted ? 0.34 : 0.22),
+                                lineWidth: 1.25
+                            )
+                            .frame(width: 15, height: 15)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: isCompact ? 2 : 4) {
+                    Text(title)
+                        .font(.system(size: isCompact ? 12.5 : 13.5, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(isCompact ? 1 : nil)
+
+                    Text(subtitle)
+                        .font(.system(size: isCompact ? 11 : 12))
+                        .foregroundStyle(Color.primary.opacity(isSelected ? 0.80 : 0.66))
+                        .lineSpacing(1.5)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(isCompact ? 12 : 14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background {
+                RoundedRectangle(cornerRadius: radius)
+                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.58))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: radius)
+                            .fill(
+                                isSelected
+                                    ? accentColor.opacity(isHighlighted ? 0.13 : 0.10)
+                                    : Color.primary.opacity(isHighlighted ? 0.055 : 0.025)
+                            )
+                    )
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: radius)
+                    .strokeBorder(
+                        isPulsing
+                            ? readableAccent.opacity(0.75)
+                            : (isSelected
+                                ? readableAccent.opacity(0.58)
+                                : Color.primary.opacity(isHighlighted ? 0.22 : 0.10)),
+                        lineWidth: (isSelected || isPulsing) ? 1.25 : 1
+                    )
+            )
+            .contentShape(RoundedRectangle(cornerRadius: radius))
+        }
+        .buttonStyle(ToolboxPressFeedbackButtonStyle(pressScale: 0.985, pressOpacity: 0.92))
+        .focusEffectDisabled()
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.62 : 1.0)
+        .onHover { hoverState.isHovered = !isDisabled && $0 }
+        .onChange(of: isDisabled) { _, disabled in
+            if disabled { hoverState.isHovered = false }
+        }
+        .animation(.easeOut(duration: 0.14), value: isSelected)
+        .animation(.easeOut(duration: 0.14), value: isHighlighted)
+        .pointerCursor(!isDisabled)
+    }
+}
+
+/// Static informational card matching `SelectableOptionCard` aesthetics for multi-column tips/safety grids.
+struct InfoFeatureCard<Footer: View>: View {
+    let title: String
+    let subtitle: String
+    let symbolName: String
+    let accentColor: Color
+    let footer: () -> Footer
+
+    init(
+        title: String,
+        subtitle: String,
+        symbolName: String,
+        accentColor: Color,
+        @ViewBuilder footer: @escaping () -> Footer
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.symbolName = symbolName
+        self.accentColor = accentColor
+        self.footer = footer
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 9)
+                    .fill(accentColor.opacity(0.14))
+                    .frame(width: 34, height: 34)
+                Image(systemName: symbolName)
+                    .font(.system(size: 14.5, weight: .semibold))
+                    .foregroundStyle(accentColor)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(subtitle)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.primary.opacity(0.70))
+                    .lineSpacing(1.5)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+
+            footer()
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.58))
+                .overlay(
+                    RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
+                        .fill(Color.primary.opacity(0.025))
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: ToolboxTheme.cardCornerRadius)
+                .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
+        )
+        .textSelection(.enabled)
+    }
+}
+
+extension InfoFeatureCard where Footer == EmptyView {
+    init(
+        title: String,
+        subtitle: String,
+        symbolName: String,
+        accentColor: Color
+    ) {
+        self.init(
+            title: title,
+            subtitle: subtitle,
+            symbolName: symbolName,
+            accentColor: accentColor
+        ) {
+            EmptyView()
+        }
+    }
+}
+
+@MainActor
+private final class SegmentedHoverState: ObservableObject {
+    @Published var hoveredIndex: Int?
+}
+
+/// Crisp dark-mode pill segmented control with animated sliding indicator.
+struct ToolboxSegmentedControl<Option: Hashable>: View {
+    let options: [Option]
+    @Binding var selection: Option
+    var accentColor: Color = ToolboxTheme.accentBlue
+    var isFullWidth: Bool = false
+    var isDisabled: Bool = false
+    let label: (Option) -> String
+    var symbol: ((Option) -> String?)? = nil
+    var helpText: ((Option) -> String)? = nil
+
+    @Namespace private var indicatorNamespace
+    @StateObject private var hoverState = SegmentedHoverState()
+
+    var body: some View {
+        let readableAccent = ToolboxTheme.readableAccentText(for: accentColor)
+
+        HStack(spacing: 2) {
+            ForEach(Array(options.enumerated()), id: \.offset) { idx, option in
+                let isSelected = selection == option
+                let isHovered = !isDisabled && !isSelected && hoverState.hoveredIndex == idx
+                let iconName = symbol?(option)
+
+                Button {
+                    guard !isDisabled, selection != option else { return }
+                    withAnimation(.easeInOut(duration: 0.16)) {
+                        selection = option
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        if let iconName {
+                            Image(systemName: iconName)
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(isSelected ? readableAccent : (isHovered ? Color.primary.opacity(0.85) : .secondary))
+                        }
+                        Text(label(option))
+                            .font(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(isSelected ? Color.primary : (isHovered ? Color.primary.opacity(0.88) : Color.secondary))
+                    .frame(maxWidth: isFullWidth ? .infinity : nil)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5.5)
+                    .background {
+                        if isSelected {
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(Color.primary.opacity(0.08))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(accentColor.opacity(0.26))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .strokeBorder(readableAccent.opacity(0.45), lineWidth: 0.75)
+                                )
+                                .matchedGeometryEffect(id: "toolboxSegmentedPill", in: indicatorNamespace)
+                        } else if isHovered {
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(Color.primary.opacity(0.06))
+                        }
+                    }
+                    .contentShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(ToolboxPressFeedbackButtonStyle(pressScale: 0.97, pressOpacity: 0.85))
+                .focusEffectDisabled()
+                .disabled(isDisabled)
+                .onHover { hovering in
+                    if hovering && !isDisabled {
+                        hoverState.hoveredIndex = idx
+                    } else if hoverState.hoveredIndex == idx {
+                        hoverState.hoveredIndex = nil
+                    }
+                }
+                .help(helpText?(option) ?? "")
+                .pointerCursor(!isDisabled)
+            }
+        }
+        .padding(2.5)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.primary.opacity(0.055))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.75)
+        )
+        .opacity(isDisabled ? 0.52 : 1.0)
+    }
+}
+
+@MainActor
+private final class PresetChipHoverState: ObservableObject {
+    @Published var isHovered = false
+}
+
+/// Reusable selectable preset pill chip calibrated for high legibility across all accent colors.
+struct ToolboxPresetChip: View {
+    let label: String
+    let isSelected: Bool
+    var accentColor: Color = ToolboxTheme.accentBlue
+    let action: () -> Void
+
+    @Environment(\.isEnabled) private var isEnabled
+    @StateObject private var hoverState = PresetChipHoverState()
+
+    var body: some View {
+        let isHovered = isEnabled && hoverState.isHovered
+        let readableAccent = ToolboxTheme.readableAccentText(for: accentColor)
+
+        Button(action: action) {
+            Text(label)
+                .font(.caption.monospacedDigit().weight(isSelected ? .semibold : .medium))
+                .foregroundStyle(isSelected ? Color.primary : Color.primary.opacity(0.86))
+                .lineLimit(1)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .frame(minWidth: 34, minHeight: 26)
+                .background(
+                    isSelected
+                        ? accentColor.opacity(isHovered ? 0.30 : 0.24)
+                        : Color.primary.opacity(isHovered ? 0.11 : 0.065),
+                    in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(
+                            isSelected
+                                ? readableAccent.opacity(0.65)
+                                : Color.primary.opacity(isHovered ? 0.22 : 0.10),
+                            lineWidth: isSelected ? 1.0 : 0.75
+                        )
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .fixedSize(horizontal: true, vertical: false)
+        }
+        .buttonStyle(ToolboxPressFeedbackButtonStyle(pressScale: 0.96, pressOpacity: 0.86))
+        .focusEffectDisabled()
+        .opacity(isEnabled ? 1.0 : 0.5)
+        .onHover { hoverState.isHovered = isEnabled && $0 }
+        .onChange(of: isEnabled) { _, enabled in
+            if !enabled { hoverState.isHovered = false }
+        }
+        .pointerCursor(isEnabled)
     }
 }
 
@@ -680,54 +1170,191 @@ struct SettingRow<Trailing: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 14) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.callout.weight(.semibold))
-                if let subtitle, !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(Color.primary.opacity(0.72))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+        SettingRowLayout(spacing: 14, verticalSpacing: 10, minLabelWidth: 170) {
+            labelBlock
+            HStack(spacing: 8) {
+                trailing()
             }
-            .textSelection(.enabled)
+        }
+    }
 
-            Spacer(minLength: 12)
+    private var labelBlock: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.callout.weight(.semibold))
+            if let subtitle, !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Color.primary.opacity(0.68))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .textSelection(.enabled)
+    }
+}
 
-            trailing()
+private struct SettingRowLayout: Layout {
+    var spacing: CGFloat = 14
+    var verticalSpacing: CGFloat = 10
+    var minLabelWidth: CGFloat = 170
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard subviews.count == 2 else { return .zero }
+        let label = subviews[0]
+        let control = subviews[1]
+
+        let controlSize = control.sizeThatFits(.unspecified)
+        guard let totalWidth = proposal.width, totalWidth.isFinite else {
+            let labelSize = label.sizeThatFits(.unspecified)
+            return CGSize(
+                width: labelSize.width + spacing + controlSize.width,
+                height: max(labelSize.height, controlSize.height)
+            )
+        }
+
+        let horizontalLabelWidth = totalWidth - controlSize.width - spacing
+        if horizontalLabelWidth >= minLabelWidth && controlSize.width <= totalWidth * 0.56 {
+            let labelSize = label.sizeThatFits(ProposedViewSize(width: horizontalLabelWidth, height: nil))
+            return CGSize(width: totalWidth, height: max(labelSize.height, controlSize.height))
+        } else {
+            let labelSize = label.sizeThatFits(ProposedViewSize(width: totalWidth, height: nil))
+            return CGSize(width: totalWidth, height: labelSize.height + verticalSpacing + controlSize.height)
+        }
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 2 else { return }
+        let label = subviews[0]
+        let control = subviews[1]
+
+        let controlSize = control.sizeThatFits(.unspecified)
+        let horizontalLabelWidth = bounds.width - controlSize.width - spacing
+        if horizontalLabelWidth >= minLabelWidth && controlSize.width <= bounds.width * 0.56 {
+            let labelSize = label.sizeThatFits(ProposedViewSize(width: horizontalLabelWidth, height: nil))
+            label.place(
+                at: CGPoint(x: bounds.minX, y: bounds.midY),
+                anchor: .leading,
+                proposal: ProposedViewSize(width: horizontalLabelWidth, height: labelSize.height)
+            )
+            control.place(
+                at: CGPoint(x: bounds.maxX, y: bounds.midY),
+                anchor: .trailing,
+                proposal: ProposedViewSize(width: controlSize.width, height: controlSize.height)
+            )
+        } else {
+            let labelSize = label.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
+            label.place(
+                at: CGPoint(x: bounds.minX, y: bounds.minY),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: bounds.width, height: labelSize.height)
+            )
+            control.place(
+                at: CGPoint(x: bounds.maxX, y: bounds.maxY),
+                anchor: .bottomTrailing,
+                proposal: ProposedViewSize(width: controlSize.width, height: controlSize.height)
+            )
         }
     }
 }
 
-/// High-contrast pill switch for status bar menus (and other non-key surfaces) where
-/// macOS renders native `.switch` toggles in muted gray regardless of on/off state.
+/// Equal-width responsive card grid that adapts column count directly from concrete container width.
+struct ToolboxAdaptiveCardGrid: Layout {
+    let wideColumns: Int
+    let narrowColumns: Int
+    let wideMinWidth: CGFloat
+    var spacing: CGFloat = 12
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard !subviews.isEmpty else { return .zero }
+        let width = (proposal.width?.isFinite == true) ? (proposal.width ?? wideMinWidth) : wideMinWidth
+        let cols = width >= wideMinWidth ? wideColumns : narrowColumns
+        return measureGrid(width: width, columns: max(1, cols), subviews: subviews).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard !subviews.isEmpty else { return }
+        let cols = max(1, bounds.width >= wideMinWidth ? wideColumns : narrowColumns)
+        let measured = measureGrid(width: bounds.width, columns: cols, subviews: subviews)
+        var y = bounds.minY
+        for (rowIndex, rowHeight) in measured.rowHeights.enumerated() {
+            for colIndex in 0..<cols {
+                let idx = rowIndex * cols + colIndex
+                guard idx < subviews.count else { break }
+                let x = bounds.minX + CGFloat(colIndex) * (measured.colWidth + spacing)
+                subviews[idx].place(
+                    at: CGPoint(x: x, y: y),
+                    anchor: .topLeading,
+                    proposal: ProposedViewSize(width: measured.colWidth, height: rowHeight)
+                )
+            }
+            y += rowHeight + spacing
+        }
+    }
+
+    private func measureGrid(width: CGFloat, columns: Int, subviews: Subviews) -> (size: CGSize, colWidth: CGFloat, rowHeights: [CGFloat]) {
+        let totalSpacing = spacing * CGFloat(max(0, columns - 1))
+        let colWidth = max(40, (width - totalSpacing) / CGFloat(columns))
+        var rowHeights: [CGFloat] = []
+        var totalHeight: CGFloat = 0
+
+        for start in stride(from: 0, to: subviews.count, by: columns) {
+            let end = min(start + columns, subviews.count)
+            var maxH: CGFloat = 0
+            for idx in start..<end {
+                let size = subviews[idx].sizeThatFits(ProposedViewSize(width: colWidth, height: nil))
+                maxH = max(maxH, size.height)
+            }
+            rowHeights.append(maxH)
+            totalHeight += maxH
+        }
+        if rowHeights.count > 1 {
+            totalHeight += spacing * CGFloat(rowHeights.count - 1)
+        }
+        return (CGSize(width: width, height: totalHeight), colWidth, rowHeights)
+    }
+}
+
+typealias ToolboxSwitchToggleStyle = StatusBarSwitchToggleStyle
+
+/// High-contrast pill switch for status bar menus and settings rows where macOS renders
+/// native `.switch` toggles in muted gray.
 struct StatusBarSwitchToggleStyle: ToggleStyle {
     var onColor: Color = .green
 
+    @Environment(\.isEnabled) private var isEnabled
+
     func makeBody(configuration: Configuration) -> some View {
+        let trackColor = ToolboxTheme.switchTrackColor(for: onColor)
+
         Button {
             configuration.isOn.toggle()
         } label: {
             ZStack(alignment: configuration.isOn ? .trailing : .leading) {
                 Capsule()
-                    .fill(configuration.isOn ? onColor : Color.primary.opacity(0.16))
+                    .fill(configuration.isOn ? trackColor : Color.primary.opacity(0.16))
                     .overlay(
                         Capsule()
                             .strokeBorder(
-                                configuration.isOn ? onColor.opacity(0.35) : Color.primary.opacity(0.24),
+                                configuration.isOn ? trackColor.opacity(0.45) : Color.primary.opacity(0.24),
                                 lineWidth: 1
                             )
                     )
                     .frame(width: 34, height: 19)
 
                 Circle()
-                    .fill(configuration.isOn ? Color.white : Color.white.opacity(0.82))
-                    .shadow(color: .black.opacity(0.25), radius: 1.5, x: 0, y: 0.5)
+                    .fill(configuration.isOn ? Color.white : Color.white.opacity(0.86))
+                    .overlay(
+                        Circle()
+                            .strokeBorder(Color.black.opacity(0.14), lineWidth: 0.5)
+                    )
+                    .shadow(color: .black.opacity(0.32), radius: 1.5, x: 0, y: 0.5)
                     .frame(width: 15, height: 15)
                     .padding(2)
             }
-            .contentShape(Capsule())
+            .padding(.horizontal, 3)
+            .padding(.vertical, 3)
+            .opacity(isEnabled ? 1.0 : 0.45)
+            .contentShape(Rectangle())
             .animation(.easeInOut(duration: 0.16), value: configuration.isOn)
         }
         .buttonStyle(.plain)
@@ -745,6 +1372,8 @@ enum ToolboxProminentTone: CaseIterable, Equatable, Sendable {
     case orange
     case green
     case purple
+    case teal
+    case pink
     case neutral
 
     var sRGBComponents: (r: Double, g: Double, b: Double) {
@@ -754,6 +1383,8 @@ enum ToolboxProminentTone: CaseIterable, Equatable, Sendable {
         case .orange:  return (0.79, 0.40, 0.04)
         case .green:   return (0.12, 0.54, 0.25)
         case .purple:  return (0.56, 0.24, 0.84)
+        case .teal:    return (0.07, 0.50, 0.46)
+        case .pink:    return (0.80, 0.16, 0.40)
         case .neutral: return (0.34, 0.35, 0.38)
         }
     }
@@ -761,6 +1392,73 @@ enum ToolboxProminentTone: CaseIterable, Equatable, Sendable {
     var fillColor: Color {
         let c = sRGBComponents
         return Color(red: c.r, green: c.g, blue: c.b)
+    }
+}
+
+/// Crisp dark-mode destructive button style so red destructive actions stay clearly visible.
+struct ToolboxDestructiveButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        ToolboxDestructiveButtonBody(configuration: configuration)
+    }
+}
+
+private struct ToolboxDestructiveButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.controlSize) private var controlSize
+    @StateObject private var hoverState = ProminentButtonHoverState()
+
+    private var metrics: (font: Font, hPad: CGFloat, vPad: CGFloat, radius: CGFloat) {
+        switch controlSize {
+        case .mini:
+            return (.system(size: 11, weight: .semibold), 8, 2, 5)
+        case .small:
+            return (.caption.weight(.semibold), 10, 3.5, 6)
+        case .regular:
+            return (.callout.weight(.semibold), 12, 4.0, 7)
+        case .large:
+            return (.callout.weight(.semibold), 14, 6.5, 8)
+        case .extraLarge:
+            return (.callout.weight(.semibold), 16, 8, 9)
+        @unknown default:
+            return (.callout.weight(.semibold), 12, 4.0, 7)
+        }
+    }
+
+    var body: some View {
+        let m = metrics
+        let shape = RoundedRectangle(cornerRadius: m.radius, style: .continuous)
+        let isHovered = isEnabled && hoverState.isHovered
+        let isPressed = isEnabled && configuration.isPressed
+        let redText = ToolboxTheme.readableAccentText(for: .red)
+
+        configuration.label
+            .font(m.font)
+            .foregroundStyle(isEnabled ? redText : redText.opacity(0.45))
+            .tint(redText)
+            .padding(.horizontal, m.hPad)
+            .padding(.vertical, m.vPad)
+            .background {
+                shape.fill(Color.red.opacity(isEnabled ? (isPressed ? 0.28 : (isHovered ? 0.22 : 0.14)) : 0.06))
+            }
+            .overlay(
+                shape.strokeBorder(
+                    Color.red.opacity(isEnabled ? (isHovered ? 0.50 : 0.34) : 0.14),
+                    lineWidth: 0.75
+                )
+            )
+            .contentShape(shape)
+            .onHover { hoverState.isHovered = isEnabled && $0 }
+            .onChange(of: isEnabled) { _, enabled in
+                if !enabled { hoverState.isHovered = false }
+            }
+    }
+}
+
+extension ButtonStyle where Self == ToolboxDestructiveButtonStyle {
+    static var toolboxDestructive: ToolboxDestructiveButtonStyle {
+        ToolboxDestructiveButtonStyle()
     }
 }
 

@@ -105,8 +105,13 @@ enum SnapshotRunner {
         navModule.isSidebarVisible = true
         saveViewSnapshot(
             MainWindowController.makeRootView(navState: navModule),
-            size: NSSize(width: 940, height: 660),
+            size: NSSize(width: 940, height: 820),
             to: outURL.appendingPathComponent("module_dock.png")
+        )
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navModule),
+            size: NSSize(width: 820, height: 900),
+            to: outURL.appendingPathComponent("module_dock_minwidth.png")
         )
 
         let navScroll = NavigationState()
@@ -114,7 +119,7 @@ enum SnapshotRunner {
         navScroll.isSidebarVisible = true
         saveViewSnapshot(
             MainWindowController.makeRootView(navState: navScroll),
-            size: NSSize(width: 940, height: 660),
+            size: NSSize(width: 940, height: 760),
             to: outURL.appendingPathComponent("module_scroll.png")
         )
 
@@ -123,8 +128,13 @@ enum SnapshotRunner {
         navClipboard.isSidebarVisible = true
         saveViewSnapshot(
             MainWindowController.makeRootView(navState: navClipboard),
-            size: NSSize(width: 940, height: 660),
+            size: NSSize(width: 940, height: 1360),
             to: outURL.appendingPathComponent("module_clipboard.png")
+        )
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navClipboard),
+            size: NSSize(width: 820, height: 1440),
+            to: outURL.appendingPathComponent("module_clipboard_minwidth.png")
         )
 
         // Seed deterministic sample entries so the dropdown renders richly (the
@@ -159,8 +169,13 @@ enum SnapshotRunner {
         navPortKiller.isSidebarVisible = true
         saveViewSnapshot(
             MainWindowController.makeRootView(navState: navPortKiller),
-            size: NSSize(width: 940, height: 760),
+            size: NSSize(width: 940, height: 1160),
             to: outURL.appendingPathComponent("module_port_killer.png")
+        )
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navPortKiller),
+            size: NSSize(width: 820, height: 1220),
+            to: outURL.appendingPathComponent("module_port_killer_minwidth.png")
         )
 
         // Seed a couple of recent captures so the Screen OCR settings page renders richly.
@@ -190,7 +205,7 @@ enum SnapshotRunner {
         navScreenOCR.isSidebarVisible = true
         saveViewSnapshot(
             MainWindowController.makeRootView(navState: navScreenOCR),
-            size: NSSize(width: 940, height: 860),
+            size: NSSize(width: 940, height: 920),
             to: outURL.appendingPathComponent("module_screen_ocr.png")
         )
         ocrModule.replaceRecentCaptures([])
@@ -200,8 +215,22 @@ enum SnapshotRunner {
         navCommands.isSidebarVisible = true
         saveViewSnapshot(
             MainWindowController.makeRootView(navState: navCommands),
-            size: NSSize(width: 940, height: 660),
+            size: NSSize(width: 940, height: 720),
             to: outURL.appendingPathComponent("module_custom_commands.png")
+        )
+
+        let navKeepAwake = NavigationState()
+        navKeepAwake.selection = .module("keep_awake")
+        navKeepAwake.isSidebarVisible = true
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navKeepAwake),
+            size: NSSize(width: 940, height: 1040),
+            to: outURL.appendingPathComponent("module_keep_awake.png")
+        )
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navKeepAwake),
+            size: NSSize(width: 820, height: 1100),
+            to: outURL.appendingPathComponent("module_keep_awake_minwidth.png")
         )
 
         let navCleanLock = NavigationState()
@@ -209,7 +238,7 @@ enum SnapshotRunner {
         navCleanLock.isSidebarVisible = true
         saveViewSnapshot(
             MainWindowController.makeRootView(navState: navCleanLock),
-            size: NSSize(width: 940, height: 700),
+            size: NSSize(width: 940, height: 720),
             to: outURL.appendingPathComponent("module_clean_lock.png")
         )
 
@@ -236,8 +265,13 @@ enum SnapshotRunner {
         navCallControls.isSidebarVisible = true
         saveViewSnapshot(
             MainWindowController.makeRootView(navState: navCallControls),
-            size: NSSize(width: 940, height: 1420),
+            size: NSSize(width: 940, height: 1760),
             to: outURL.appendingPathComponent("module_call_controls.png")
+        )
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navCallControls),
+            size: NSSize(width: 820, height: 1960),
+            to: outURL.appendingPathComponent("module_call_controls_minwidth.png")
         )
         configManager.config.callControls.micShortcut = prevCallMicShortcut
         configManager.config.callControls.videoShortcut = prevCallVideoShortcut
@@ -267,6 +301,11 @@ enum SnapshotRunner {
             MainWindowController.makeRootView(navState: navJSON),
             size: NSSize(width: 940, height: 660),
             to: outURL.appendingPathComponent("json_config.png")
+        )
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navJSON),
+            size: NSSize(width: 820, height: 680),
+            to: outURL.appendingPathComponent("json_config_minwidth.png")
         )
 
         let navSupport = NavigationState()
@@ -303,8 +342,13 @@ enum SnapshotRunner {
         )
         saveViewSnapshot(
             MainWindowController.makeRootView(navState: navSettings),
-            size: NSSize(width: 940, height: 1220),
+            size: NSSize(width: 940, height: 1800),
             to: outURL.appendingPathComponent("settings_up_to_date.png")
+        )
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navSettings),
+            size: NSSize(width: 820, height: 1920),
+            to: outURL.appendingPathComponent("settings_minwidth.png")
         )
 
         UpdateManager.shared.configureStateForTesting(
@@ -316,7 +360,7 @@ enum SnapshotRunner {
         )
         saveViewSnapshot(
             MainWindowController.makeRootView(navState: navSettings),
-            size: NSSize(width: 940, height: 1220),
+            size: NSSize(width: 940, height: 1720),
             to: outURL.appendingPathComponent("settings_checking.png")
         )
 
@@ -330,7 +374,7 @@ enum SnapshotRunner {
         )
         saveViewSnapshot(
             MainWindowController.makeRootView(navState: navSettings),
-            size: NSSize(width: 940, height: 1220),
+            size: NSSize(width: 940, height: 1720),
             to: outURL.appendingPathComponent("settings_update_available.png")
         )
 

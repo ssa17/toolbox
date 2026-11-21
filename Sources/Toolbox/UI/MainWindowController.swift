@@ -581,6 +581,7 @@ struct MainSplitView: View {
                         }
 
                     AccessibilityOnboardingModalView(permissions: permissions)
+                        .environment(\.toolboxInsideModal, true)
                         .background(
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
                                 .fill(Color(nsColor: .windowBackgroundColor))
@@ -597,6 +598,12 @@ struct MainSplitView: View {
                 .transition(.opacity)
             }
         }
+        .onAppear {
+            PointerCursorNSView.modalSuppressionActive = permissions.isPresentingOnboardingModal
+        }
+        .onChange(of: permissions.isPresentingOnboardingModal) { _, presenting in
+            PointerCursorNSView.modalSuppressionActive = presenting
+        }
         .animation(.easeInOut(duration: 0.15), value: permissions.isPresentingOnboardingModal)
         .toolboxDarkAppearance()
     }
@@ -606,30 +613,47 @@ struct MainSplitView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Overview")
-                            .font(.caption.weight(.semibold))
+                        Text("OVERVIEW")
+                            .font(.system(size: 10.5, weight: .semibold))
                             .foregroundStyle(.secondary)
+                            .tracking(0.6)
                             .padding(.horizontal, 8)
 
                         Button {
                             navState.navigate(to: .dashboard)
                         } label: {
+                            let isDashboardSelected = navState.selection == .dashboard
                             HStack(spacing: 8) {
                                 Image(systemName: "square.grid.2x2")
-                                    .foregroundStyle(navState.selection == .dashboard ? Color.white : ToolboxTheme.accentBlue)
+                                    .foregroundStyle(isDashboardSelected ? Color.white : ToolboxTheme.accentBlue)
                                 Text("Dashboard")
                                     .font(.callout.weight(.medium))
                                 Spacer()
                             }
                             .padding(.horizontal, 8)
                             .padding(.vertical, 6)
-                            .background(
-                                navState.selection == .dashboard
-                                    ? ToolboxTheme.accentBlue
-                                    : Color.clear,
-                                in: RoundedRectangle(cornerRadius: 7)
+                            .background {
+                                if isDashboardSelected {
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(ToolboxTheme.accentBlue)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .fill(
+                                                    LinearGradient(
+                                                        colors: [Color.white.opacity(0.12), .clear],
+                                                        startPoint: .top,
+                                                        endPoint: .bottom
+                                                    )
+                                                )
+                                        )
+                                }
+                            }
+                            .foregroundStyle(isDashboardSelected ? .white : .primary)
+                            .menuRowHover(
+                                cornerRadius: 8,
+                                fillOpacity: isDashboardSelected ? 0 : 0.055,
+                                borderOpacity: isDashboardSelected ? 0 : 0.08
                             )
-                            .foregroundStyle(navState.selection == .dashboard ? .white : .primary)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -639,59 +663,94 @@ struct MainSplitView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Modules")
-                            .font(.caption.weight(.semibold))
+                        Text("MODULES")
+                            .font(.system(size: 10.5, weight: .semibold))
                             .foregroundStyle(.secondary)
+                            .tracking(0.6)
                             .padding(.horizontal, 8)
 
                         ForEach(registry.modules, id: \.id) { module in
                             let dest = SidebarDestination.module(module.id)
                             let isSelected = navState.selection == dest
+                            let moduleStatus = module.statusText(
+                                in: configManager.config,
+                                accessibilityGranted: permissions.isAccessibilityGranted
+                            )
+                            let dotColor: Color = {
+                                if !module.isEnabled(in: configManager.config) {
+                                    return Color.secondary.opacity(0.35)
+                                }
+                                if !configManager.config.general.appEnabled
+                                    || (module.requiresAccessibility && !permissions.isAccessibilityGranted)
+                                    || (module as? ScreenOCRModule)?.screenRecordingGranted == false {
+                                    return Color.orange
+                                }
+                                if !module.supportsEnableToggle {
+                                    return module.isRunning ? Color.red : Color.secondary.opacity(0.45)
+                                }
+                                return Color.green
+                            }()
+
                             Button {
                                 navState.navigate(to: dest)
                             } label: {
                                 HStack(spacing: 8) {
                                     Image(systemName: module.symbolName)
-                                        .foregroundStyle(isSelected ? .white : module.accentColor)
+                                        .foregroundStyle(isSelected ? .white : ToolboxTheme.readableAccentText(for: module.accentColor))
                                         .frame(width: 16)
                                     Text(module.name)
                                         .font(.callout)
                                         .lineLimit(1)
                                     Spacer()
                                     Circle()
-                                        .fill(
-                                            !module.isEnabled(in: configManager.config)
-                                                ? Color.secondary.opacity(0.35)
-                                                : (!configManager.config.general.appEnabled
-                                                    || (module.requiresAccessibility && !permissions.isAccessibilityGranted)
-                                                    || (module as? ScreenOCRModule)?.screenRecordingGranted == false
-                                                    ? Color.orange
-                                                    : (!module.supportsEnableToggle
-                                                        ? (module.isRunning ? Color.red : Color.blue)
-                                                        : Color.green))
-                                        )
+                                        .fill(dotColor)
+                                        .overlay {
+                                            if isSelected {
+                                                Circle()
+                                                    .strokeBorder(Color.white.opacity(0.90), lineWidth: 1.25)
+                                            }
+                                        }
                                         .frame(width: 7, height: 7)
                                 }
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 6)
-                                .background(
-                                    isSelected ? ToolboxTheme.accentBlue : Color.clear,
-                                    in: RoundedRectangle(cornerRadius: 7)
-                                )
+                                .background {
+                                    if isSelected {
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(ToolboxTheme.accentBlue)
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 8)
+                                                    .fill(
+                                                        LinearGradient(
+                                                            colors: [Color.white.opacity(0.12), .clear],
+                                                            startPoint: .top,
+                                                            endPoint: .bottom
+                                                        )
+                                                    )
+                                            )
+                                    }
+                                }
                                 .foregroundStyle(isSelected ? .white : .primary)
+                                .menuRowHover(
+                                    cornerRadius: 8,
+                                    fillOpacity: isSelected ? 0 : 0.055,
+                                    borderOpacity: isSelected ? 0 : 0.08
+                                )
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .focusEffectDisabled()
+                            .help("\(module.name): \(moduleStatus)")
                             .pointerCursor()
                             .id(dest)
                         }
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Configuration")
-                            .font(.caption.weight(.semibold))
+                        Text("CONFIGURATION")
+                            .font(.system(size: 10.5, weight: .semibold))
                             .foregroundStyle(.secondary)
+                            .tracking(0.6)
                             .padding(.horizontal, 8)
 
                         sidebarConfigItem(
@@ -717,9 +776,10 @@ struct MainSplitView: View {
 
                     if developerMode.isUnlocked {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Developer")
-                                .font(.caption.weight(.semibold))
+                            Text("DEVELOPER")
+                                .font(.system(size: 10.5, weight: .semibold))
                                 .foregroundStyle(.secondary)
+                                .tracking(0.6)
                                 .padding(.horizontal, 8)
 
                             ForEach(DeveloperSection.allCases) { section in
@@ -735,7 +795,6 @@ struct MainSplitView: View {
                         }
                     }
 
-                    Spacer()
                 }
                 .padding(12)
             }
@@ -764,6 +823,7 @@ struct MainSplitView: View {
                     .frame(width: 16)
                 Text(title)
                     .font(.callout)
+                    .lineLimit(1)
                 Spacer()
                 if let badge {
                     Text(badge)
@@ -776,11 +836,28 @@ struct MainSplitView: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
-            .background(
-                isSelected ? ToolboxTheme.accentBlue : Color.clear,
-                in: RoundedRectangle(cornerRadius: 7)
-            )
+            .background {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(ToolboxTheme.accentBlue)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [Color.white.opacity(0.12), .clear],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
+                                )
+                        )
+                }
+            }
             .foregroundStyle(isSelected ? .white : .primary)
+            .menuRowHover(
+                cornerRadius: 8,
+                fillOpacity: isSelected ? 0 : 0.055,
+                borderOpacity: isSelected ? 0 : 0.08
+            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -824,8 +901,10 @@ struct MainSplitView: View {
             HStack(spacing: 8) {
                 Image(systemName: "arrow.down.circle.fill")
                     .font(.caption.weight(.bold))
-                Text("Toolbox v\(version) is available\(sizeNote) - click to review and update")
+                Text("Toolbox v\(version) is available\(sizeNote) — click to review and update")
                     .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Spacer(minLength: 8)
                 Text("Update…")
                     .font(.caption2.weight(.bold))
@@ -844,6 +923,7 @@ struct MainSplitView: View {
                     endPoint: .trailing
                 )
             )
+            .menuRowHover(cornerRadius: 0, color: .white, fillOpacity: 0.08, borderOpacity: 0)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

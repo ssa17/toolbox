@@ -76,178 +76,169 @@ struct ClipboardSettingsView: View {
     @FocusState private var isHeightFocused: Bool
 
     var body: some View {
+        let activePollPreset: PollSpeedPreset = limitDraft.isCustomPollSelected
+            ? .custom
+            : PollSpeedPreset.matching(ms: configManager.config.clipboard.pollIntervalMs)
+        let activeSizePreset: PopoverSizePreset = limitDraft.isCustomSizeSelected
+            ? .custom
+            : PopoverSizePreset.matching(
+                width: configManager.config.clipboard.popoverWidth,
+                height: configManager.config.clipboard.popoverHeight
+            )
+        let unpinnedCount = module.entries.filter { !$0.isPinned }.count
+        let hasUnpinned = unpinnedCount > 0
+
         VStack(alignment: .leading, spacing: 22) {
             FeatureSection("Shortcut & Paste Behavior") {
-                SettingRow("Open Clipboard Dropdown") {
-                    ShortcutRecorderView(
-                        shortcut: configManager.config.clipboard.shortcut,
-                        defaultShortcut: ShortcutSpec(key: "v", modifiers: [.command, .option]),
-                        sourceID: "clipboard",
-                        registrationKey: module.hotKeyName
-                    ) { newShortcut in
-                        configManager.config.clipboard.shortcut = newShortcut
+                SettingRow(
+                    "Open Clipboard Dropdown",
+                    subtitle: "Summon your pinned and recent clips from anywhere."
+                ) {
+                    HStack(spacing: 8) {
+                        ShortcutRecorderView(
+                            shortcut: configManager.config.clipboard.shortcut,
+                            defaultShortcut: ShortcutSpec(key: "v", modifiers: [.command, .option]),
+                            sourceID: "clipboard",
+                            registrationKey: module.hotKeyName
+                        ) { newShortcut in
+                            configManager.config.clipboard.shortcut = newShortcut
+                        }
+
+                        Button {
+                            DispatchQueue.main.async {
+                                module.showPopover()
+                            }
+                        } label: {
+                            Label("Open Dropdown", systemImage: "arrow.up.right.square")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .focusEffectDisabled()
+                        .pointerCursor()
                     }
+                    .fixedSize(horizontal: true, vertical: false)
                 }
 
                 Divider()
 
-                SettingRow(
-                    "Auto-paste immediately on selection (⌘ V)",
-                    subtitle: "When enabled, choosing an item copies it and sends ⌘ V to your previous app. When off, Toolbox copies it so you can paste manually."
-                ) {
-                    Toggle("", isOn: Binding(
-                        get: { configManager.config.clipboard.pasteAutomatically },
-                        set: { newVal in
-                            configManager.config.clipboard.pasteAutomatically = newVal
-                            if newVal && !permissions.isAccessibilityGranted {
-                                permissions.promptAndOpenSettings()
+                VStack(alignment: .leading, spacing: 8) {
+                    SettingRow(
+                        "Auto-paste immediately on selection (⌘ V)",
+                        subtitle: "When enabled, choosing an item copies it and sends ⌘ V to your previous app. When off, Toolbox copies it so you can paste manually."
+                    ) {
+                        Toggle("", isOn: Binding(
+                            get: { configManager.config.clipboard.pasteAutomatically },
+                            set: { newVal in
+                                configManager.config.clipboard.pasteAutomatically = newVal
+                                if newVal && !permissions.isAccessibilityGranted {
+                                    permissions.promptAndOpenSettings()
+                                }
                             }
+                        ))
+                        .labelsHidden()
+                        .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
+                        .pointerCursor()
+                    }
+
+                    if configManager.config.clipboard.pasteAutomatically && !permissions.isAccessibilityGranted {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
+                            Text("Auto-paste requires Accessibility permission to send ⌘ V. Without it, items will be copied only.")
+                                .font(.caption)
+                                .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
+                                .fixedSize(horizontal: false, vertical: true)
                         }
-                    ))
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .pointerCursor()
+                    }
                 }
             }
 
-            FeatureSection("History Limit & Speed", subtitle: "Control how many recent items are retained and how fast copies are detected.") {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        Text("Keep up to")
-                        TextField("25", text: $limitDraft.text)
-                            .textFieldStyle(.roundedBorder)
-                            .multilineTextAlignment(.center)
-                            .font(.body.monospacedDigit())
-                            .frame(width: 62)
-                            .focused($isLimitFocused)
-                            .onAppear {
-                                limitDraft.text = String(configManager.config.clipboard.maxItems)
-                            }
-                            .onChange(of: isLimitFocused, initial: false) { _, focused in
-                                if !focused {
-                                    commitLimitDraft()
-                                }
-                            }
-                            .onChange(of: limitDraft.text, initial: false) { _, newValue in
-                                let digitsOnly = newValue.filter(\.isNumber)
-                                if digitsOnly != newValue {
-                                    limitDraft.text = digitsOnly
-                                    return
-                                }
-                                if let parsed = Int(digitsOnly), !digitsOnly.isEmpty {
-                                    let clamped = min(max(parsed, 1), 5000)
-                                    if parsed != clamped {
-                                        limitDraft.text = String(clamped)
-                                    }
-                                    if configManager.config.clipboard.maxItems != clamped {
-                                        configManager.config.clipboard.maxItems = clamped
-                                    }
-                                }
-                            }
-                            .onSubmit {
-                                commitLimitDraft()
-                            }
-                            .onChange(of: configManager.config.clipboard.maxItems, initial: false) { _, newLimit in
-                                let desired = String(newLimit)
-                                if limitDraft.text != desired && !limitDraft.text.isEmpty {
-                                    limitDraft.text = desired
-                                }
-                            }
-                        Stepper("", value: $configManager.config.clipboard.maxItems, in: 1...5000, step: 5)
-                            .labelsHidden()
-                            .pointerCursor()
-                        Text("recent items")
-
-                        Spacer()
-
-                        ForEach([25, 50, 100, 500], id: \.self) { preset in
-                            let isSelected = configManager.config.clipboard.maxItems == preset
-                            Button("\(preset)") {
-                                configManager.config.clipboard.maxItems = preset
-                                limitDraft.text = String(preset)
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(isSelected ? .accentColor : nil)
-                            .controlSize(.small)
-                            .pointerCursor()
-                        }
-                    }
-                    Text("Type any number (1–5000) or pick a preset. Older unpinned items are removed, while pinned items stay saved.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            FeatureCardGridSection(
+                "Copy Detection Speed",
+                subtitle: "macOS doesn't push notifications when text is copied, so Toolbox checks the clipboard counter at this interval."
+            ) {
+                ToolboxAdaptiveCardGrid(wideColumns: 4, narrowColumns: 2, wideMinWidth: 560, spacing: 10) {
+                    pollSpeedCard(
+                        preset: .instant,
+                        symbol: "bolt.fill",
+                        subtitle: "150 ms · Fast",
+                        badge: nil,
+                        activePreset: activePollPreset
+                    )
+                    pollSpeedCard(
+                        preset: .balanced,
+                        symbol: "gauge.medium",
+                        subtitle: "300 ms · Everyday",
+                        badge: "Default",
+                        activePreset: activePollPreset
+                    )
+                    pollSpeedCard(
+                        preset: .batterySaver,
+                        symbol: "leaf.fill",
+                        subtitle: "750 ms · Low CPU",
+                        badge: nil,
+                        activePreset: activePollPreset
+                    )
+                    pollSpeedCard(
+                        preset: .custom,
+                        symbol: "slider.horizontal.3",
+                        subtitle: activePollPreset == .custom
+                            ? "\(configManager.config.clipboard.pollIntervalMs) ms"
+                            : "Custom ms",
+                        badge: nil,
+                        activePreset: activePollPreset
+                    )
+                }
+                .onAppear {
+                    let ms = configManager.config.clipboard.pollIntervalMs
+                    limitDraft.pollMsText = String(ms)
+                    limitDraft.isCustomPollSelected = PollSpeedPreset.matching(ms: ms) == .custom
                 }
 
-                Divider()
-
-                let activePollPreset: PollSpeedPreset = limitDraft.isCustomPollSelected
-                    ? .custom
-                    : PollSpeedPreset.matching(ms: configManager.config.clipboard.pollIntervalMs)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Copy Detection Speed")
-                        Spacer()
-                        Text("\(configManager.config.clipboard.pollIntervalMs) ms")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 2)
-                            .background(.quaternary.opacity(0.6), in: Capsule())
-                    }
-
-                    Picker("", selection: Binding(
-                        get: { activePollPreset },
-                        set: { newPreset in
-                            if let ms = newPreset.intervalMs {
-                                limitDraft.isCustomPollSelected = false
-                                configManager.config.clipboard.pollIntervalMs = ms
-                                limitDraft.pollMsText = String(ms)
-                            } else {
-                                limitDraft.isCustomPollSelected = true
-                                limitDraft.pollMsText = String(configManager.config.clipboard.pollIntervalMs)
-                            }
-                        }
-                    )) {
-                        ForEach(PollSpeedPreset.allCases) { preset in
-                            Text(preset.rawValue).tag(preset)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: .infinity)
-                    .pointerCursor()
-                    .onAppear {
-                        let ms = configManager.config.clipboard.pollIntervalMs
-                        limitDraft.pollMsText = String(ms)
-                        limitDraft.isCustomPollSelected = PollSpeedPreset.matching(ms: ms) == .custom
-                    }
-
-                    if activePollPreset == .custom {
+                if activePollPreset == .custom {
+                    SectionCard {
                         dimensionRow(
                             "Custom Interval",
                             unit: "ms",
                             text: $limitDraft.pollMsText,
                             value: $configManager.config.clipboard.pollIntervalMs,
-                            range: 50...5000,
+                            range: 100...5000,
                             step: 50,
                             isFocused: $isPollFocused
                         )
                     }
-
-                    Text("macOS doesn't push notifications when text is copied, so Toolbox checks the clipboard counter at this interval.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
             }
 
-            FeatureSection("Privacy & Cleanup") {
+            FeatureSection("History & Privacy", subtitle: "Control retention limits, password manager filtering, and local storage.") {
+                VStack(alignment: .leading, spacing: 8) {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            limitInputControls
+                            Spacer(minLength: 8)
+                            limitPresetChips
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            limitInputControls
+                            limitPresetChips
+                        }
+                    }
+                    Text("Type any number (1–5000) or pick a preset. Older unpinned items are removed, while pinned items stay saved.")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Color.primary.opacity(0.68))
+                }
+
+                Divider()
+
                 SettingRow(
                     "Deduplicate repeated copies",
                     subtitle: "Moves an existing match to the top instead of creating duplicate rows."
                 ) {
                     Toggle("", isOn: $configManager.config.clipboard.deduplicate)
                         .labelsHidden()
-                        .toggleStyle(.switch)
+                        .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
                         .pointerCursor()
                 }
 
@@ -259,7 +250,7 @@ struct ClipboardSettingsView: View {
                 ) {
                     Toggle("", isOn: $configManager.config.clipboard.ignoreConcealedTypes)
                         .labelsHidden()
-                        .toggleStyle(.switch)
+                        .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
                         .pointerCursor()
                 }
 
@@ -267,131 +258,24 @@ struct ClipboardSettingsView: View {
 
                 SettingRow(
                     "Keep unpinned history across restarts",
-                    subtitle: "Saves recent unpinned items locally in ~/.config/toolbox/clipboard_history.json. Turn off to keep unpinned history in memory only."
+                    subtitle: "Saves recent unpinned items locally on this Mac. Turn off to keep unpinned history in memory only."
                 ) {
                     Toggle("", isOn: $configManager.config.clipboard.persistHistory)
                         .labelsHidden()
-                        .toggleStyle(.switch)
+                        .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
                         .pointerCursor()
                 }
-            }
-
-            FeatureSection("Dropdown Shortcuts", subtitle: "Keyboard and right-click shortcuts available inside the clipboard dropdown.") {
-                shortcutRow("Navigate items", keys: ["↑ / ↓"])
-                Divider()
-                shortcutRow("Paste selected item", keys: ["⏎"])
-                Divider()
-                shortcutRow("Quick-paste item 1–9", keys: ["⌘ 1 … ⌘ 9"])
-                Divider()
-                shortcutRow("View full text", keys: ["→", "Space", "⌘ I"])
-                Divider()
-                shortcutRow("Pin or unpin item", keys: ["⌘ P"])
-                Divider()
-                shortcutRow("Move pinned item up / down", keys: ["⌘ ↑", "⌘ ↓", "Drag"])
-                Divider()
-                shortcutRow("Name or rename item", keys: ["⌘ R"])
-                Divider()
-                shortcutRow("Delete item (with confirmation)", keys: ["⌫", "⌘ ⌫"])
-                Divider()
-                shortcutRow("Open actions menu", keys: ["Right-click"])
-            }
-
-            FeatureSection("Popover Appearance & Actions") {
-                let activePreset: PopoverSizePreset = limitDraft.isCustomSizeSelected
-                    ? .custom
-                    : PopoverSizePreset.matching(
-                        width: configManager.config.clipboard.popoverWidth,
-                        height: configManager.config.clipboard.popoverHeight
-                    )
-
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Dropdown Size")
-                        Spacer()
-                        Text("\(configManager.config.clipboard.popoverWidth) × \(configManager.config.clipboard.popoverHeight) px")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 2)
-                            .background(.quaternary.opacity(0.6), in: Capsule())
-                    }
-
-                    Picker("", selection: Binding(
-                        get: { activePreset },
-                        set: { newPreset in
-                            if let dims = newPreset.dimensions {
-                                limitDraft.isCustomSizeSelected = false
-                                configManager.config.clipboard.popoverWidth = dims.width
-                                configManager.config.clipboard.popoverHeight = dims.height
-                                limitDraft.widthText = String(dims.width)
-                                limitDraft.heightText = String(dims.height)
-                            } else {
-                                limitDraft.isCustomSizeSelected = true
-                                limitDraft.widthText = String(configManager.config.clipboard.popoverWidth)
-                                limitDraft.heightText = String(configManager.config.clipboard.popoverHeight)
-                            }
-                        }
-                    )) {
-                        ForEach(PopoverSizePreset.allCases) { preset in
-                            Text(preset.rawValue).tag(preset)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: .infinity)
-                    .pointerCursor()
-                    .onAppear {
-                        let w = configManager.config.clipboard.popoverWidth
-                        let h = configManager.config.clipboard.popoverHeight
-                        limitDraft.widthText = String(w)
-                        limitDraft.heightText = String(h)
-                        limitDraft.isCustomSizeSelected = PopoverSizePreset.matching(width: w, height: h) == .custom
-                    }
-                }
-
-                if activePreset == .custom {
-                    Divider()
-
-                    dimensionRow(
-                        "Custom Width",
-                        unit: "px",
-                        text: $limitDraft.widthText,
-                        value: $configManager.config.clipboard.popoverWidth,
-                        range: 280...1200,
-                        step: 20,
-                        isFocused: $isWidthFocused
-                    )
-
-                    Divider()
-
-                    dimensionRow(
-                        "Custom Height",
-                        unit: "px",
-                        text: $limitDraft.heightText,
-                        value: $configManager.config.clipboard.popoverHeight,
-                        range: 220...1200,
-                        step: 20,
-                        isFocused: $isHeightFocused
-                    )
-                }
 
                 Divider()
 
-                let hasUnpinned = module.entries.contains { !$0.isPinned }
-                HStack {
-                    Button("Open Clipboard Dropdown") {
-                        DispatchQueue.main.async {
-                            module.showPopover()
-                        }
-                    }
-                    .buttonStyle(.toolboxProminent)
-                    .pointerCursor()
-
-                    Spacer()
-
-                    Button("Clear Unpinned History", role: .destructive) {
+                SettingRow(
+                    "Clear unpinned history",
+                    subtitle: "Pinned items and their custom titles are always preserved."
+                ) {
+                    Button(unpinnedCount > 0 ? "Clear Unpinned (\(unpinnedCount))" : "Clear Unpinned", role: .destructive) {
                         limitDraft.showClearConfirmation = true
                     }
+                    .buttonStyle(.toolboxDestructive)
                     .disabled(!hasUnpinned)
                     .pointerCursor(hasUnpinned)
                     .confirmationDialog(
@@ -408,26 +292,265 @@ struct ClipboardSettingsView: View {
                     }
                 }
             }
+
+            FeatureSection("Dropdown Size", subtitle: "Choose how large the floating Clipboard dropdown opens.") {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) {
+                        dropdownSizeSegmentedControl(activePreset: activeSizePreset)
+                        Spacer(minLength: 8)
+                        dropdownDimensionPill
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        dropdownSizeSegmentedControl(activePreset: activeSizePreset)
+                        dropdownDimensionPill
+                    }
+                }
+                .onAppear {
+                    let w = configManager.config.clipboard.popoverWidth
+                    let h = configManager.config.clipboard.popoverHeight
+                    limitDraft.widthText = String(w)
+                    limitDraft.heightText = String(h)
+                    limitDraft.isCustomSizeSelected = PopoverSizePreset.matching(width: w, height: h) == .custom
+                }
+
+                if activeSizePreset == .custom {
+                    Divider()
+
+                    dimensionRow(
+                        "Custom Width",
+                        unit: "px",
+                        text: $limitDraft.widthText,
+                        value: $configManager.config.clipboard.popoverWidth,
+                        range: 320...680,
+                        step: 20,
+                        isFocused: $isWidthFocused
+                    )
+
+                    Divider()
+
+                    dimensionRow(
+                        "Custom Height",
+                        unit: "px",
+                        text: $limitDraft.heightText,
+                        value: $configManager.config.clipboard.popoverHeight,
+                        range: 260...720,
+                        step: 20,
+                        isFocused: $isHeightFocused
+                    )
+                }
+            }
+
+            FeatureSection("Dropdown Shortcuts", subtitle: "Keyboard and right-click shortcuts available inside the clipboard dropdown.") {
+                let shortcutItems: [(String, [String])] = [
+                    ("Navigate items", ["↑", "↓"]),
+                    ("Paste selected item", ["⏎"]),
+                    ("Quick-paste item 1–9", ["⌘ 1…9"]),
+                    ("View full text", ["→", "Space", "⌘ I"]),
+                    ("Pin or unpin item", ["⌘ P"]),
+                    ("Move pinned item", ["⌘ ↑↓", "Drag"]),
+                    ("Name or rename item", ["⌘ R"]),
+                    ("Delete item", ["⌫", "⌘ ⌫"]),
+                    ("Open actions menu", ["Right-click"]),
+                    ("Close dropdown", ["Esc"])
+                ]
+                let rows = stride(from: 0, to: shortcutItems.count, by: 2).map { idx in
+                    Array(shortcutItems[idx..<min(idx + 2, shortcutItems.count)])
+                }
+
+                Grid(horizontalSpacing: 10, verticalSpacing: 8) {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { _, pair in
+                        GridRow {
+                            ForEach(pair, id: \.0) { item in
+                                shortcutTile(item.0, keys: item.1)
+                            }
+                            if pair.count < 2 {
+                                Color.clear
+                                    .gridCellUnsizedAxes([.vertical])
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
-    private func shortcutRow(_ title: String, keys: [String]) -> some View {
-        SettingRow(title) {
-            HStack(spacing: 6) {
+    private var limitInputControls: some View {
+        HStack(spacing: 8) {
+            Text("Keep up to")
+                .font(.callout.weight(.semibold))
+            TextField("25", text: $limitDraft.text)
+                .textFieldStyle(.roundedBorder)
+                .multilineTextAlignment(.center)
+                .font(.body.monospacedDigit())
+                .frame(width: 62)
+                .focused($isLimitFocused)
+                .onAppear {
+                    limitDraft.text = String(configManager.config.clipboard.maxItems)
+                }
+                .onChange(of: isLimitFocused, initial: false) { _, focused in
+                    if !focused {
+                        commitLimitDraft()
+                    }
+                }
+                .onChange(of: limitDraft.text, initial: false) { _, newValue in
+                    let digitsOnly = newValue.filter(\.isNumber)
+                    if digitsOnly != newValue {
+                        limitDraft.text = digitsOnly
+                    }
+                }
+                .onSubmit {
+                    commitLimitDraft()
+                }
+                .onChange(of: configManager.config.clipboard.maxItems, initial: false) { _, newLimit in
+                    let desired = String(newLimit)
+                    if !isLimitFocused && limitDraft.text != desired {
+                        limitDraft.text = desired
+                    }
+                }
+            Stepper("", value: $configManager.config.clipboard.maxItems, in: 1...5000, step: 5)
+                .labelsHidden()
+                .pointerCursor()
+            Text("recent items")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var limitPresetChips: some View {
+        HStack(spacing: 6) {
+            ForEach([25, 50, 100, 500], id: \.self) { preset in
+                ToolboxPresetChip(
+                    label: "\(preset)",
+                    isSelected: configManager.config.clipboard.maxItems == preset,
+                    accentColor: module.accentColor
+                ) {
+                    configManager.config.clipboard.maxItems = preset
+                    limitDraft.text = String(preset)
+                }
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func dropdownSizeSegmentedControl(activePreset: PopoverSizePreset) -> some View {
+        ToolboxSegmentedControl(
+            options: Array(PopoverSizePreset.allCases),
+            selection: Binding(
+                get: { activePreset },
+                set: { newPreset in
+                    if let dims = newPreset.dimensions {
+                        limitDraft.isCustomSizeSelected = false
+                        configManager.config.clipboard.popoverWidth = dims.width
+                        configManager.config.clipboard.popoverHeight = dims.height
+                        limitDraft.widthText = String(dims.width)
+                        limitDraft.heightText = String(dims.height)
+                    } else {
+                        limitDraft.isCustomSizeSelected = true
+                        limitDraft.widthText = String(configManager.config.clipboard.popoverWidth)
+                        limitDraft.heightText = String(configManager.config.clipboard.popoverHeight)
+                    }
+                }
+            ),
+            accentColor: module.accentColor,
+            label: { $0.rawValue }
+        )
+    }
+
+    private var dropdownDimensionPill: some View {
+        Text("\(configManager.config.clipboard.popoverWidth) × \(configManager.config.clipboard.popoverHeight) px")
+            .font(.caption.monospacedDigit().weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Color.primary.opacity(0.06), in: Capsule())
+            .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func pollSpeedCard(
+        preset: PollSpeedPreset,
+        symbol: String,
+        subtitle: String,
+        badge: String?,
+        activePreset: PollSpeedPreset
+    ) -> some View {
+        SelectableOptionCard(
+            title: preset.rawValue,
+            subtitle: subtitle,
+            symbolName: symbol,
+            accentColor: module.accentColor,
+            badge: badge,
+            isSelected: activePreset == preset,
+            isCompact: true
+        ) {
+            if let ms = preset.intervalMs {
+                limitDraft.isCustomPollSelected = false
+                configManager.config.clipboard.pollIntervalMs = ms
+                limitDraft.pollMsText = String(ms)
+            } else {
+                limitDraft.isCustomPollSelected = true
+                limitDraft.pollMsText = String(configManager.config.clipboard.pollIntervalMs)
+            }
+        }
+    }
+
+    private func popoverSizeCard(
+        preset: PopoverSizePreset,
+        symbol: String,
+        subtitle: String,
+        badge: String?,
+        activePreset: PopoverSizePreset
+    ) -> some View {
+        SelectableOptionCard(
+            title: preset.rawValue,
+            subtitle: subtitle,
+            symbolName: symbol,
+            accentColor: module.accentColor,
+            badge: badge,
+            isSelected: activePreset == preset,
+            isCompact: true
+        ) {
+            if let dims = preset.dimensions {
+                limitDraft.isCustomSizeSelected = false
+                configManager.config.clipboard.popoverWidth = dims.width
+                configManager.config.clipboard.popoverHeight = dims.height
+                limitDraft.widthText = String(dims.width)
+                limitDraft.heightText = String(dims.height)
+            } else {
+                limitDraft.isCustomSizeSelected = true
+                limitDraft.widthText = String(configManager.config.clipboard.popoverWidth)
+                limitDraft.heightText = String(configManager.config.clipboard.popoverHeight)
+            }
+        }
+    }
+
+    private func shortcutTile(_ title: String, keys: [String]) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            HStack(spacing: 4) {
                 ForEach(Array(keys.enumerated()), id: \.offset) { idx, key in
                     if idx > 0 {
                         Text("/")
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
                     }
-                    Text(key)
-                        .font(.caption.monospaced().weight(.medium))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
+                    ShortcutPill(text: key)
                 }
             }
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.primary.opacity(0.07), lineWidth: 0.75)
+        )
     }
 
     private func dimensionRow(

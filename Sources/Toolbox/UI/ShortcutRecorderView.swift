@@ -8,10 +8,14 @@ private final class ShortcutRecorderCoordinator: ObservableObject {
 
     @Published private(set) var activeRecorderID: String?
     @Published private(set) var heldModifiers: [KeyModifier] = []
+    @Published private(set) var bareKeyHint: String?
 
     private var keyMonitor: Any?
     private var mouseMonitor: Any?
     private var resignObserver: NSObjectProtocol?
+    private var windowResignObserver: NSObjectProtocol?
+    private var windowCloseObserver: NSObjectProtocol?
+    private var bareKeyHintTask: Task<Void, Never>?
 
     func beginRecording(
         id: String,
@@ -22,10 +26,31 @@ private final class ShortcutRecorderCoordinator: ObservableObject {
 
         activeRecorderID = id
         heldModifiers = KeyModifier.from(eventFlags: NSEvent.modifierFlags)
+        bareKeyHint = nil
         HotKeyManager.shared.setSuspendedForRecording(true)
 
         resignObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.stopRecording()
+            }
+        }
+
+        windowResignObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.stopRecording()
+            }
+        }
+
+        windowCloseObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
@@ -76,12 +101,23 @@ private final class ShortcutRecorderCoordinator: ObservableObject {
             let captured = ShortcutSpec(key: keyName, modifiers: mods)
             guard !mods.isEmpty || captured.isFunctionKey else {
                 NSSound.beep()
+                self.showBareKeyHint()
                 return nil
             }
 
             self.stopRecording()
             onCapture(captured)
             return nil
+        }
+    }
+
+    private func showBareKeyHint() {
+        bareKeyHintTask?.cancel()
+        bareKeyHint = "Add ⌘, ⌥, ⌃, or ⇧ (or use F1–F20)"
+        bareKeyHintTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            self?.bareKeyHint = nil
         }
     }
 
@@ -101,6 +137,17 @@ private final class ShortcutRecorderCoordinator: ObservableObject {
             NotificationCenter.default.removeObserver(resignObserver)
             self.resignObserver = nil
         }
+        if let windowResignObserver {
+            NotificationCenter.default.removeObserver(windowResignObserver)
+            self.windowResignObserver = nil
+        }
+        if let windowCloseObserver {
+            NotificationCenter.default.removeObserver(windowCloseObserver)
+            self.windowCloseObserver = nil
+        }
+        bareKeyHintTask?.cancel()
+        bareKeyHintTask = nil
+        bareKeyHint = nil
         activeRecorderID = nil
         heldModifiers = []
         HotKeyManager.shared.setSuspendedForRecording(false)
@@ -108,40 +155,22 @@ private final class ShortcutRecorderCoordinator: ObservableObject {
 }
 
 private struct RecorderWindowFrameReader: NSViewRepresentable {
-    let onUpdate: (CGRect?) -> Void
+    let onAttach: (FrameTrackingNSView) -> Void
 
-    func makeNSView(context: Context) -> NSView {
+    func makeNSView(context: Context) -> FrameTrackingNSView {
         let view = FrameTrackingNSView()
-        view.onUpdate = onUpdate
+        onAttach(view)
         return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
-        if let tracking = nsView as? FrameTrackingNSView {
-            tracking.onUpdate = onUpdate
-            tracking.reportFrame()
-        }
+    func updateNSView(_ nsView: FrameTrackingNSView, context: Context) {
+        onAttach(nsView)
     }
 
-    private final class FrameTrackingNSView: NSView {
-        var onUpdate: ((CGRect?) -> Void)?
-
-        override func viewDidMoveToWindow() {
-            super.viewDidMoveToWindow()
-            reportFrame()
-        }
-
-        override func layout() {
-            super.layout()
-            reportFrame()
-        }
-
-        func reportFrame() {
-            guard window != nil else {
-                onUpdate?(nil)
-                return
-            }
-            onUpdate?(convert(bounds, to: nil))
+    final class FrameTrackingNSView: NSView {
+        func liveFrameInWindow() -> CGRect? {
+            guard window != nil else { return nil }
+            return convert(bounds, to: nil)
         }
     }
 }
@@ -149,7 +178,7 @@ private struct RecorderWindowFrameReader: NSViewRepresentable {
 @MainActor
 private final class RecorderInstanceBox: ObservableObject {
     let id = UUID().uuidString
-    var buttonFrameInWindow: CGRect?
+    weak var trackingView: RecorderWindowFrameReader.FrameTrackingNSView?
 }
 
 @MainActor
@@ -214,10 +243,11 @@ struct ShortcutConflictStatusView: View {
             config: configManager.config,
             hotKeyManager: hotKeyManager
         ) {
-            HStack(spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
                 Label(issue.message, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
+                    .fixedSize(horizontal: false, vertical: true)
 
                 if issue.isInApp {
                     Button("Assign Here") {
@@ -229,10 +259,17 @@ struct ShortcutConflictStatusView: View {
                         onAssignHere?()
                     }
                     .buttonStyle(.bordered)
-                    .controlSize(.mini)
+                    .controlSize(.small)
                     .pointerCursor()
                 }
             }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 7))
+            .overlay(
+                RoundedRectangle(cornerRadius: 7)
+                    .strokeBorder(Color.orange.opacity(0.26), lineWidth: 0.75)
+            )
         }
     }
 }
@@ -272,9 +309,12 @@ struct ShortcutRecorderView: View {
                     if isRecording {
                         coordinator.stopRecording(ifID: instance.id)
                     } else {
+                        let trackingView = instance.trackingView
                         coordinator.beginRecording(
                             id: instance.id,
-                            anchorButtonFrameInWindow: { instance.buttonFrameInWindow },
+                            anchorButtonFrameInWindow: { [weak trackingView] in
+                                trackingView?.liveFrameInWindow()
+                            },
                             onCapture: onChange
                         )
                     }
@@ -285,8 +325,9 @@ struct ShortcutRecorderView: View {
                                 .fill(Color.accentColor)
                                 .frame(width: 6, height: 6)
                             if coordinator.heldModifiers.isEmpty {
-                                Text("Type shortcut… (⌫ clear, Esc cancel)")
+                                Text("Press shortcut…")
                                     .font(.caption.weight(.medium))
+                                    .lineLimit(1)
                             } else {
                                 ShortcutPill(tokens: coordinator.heldModifiers.map(\.symbol) + ["…"])
                             }
@@ -299,10 +340,11 @@ struct ShortcutRecorderView: View {
                             Text("Record Shortcut")
                                 .font(.caption.weight(.medium))
                                 .foregroundStyle(.secondary)
+                                .lineLimit(1)
                         }
                     }
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
                     .background(
                         isRecording
                             ? Color.accentColor.opacity(0.16)
@@ -318,13 +360,15 @@ struct ShortcutRecorderView: View {
                                 lineWidth: 1
                             )
                     )
+                    .menuRowHover(cornerRadius: 7, fillOpacity: isRecording ? 0 : 0.05, borderOpacity: isRecording ? 0 : 0.14)
                     .background(
-                        RecorderWindowFrameReader { frame in
-                            instance.buttonFrameInWindow = frame
+                        RecorderWindowFrameReader { view in
+                            instance.trackingView = view
                         }
                     )
                 }
                 .buttonStyle(.plain)
+                .focusEffectDisabled()
                 .help(isRecording ? "Press keys (⌫ to clear, Esc to cancel)" : "Click and press a shortcut")
                 .pointerCursor()
 
@@ -336,14 +380,17 @@ struct ShortcutRecorderView: View {
                         Image(systemName: "arrow.counterclockwise")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(.secondary)
-                            .frame(width: 24, height: 26)
+                            .frame(width: 28, height: 28)
                             .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 7)
                                     .strokeBorder(Color.primary.opacity(0.14), lineWidth: 1)
                             )
+                            .menuRowHover(cornerRadius: 7)
                     }
                     .buttonStyle(.plain)
+                    .focusEffectDisabled()
+                    .accessibilityLabel("Reset shortcut to default")
                     .help("Reset to default (\(defaultShortcut.displayString))")
                     .pointerCursor()
                 }
@@ -356,17 +403,26 @@ struct ShortcutRecorderView: View {
                         Image(systemName: "xmark")
                             .font(.system(size: 10, weight: .bold))
                             .foregroundStyle(.secondary)
-                            .frame(width: 24, height: 26)
+                            .frame(width: 28, height: 28)
                             .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 7)
                                     .strokeBorder(Color.primary.opacity(0.14), lineWidth: 1)
                             )
+                            .menuRowHover(cornerRadius: 7)
                     }
                     .buttonStyle(.plain)
+                    .focusEffectDisabled()
+                    .accessibilityLabel("Clear shortcut")
                     .help("Clear shortcut")
                     .pointerCursor()
                 }
+            }
+
+            if isRecording {
+                Text(coordinator.bareKeyHint ?? "⌫ clear · Esc cancel")
+                    .font(.caption2)
+                    .foregroundStyle(coordinator.bareKeyHint != nil ? ToolboxTheme.readableAccentText(for: .orange) : .secondary)
             }
 
             if showConflictWarnings {

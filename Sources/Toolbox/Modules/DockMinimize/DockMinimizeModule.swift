@@ -552,7 +552,8 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
             return false
         }
 
-        if let bundleID = clicked.bundleID, config.excludedBundleIDs.contains(bundleID) {
+        if let bundleID = clicked.bundleID,
+           config.excludedBundleIDs.contains(where: { $0.caseInsensitiveCompare(bundleID) == .orderedSame }) {
             return false
         }
 
@@ -562,7 +563,8 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
             return false
         }
 
-        if let appBundleID = clickedApp.bundleIdentifier, config.excludedBundleIDs.contains(appBundleID) {
+        if let appBundleID = clickedApp.bundleIdentifier,
+           config.excludedBundleIDs.contains(where: { $0.caseInsensitiveCompare(appBundleID) == .orderedSame }) {
             return false
         }
 

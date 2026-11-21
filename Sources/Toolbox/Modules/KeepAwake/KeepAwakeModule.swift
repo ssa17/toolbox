@@ -11,14 +11,14 @@ struct MacPowerSleepInfo: Equatable, Sendable {
     var summaryText: String {
         if let active = activeDisplaySleepMinutes {
             if active == 0 {
-                return "Display sleep is currently set to Never (0 min)"
+                return "Display sleep is currently set to Never (0m)"
             }
-            var details: [String] = ["Current: \(active) min"]
-            if let ac = acDisplaySleepMinutes { details.append("AC: \(ac == 0 ? "Never" : "\(ac)m")") }
+            var details: [String] = ["Current: \(active)m"]
+            if let ac = acDisplaySleepMinutes { details.append("Plugged In: \(ac == 0 ? "Never" : "\(ac)m")") }
             if let bat = batteryDisplaySleepMinutes { details.append("Battery: \(bat == 0 ? "Never" : "\(bat)m")") }
             return details.joined(separator: " · ")
         }
-        return "Could not read pmset display sleep"
+        return "Could not read macOS display sleep settings"
     }
 }
 
@@ -41,6 +41,7 @@ final class KeepAwakeModule: ToolboxModule, ObservableObject {
 
     @Published private(set) var isRunning = false
     @Published private(set) var isAwakeActive = false
+    @Published private(set) var activePresetMinutes: Int?
     @Published private(set) var expiresAt: Date?
     @Published private(set) var powerInfo = MacPowerSleepInfo()
     @Published private(set) var currentIdleSeconds: Int = 0
@@ -133,6 +134,7 @@ final class KeepAwakeModule: ToolboxModule, ObservableObject {
         refreshMacSleepSettings()
 
         isAwakeActive = true
+        activePresetMinutes = minutes
         jiggleCount = 0
         applyActiveStrategy()
 
@@ -156,6 +158,7 @@ final class KeepAwakeModule: ToolboxModule, ObservableObject {
         jiggleMonitorTimer?.invalidate()
         jiggleMonitorTimer = nil
         expiresAt = nil
+        activePresetMinutes = nil
         nextJiggleInSeconds = nil
         currentIdleSeconds = 0
 

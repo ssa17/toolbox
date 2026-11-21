@@ -5,23 +5,41 @@ import SwiftUI
 private final class ScrollPreviewState: ObservableObject {
     @Published var offset: CGFloat = 0
     @Published var lastDevice: ScrollTarget?
-    @Published var lastDeltaY: CGFloat = 0
+    @Published var pulsingDevice: ScrollTarget?
+    @Published var lastDirectionUp: Bool?
     @Published var eventCount: Int = 0
+    @Published var isPadHovered = false
+
+    private var pulseClearTask: Task<Void, Never>?
 
     func recordScroll(deltaY: CGFloat, isContinuous: Bool) {
         let step = isContinuous ? deltaY : deltaY * 14
         offset += step
         // Wrap offset cleanly over a 6-row period (6 * 32 = 192 pt) for endless preview scrolling.
         offset = offset.truncatingRemainder(dividingBy: 192)
-        lastDevice = isContinuous ? .trackpad : .mouse
-        lastDeltaY = deltaY
+        let device: ScrollTarget = isContinuous ? .trackpad : .mouse
+        lastDevice = device
+        pulsingDevice = device
+        if abs(deltaY) > 0.001 {
+            lastDirectionUp = deltaY < 0
+        }
         eventCount += 1
+
+        pulseClearTask?.cancel()
+        pulseClearTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(800))
+            guard !Task.isCancelled else { return }
+            self?.pulsingDevice = nil
+        }
     }
 
     func reset() {
+        pulseClearTask?.cancel()
+        pulseClearTask = nil
         offset = 0
         lastDevice = nil
-        lastDeltaY = 0
+        pulsingDevice = nil
+        lastDirectionUp = nil
         eventCount = 0
     }
 }
@@ -42,25 +60,75 @@ struct ScrollDirectionSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            FeatureSection("Inversion", subtitle: "macOS uses one scroll direction for every pointing device. This inverts one of them, relative to the other.") {
-                SettingRow(
-                    "Which device to invert",
-                    subtitle: "Mouse wheels report line based scroll events; the trackpad reports pixel based ones. That is how the two are told apart."
-                ) {
-                    Picker("", selection: $configManager.config.scrollDirection.target) {
-                        ForEach(ScrollTarget.allCases, id: \.self) { item in
-                            Text(item.label).tag(item)
+            FeatureCardGridSection(
+                "Device to Invert",
+                subtitle: "macOS uses one scroll direction for every pointing device. Pick which one to flip relative to System Settings."
+            ) {
+                Grid(horizontalSpacing: 12, verticalSpacing: 12) {
+                    GridRow {
+                        SelectableOptionCard(
+                            title: "Mouse Wheel",
+                            subtitle: "Flips classic line-based mouse wheels while your trackpad keeps macOS System Settings direction.",
+                            symbolName: "computermouse",
+                            accentColor: module.accentColor,
+                            badge: target == .mouse ? (isEnabled ? "Inverted" : "Will Invert") : "macOS Default",
+                            isSelected: target == .mouse,
+                            isPulsing: previewState.pulsingDevice == .mouse
+                        ) {
+                            configManager.config.scrollDirection.target = .mouse
+                        }
+
+                        SelectableOptionCard(
+                            title: "Trackpad",
+                            subtitle: "Flips pixel-based touch gestures and high-resolution mice like the Magic Mouse.",
+                            symbolName: "rectangle.and.hand.point.up.left",
+                            accentColor: module.accentColor,
+                            badge: target == .trackpad ? (isEnabled ? "Inverted" : "Will Invert") : "macOS Default",
+                            isSelected: target == .trackpad,
+                            isPulsing: previewState.pulsingDevice == .trackpad
+                        ) {
+                            configManager.config.scrollDirection.target = .trackpad
                         }
                     }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .frame(width: 220)
-                    .disabled(!isEnabled)
-                    .pointerCursor(isEnabled)
                 }
+            }
+
+            FeatureSection(
+                "Interactive Scroll Test",
+                subtitle: "Hover and scroll with your mouse or trackpad to verify which device class macOS reports."
+            ) {
+                interactiveScrollPad
 
                 Divider()
 
+                HStack(spacing: 10) {
+                    Text(statsSubtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Spacer(minLength: 8)
+
+                    if let observed = module.lastObservedClass {
+                        let isMatched = observed == target
+                        StatusBadge(
+                            text: observed.label,
+                            color: isMatched ? .green : .secondary
+                        )
+                    }
+
+                    if isEnabled {
+                        Text("Inverted: \(module.eventsInverted)")
+                            .font(.caption.monospacedDigit().weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Color.primary.opacity(0.06), in: Capsule())
+                    }
+                }
+            }
+
+            FeatureSection("Shortcut") {
                 SettingRow(
                     "Toggle shortcut",
                     subtitle: "Optional global shortcut to turn scroll inversion on or off."
@@ -75,150 +143,38 @@ struct ScrollDirectionSettingsView: View {
                     }
                 }
             }
-
-            FeatureSection("Preview", subtitle: "Compare device behavior and test your mouse or trackpad right here.") {
-                HStack(spacing: 12) {
-                    devicePreviewTile(
-                        device: .mouse,
-                        symbol: "computermouse",
-                        kindLabel: "Line-based wheel"
-                    )
-                    devicePreviewTile(
-                        device: .trackpad,
-                        symbol: "rectangle.and.hand.point.up.left",
-                        kindLabel: "Pixel-based touch"
-                    )
-                }
-
-                interactiveScrollPad
-            }
-
-            FeatureSection("Live Status", subtitle: "What the inverter has seen across macOS since you turned it on.") {
-                SettingRow("Inverted events", subtitle: statsSubtitle) {
-                    HStack(spacing: 8) {
-                        if let observed = module.lastObservedClass {
-                            let isMatched = observed == target
-                            Text(observed.label)
-                                .font(.caption.weight(.medium))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(
-                                    (isMatched ? Color.green : Color.pink).opacity(0.15),
-                                    in: Capsule()
-                                )
-                                .foregroundStyle(isMatched ? .green : .pink)
-                        }
-                        Text("\(module.eventsInverted)")
-                            .font(.body.weight(.semibold).monospacedDigit())
-                    }
-                }
-            }
         }
-    }
-
-    private func devicePreviewTile(device: ScrollTarget, symbol: String, kindLabel: String) -> some View {
-        let isInverted = isEnabled && target == device
-        let isRecentlySeen = previewState.lastDevice == device
-
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: symbol)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(isInverted ? .pink : .secondary)
-                    .frame(width: 22)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(device.label)
-                        .font(.callout.weight(.semibold))
-                    Text(kindLabel)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                Text(isInverted ? "Inverted" : "System")
-                    .font(.caption2.weight(.semibold))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(
-                        (isInverted ? Color.pink : Color.secondary).opacity(0.14),
-                        in: Capsule()
-                    )
-                    .foregroundStyle(isInverted ? .pink : .secondary)
-            }
-
-            HStack(spacing: 6) {
-                Image(systemName: isInverted ? "arrow.up.arrow.down.circle.fill" : "arrow.down.circle")
-                    .font(.caption)
-                    .foregroundStyle(isInverted ? .pink : .secondary)
-                Text(
-                    isInverted
-                        ? "Opposite to System Settings"
-                        : "Matches System Settings"
-                )
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            }
-        }
-        .padding(11)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            isInverted
-                ? Color.pink.opacity(0.08)
-                : Color.primary.opacity(0.03),
-            in: RoundedRectangle(cornerRadius: 9)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 9)
-                .strokeBorder(
-                    isRecentlySeen
-                        ? (isInverted ? Color.pink.opacity(0.65) : Color.accentColor.opacity(0.55))
-                        : Color.primary.opacity(isInverted ? 0.25 : 0.08),
-                    lineWidth: isRecentlySeen ? 1.5 : 1
-                )
-        )
     }
 
     private var interactiveScrollPad: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Label("Interactive Scroll Test Pad", systemImage: "hand.draw")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-
-                if let last = previewState.lastDevice {
-                    let deltaText = String(format: "%+.1f", previewState.lastDeltaY)
-                    let matchingTarget = isEnabled && module.isTapInstalled && last == target
-                    Text("Detected: \(last.label) (\(last == .mouse ? "Line" : "Pixel")) · Δ \(deltaText)")
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(matchingTarget ? .pink : .secondary)
-                } else {
-                    Text("Hover here and scroll with mouse or trackpad")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    padTitleLabel
+                    Spacer(minLength: 8)
+                    padStatusControls
                 }
 
-                if previewState.eventCount > 0 {
-                    Button("Reset") {
-                        previewState.reset()
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        padTitleLabel
+                        Spacer(minLength: 8)
+                        if previewState.eventCount > 0 {
+                            resetPadButton
+                        }
                     }
-                    .buttonStyle(.borderless)
-                    .font(.caption2)
-                    .pointerCursor()
+                    padStatusLabel
                 }
             }
 
             RoundedRectangle(cornerRadius: 9)
                 .fill(Color.primary.opacity(0.04))
                 .frame(height: 112)
-                .overlay {
+                .overlay(alignment: .top) {
                     // Endless tiled preview rows driven directly by scroll events on the pad.
+                    // Each row is 32 pt tall; starting at idx -6 places Sample Line 1 flush at top when offset == 0.
                     VStack(spacing: 0) {
-                        ForEach(-3..<10, id: \.self) { idx in
+                        ForEach(-6..<12, id: \.self) { idx in
                             let rowNumber = ((idx % 6) + 6) % 6 + 1
                             HStack(spacing: 10) {
                                 RoundedRectangle(cornerRadius: 3)
@@ -234,12 +190,12 @@ struct ScrollDirectionSettingsView: View {
                             }
                             .padding(.horizontal, 12)
                             .frame(height: 32)
-                            if idx < 9 {
+                            .overlay(alignment: .bottom) {
                                 Divider().opacity(0.4)
                             }
                         }
                     }
-                    .offset(y: previewState.offset - 48)
+                    .offset(y: previewState.offset - 192)
                     .allowsHitTesting(false)
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 9))
@@ -250,15 +206,70 @@ struct ScrollDirectionSettingsView: View {
                 }
                 .overlay(
                     RoundedRectangle(cornerRadius: 9)
-                        .strokeBorder(Color.primary.opacity(0.11), lineWidth: 1)
+                        .strokeBorder(
+                            previewState.isPadHovered ? module.accentColor.opacity(0.45) : Color.primary.opacity(0.11),
+                            lineWidth: previewState.isPadHovered ? 1.25 : 1
+                        )
                         .allowsHitTesting(false)
                 )
+                .onHover { previewState.isPadHovered = $0 }
         }
+    }
+
+    private var padTitleLabel: some View {
+        Label("Interactive Scroll Test Pad", systemImage: "hand.draw")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: true, vertical: false)
+    }
+
+    @ViewBuilder
+    private var padStatusControls: some View {
+        HStack(spacing: 8) {
+            padStatusLabel
+            if previewState.eventCount > 0 {
+                resetPadButton
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var padStatusLabel: some View {
+        if let last = previewState.lastDevice {
+            let matchingTarget = isEnabled && module.isTapInstalled && last == target
+            let movingUp = previewState.lastDirectionUp ?? true
+            HStack(spacing: 4) {
+                Text("Detected: \(last.label) (\(last == .mouse ? "Line" : "Pixel")) ·")
+                Image(systemName: movingUp ? "arrow.up" : "arrow.down")
+                    .font(.caption2.weight(.semibold))
+                Text(movingUp ? "Moving Up" : "Moving Down")
+            }
+            .font(.caption2)
+            .foregroundStyle(matchingTarget ? ToolboxTheme.readableAccentText(for: .pink) : .secondary)
+            .lineLimit(1)
+        } else {
+            Text("Hover here and scroll with mouse or trackpad")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+    }
+
+    private var resetPadButton: some View {
+        Button("Reset") {
+            previewState.reset()
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .pointerCursor()
     }
 
     private var statsSubtitle: String {
         if !isEnabled {
-            return "Turn inversion on, then scroll with your mouse to confirm."
+            if !permissions.isAccessibilityGranted {
+                return "Grant Accessibility permission and turn inversion on to invert \(target.label.lowercased()) scrolling."
+            }
+            return "Turn inversion on, then scroll with your \(target.label.lowercased()) to confirm."
         }
         guard let observed = module.lastObservedClass else {
             return "Waiting for the first scroll event from your mouse or trackpad."
@@ -266,7 +277,7 @@ struct ScrollDirectionSettingsView: View {
         if observed == target {
             return "Inverting \(observed.label.lowercased()) scroll events as intended."
         }
-        return "Receiving \(observed.label.lowercased()) style events right now (\(module.eventsInverted) inverted). Switch the target above if your mouse reports as \(observed.label)."
+        return "Receiving \(observed.label.lowercased()) style events right now (\(module.eventsInverted) inverted). Switch the target above if your device reports as \(observed.label)."
     }
 }
 

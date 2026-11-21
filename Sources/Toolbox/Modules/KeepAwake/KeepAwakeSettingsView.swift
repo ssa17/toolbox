@@ -2,7 +2,7 @@ import SwiftUI
 
 @MainActor
 private final class KeepAwakeSettingsDraft: ObservableObject {
-    @Published var customMinutesText: String = "45"
+    @Published var customMinutesText: String = ""
 }
 
 struct KeepAwakeSettingsView: View {
@@ -10,128 +10,111 @@ struct KeepAwakeSettingsView: View {
     @ObservedObject var module: KeepAwakeModule
     @StateObject private var draft = KeepAwakeSettingsDraft()
 
-    private let durations = [
-        (0, "Indefinite"),
-        (15, "15 minutes"),
-        (30, "30 minutes"),
-        (60, "1 hour"),
-        (120, "2 hours"),
-        (240, "4 hours")
+    private let durations: [(minutes: Int, shortLabel: String)] = [
+        (15, "15m"),
+        (30, "30m"),
+        (60, "1h"),
+        (120, "2h"),
+        (240, "4h"),
+        (0, "∞")
     ]
 
+    private var defaultDurationLabel: String {
+        let mins = configManager.config.keepAwake.defaultDurationMinutes
+        if mins == 0 { return "∞" }
+        return mins >= 60 && mins % 60 == 0 ? "\(mins / 60)h" : "\(mins)m"
+    }
+
     var body: some View {
+        let appEnabled = configManager.config.general.appEnabled
+
         VStack(alignment: .leading, spacing: 22) {
             FeatureSection("Session Control", subtitle: "Start, stop, or pick a timed awake session.") {
                 SettingRow(
                     module.isAwakeActive ? "Keep Awake is active" : "Sleep behavior is normal",
                     subtitle: activeSubtitle
                 ) {
-                    Button(module.isAwakeActive ? "Allow Sleep" : "Keep Awake Now") {
+                    let canPress = module.isAwakeActive || appEnabled
+                    Button(module.isAwakeActive ? "Allow Sleep" : "Keep Awake (\(defaultDurationLabel))") {
                         if !module.isAwakeActive && !configManager.config.keepAwake.enabled {
                             configManager.config.keepAwake.enabled = true
                         }
                         module.toggle()
                     }
                     .buttonStyle(.toolboxProminent(module.isAwakeActive ? .neutral : .orange))
-                    .pointerCursor()
+                    .disabled(!canPress)
+                    .help(canPress ? "Toggle Keep Awake session" : "Resume Toolbox first to start Keep Awake")
+                    .pointerCursor(canPress)
                 }
 
                 Divider()
 
-                HStack(spacing: 8) {
-                    Text("Quick Start:")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    ForEach([15, 30, 60, 0], id: \.self) { mins in
-                        Button(mins == 0 ? "∞" : "\(mins)m") {
-                            if !configManager.config.keepAwake.enabled {
-                                configManager.config.keepAwake.enabled = true
-                            }
-                            module.activate(minutes: mins)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .pointerCursor()
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        quickStartChips(enabled: appEnabled)
+                        Spacer(minLength: 8)
+                        customDurationControls(enabled: appEnabled)
                     }
 
-                    Spacer()
-
-                    HStack(spacing: 4) {
-                        TextField("45", text: $draft.customMinutesText)
-                            .textFieldStyle(.roundedBorder)
-                            .multilineTextAlignment(.center)
-                            .font(.caption.monospacedDigit())
-                            .frame(width: 48)
-                            .onChange(of: draft.customMinutesText, initial: false) { _, val in
-                                let digits = val.filter(\.isNumber)
-                                if let parsed = Int(digits), parsed > 1440 {
-                                    draft.customMinutesText = "1440"
-                                } else if digits != val {
-                                    draft.customMinutesText = digits
-                                }
-                            }
-                            .onSubmit {
-                                startCustomDuration()
-                            }
-                        Text("m")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Button("Start") {
-                            startCustomDuration()
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .disabled((Int(draft.customMinutesText) ?? 0) <= 0)
-                        .pointerCursor((Int(draft.customMinutesText) ?? 0) > 0)
+                    VStack(alignment: .leading, spacing: 8) {
+                        quickStartChips(enabled: appEnabled)
+                        customDurationControls(enabled: appEnabled)
                     }
                 }
 
-                if module.isAwakeActive && configManager.config.keepAwake.strategy != .powerAssertion {
+                if module.isAwakeActive {
                     Divider()
 
-                    HStack(spacing: 14) {
-                        Label("Idle: \(module.currentIdleSeconds)s", systemImage: "cursorarrow")
-                        if let next = module.nextJiggleInSeconds {
-                            Label("Next nudge in \(next)s", systemImage: "timer")
+                    if configManager.config.keepAwake.strategy == .powerAssertion {
+                        HStack(spacing: 10) {
+                            Label(
+                                configManager.config.keepAwake.preventDisplaySleep
+                                    ? "Power assertion active (System & Display sleep blocked)"
+                                    : "Power assertion active (System sleep blocked)",
+                                systemImage: "bolt.shield.fill"
+                            )
+                            Spacer(minLength: 0)
                         }
-                        Label("Nudges: \(module.jiggleCount)", systemImage: "arrow.left.and.right")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(ToolboxTheme.readableAccentText(for: module.accentColor))
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                    } else {
+                        HStack(spacing: 14) {
+                            Label("Idle: \(module.currentIdleSeconds)s", systemImage: "cursorarrow")
+                            if let next = module.nextJiggleInSeconds {
+                                Label("Next nudge in \(formattedCountdown(next))", systemImage: "timer")
+                            }
+                            Label("Nudges: \(module.jiggleCount)", systemImage: "arrow.left.and.right")
+                        }
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
                     }
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
                 }
             }
 
-            FeatureSection("Mac Display Sleep Detection", subtitle: "Reads macOS pmset power settings so nudges fire just before sleep.") {
+            FeatureCardGridSection("Keep Awake Strategy", subtitle: "Choose how Toolbox keeps your Mac awake.") {
+                ToolboxAdaptiveCardGrid(wideColumns: 3, narrowColumns: 1, wideMinWidth: 560, spacing: 12) {
+                    strategyCard(.both, title: "Both", subtitle: "Combines a native power assertion with subtle cursor nudges as a fallback.", symbolName: "bolt.shield.fill", badge: "Best")
+                    strategyCard(.smartMouseJiggle, title: "Smart Mouse Jiggle", subtitle: "Sends a subtle 1px nudge right before display sleep. Works even under strict corporate policies.", symbolName: "cursorarrow.motionlines", badge: "Policy-Safe")
+                    strategyCard(.powerAssertion, title: "Power Assertion", subtitle: "Holds a native macOS power assertion without moving your cursor.", symbolName: "battery.100.bolt", badge: "Zero Cursor")
+                }
+            }
+
+            FeatureSection("Display Sleep & Timing", subtitle: "Reads your Mac power settings so nudges fire just before the screen turns off.") {
                 SettingRow("Detected Display Sleep", subtitle: module.powerInfo.summaryText) {
                     Button("Refresh") {
                         module.refreshMacSleepSettings()
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+                    .focusEffectDisabled()
                     .pointerCursor()
                 }
-
-                Divider()
-
-                SettingRow("Keep Awake Strategy") {
-                    Picker("", selection: $configManager.config.keepAwake.strategy) {
-                        ForEach(KeepAwakeStrategy.allCases, id: \.self) { strat in
-                            Text(strat.label).tag(strat)
-                        }
-                    }
-                    .labelsHidden()
-                    .pointerCursor()
-                }
-
-                Text(strategyExplanation(configManager.config.keepAwake.strategy))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
 
                 if configManager.config.keepAwake.strategy != .powerAssertion {
                     Divider()
@@ -140,24 +123,30 @@ struct KeepAwakeSettingsView: View {
                         "Lead time before screen turns off",
                         subtitle: "How many seconds before macOS display sleep to send a tiny cursor nudge."
                     ) {
-                        Stepper(value: $configManager.config.keepAwake.jiggleLeadSeconds, in: 5...300, step: 5) {
+                        HStack(spacing: 8) {
                             Text("\(configManager.config.keepAwake.jiggleLeadSeconds)s before sleep")
-                                .monospacedDigit()
+                                .font(.callout.monospacedDigit())
+                            Stepper("", value: $configManager.config.keepAwake.jiggleLeadSeconds, in: 5...300, step: 5)
+                                .labelsHidden()
+                                .pointerCursor()
                         }
-                        .pointerCursor()
                     }
 
                     Divider()
 
                     SettingRow(
                         "Fallback nudge interval",
-                        subtitle: "Used when macOS Display Sleep is set to Never (0)."
+                        subtitle: module.powerInfo.activeDisplaySleepMinutes == 0
+                            ? "Used when macOS Display Sleep is set to Never (0)."
+                            : "Used when macOS Display Sleep is set to Never (0). (Unused while Display Sleep is set.)"
                     ) {
-                        Stepper(value: $configManager.config.keepAwake.fallbackJiggleIntervalSeconds, in: 15...600, step: 15) {
-                            Text("Every \(configManager.config.keepAwake.fallbackJiggleIntervalSeconds)s")
-                                .monospacedDigit()
+                        HStack(spacing: 8) {
+                            Text(formattedFallbackInterval(configManager.config.keepAwake.fallbackJiggleIntervalSeconds))
+                                .font(.callout.monospacedDigit())
+                            Stepper("", value: $configManager.config.keepAwake.fallbackJiggleIntervalSeconds, in: 15...600, step: 15)
+                                .labelsHidden()
+                                .pointerCursor()
                         }
-                        .pointerCursor()
                     }
                 }
             }
@@ -176,24 +165,27 @@ struct KeepAwakeSettingsView: View {
 
                 Divider()
 
-                SettingRow("Default duration") {
-                    Picker("", selection: $configManager.config.keepAwake.defaultDurationMinutes) {
-                        ForEach(durations, id: \.0) { value, label in
-                            Text(label).tag(value)
+                SettingRow("Default duration", subtitle: "Duration used when toggling Keep Awake from the shortcut or menu bar.") {
+                    HStack(spacing: 6) {
+                        ForEach(durations, id: \.minutes) { option in
+                            ToolboxPresetChip(
+                                label: option.shortLabel,
+                                isSelected: configManager.config.keepAwake.defaultDurationMinutes == option.minutes,
+                                accentColor: module.accentColor
+                            ) {
+                                configManager.config.keepAwake.defaultDurationMinutes = option.minutes
+                            }
                         }
                     }
-                    .labelsHidden()
-                    .frame(width: 150)
-                    .pointerCursor()
                 }
 
                 if configManager.config.keepAwake.strategy != .smartMouseJiggle {
                     Divider()
 
-                    SettingRow("Also prevent display sleep", subtitle: "Hold an IOKit display sleep assertion in addition to system sleep.") {
+                    SettingRow("Also prevent display sleep", subtitle: "Keeps your screen from dimming or turning off while Keep Awake is active.") {
                         Toggle("", isOn: $configManager.config.keepAwake.preventDisplaySleep)
                             .labelsHidden()
-                            .toggleStyle(.switch)
+                            .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
                             .pointerCursor()
                     }
                 }
@@ -203,14 +195,98 @@ struct KeepAwakeSettingsView: View {
                 SettingRow("Activate when Toolbox launches") {
                     Toggle("", isOn: $configManager.config.keepAwake.activeOnLaunch)
                         .labelsHidden()
-                        .toggleStyle(.switch)
+                        .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
                         .pointerCursor()
                 }
             }
         }
     }
 
+    private func strategyCard(
+        _ strategy: KeepAwakeStrategy,
+        title: String,
+        subtitle: String,
+        symbolName: String,
+        badge: String
+    ) -> some View {
+        SelectableOptionCard(
+            title: title,
+            subtitle: subtitle,
+            symbolName: symbolName,
+            accentColor: module.accentColor,
+            badge: badge,
+            isSelected: configManager.config.keepAwake.strategy == strategy
+        ) {
+            configManager.config.keepAwake.strategy = strategy
+        }
+    }
+
+    private func quickStartChips(enabled appEnabled: Bool) -> some View {
+        HStack(spacing: 8) {
+            Text("Quick Start:")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+            ForEach([15, 30, 60, 0], id: \.self) { mins in
+                ToolboxPresetChip(
+                    label: mins == 0 ? "∞" : (mins == 60 ? "1h" : "\(mins)m"),
+                    isSelected: module.isAwakeActive && module.activePresetMinutes == mins,
+                    accentColor: module.accentColor
+                ) {
+                    guard appEnabled else { return }
+                    if !configManager.config.keepAwake.enabled {
+                        configManager.config.keepAwake.enabled = true
+                    }
+                    module.activate(minutes: mins)
+                }
+                .disabled(!appEnabled)
+                .opacity(appEnabled ? 1.0 : 0.5)
+            }
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func customDurationControls(enabled appEnabled: Bool) -> some View {
+        let canStartCustom = appEnabled && (Int(draft.customMinutesText) ?? 0) > 0
+        return HStack(spacing: 5) {
+            TextField("Min", text: $draft.customMinutesText)
+                .textFieldStyle(.roundedBorder)
+                .multilineTextAlignment(.center)
+                .font(.caption.monospacedDigit())
+                .frame(width: 50)
+                .help("Enter custom duration (1–1440m)")
+                .onChange(of: draft.customMinutesText, initial: false) { _, val in
+                    let digits = val.filter(\.isNumber)
+                    if let parsed = Int(digits), parsed > 1440 {
+                        draft.customMinutesText = "1440"
+                    } else if digits != val {
+                        draft.customMinutesText = digits
+                    }
+                }
+                .onSubmit {
+                    if canStartCustom {
+                        startCustomDuration()
+                    }
+                }
+            Text("min")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button("Start") {
+                startCustomDuration()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .focusEffectDisabled()
+            .disabled(!canStartCustom)
+            .help("Start custom Keep Awake timer (1–1440 min)")
+            .pointerCursor(canStartCustom)
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
     private var activeSubtitle: String {
+        if !configManager.config.general.appEnabled && !module.isAwakeActive {
+            return "Resume Toolbox in the top bar before starting Keep Awake."
+        }
         guard module.isAwakeActive else {
             return "Turn on anytime to block idle sleep."
         }
@@ -221,7 +297,24 @@ struct KeepAwakeSettingsView: View {
         return "Active indefinitely (∞) · Your Mac will stay awake according to your chosen strategy."
     }
 
+    private func formattedCountdown(_ totalSeconds: Int) -> String {
+        if totalSeconds >= 60 {
+            return "\(totalSeconds / 60)m \(totalSeconds % 60)s"
+        }
+        return "\(totalSeconds)s"
+    }
+
+    private func formattedFallbackInterval(_ seconds: Int) -> String {
+        if seconds >= 60 {
+            let mins = seconds / 60
+            let rem = seconds % 60
+            return rem == 0 ? "Every \(mins)m" : "Every \(mins)m \(rem)s"
+        }
+        return "Every \(seconds)s"
+    }
+
     private func startCustomDuration() {
+        guard configManager.config.general.appEnabled else { return }
         if let mins = Int(draft.customMinutesText), mins > 0 {
             let clamped = min(mins, 1440)
             draft.customMinutesText = String(clamped)
@@ -229,17 +322,6 @@ struct KeepAwakeSettingsView: View {
                 configManager.config.keepAwake.enabled = true
             }
             module.activate(minutes: clamped)
-        }
-    }
-
-    private func strategyExplanation(_ strategy: KeepAwakeStrategy) -> String {
-        switch strategy {
-        case .smartMouseJiggle:
-            return "Sends a subtle 1px mouse nudge right before macOS would turn off the display. Works even when MDM or corporate policies override power assertions."
-        case .powerAssertion:
-            return "Holds a native IOKit caffeinate assertion without moving the cursor. Cleanest option on personal Macs."
-        case .both:
-            return "Combines a native IOKit power assertion with smart cursor nudges as a fallback."
         }
     }
 }

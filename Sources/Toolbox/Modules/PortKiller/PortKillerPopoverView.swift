@@ -51,6 +51,21 @@ struct PortKillerPopoverView: View {
                     uiState.selectedKey = visiblePorts.first?.id
                 }
 
+            if !uiState.query.isEmpty {
+                Button {
+                    uiState.query = ""
+                    uiState.selectedKey = visiblePorts.first?.id
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .focusEffectDisabled()
+                .help("Clear search")
+                .pointerCursor()
+            }
+
             Button {
                 module.refreshPorts()
             } label: {
@@ -133,7 +148,7 @@ struct PortKillerPopoverView: View {
                     Text("Hide System")
                         .font(.caption.weight(.medium))
                 }
-                .foregroundStyle(hiding ? Color.indigo : Color.secondary)
+                .foregroundStyle(hiding ? ToolboxTheme.readableAccentText(for: .indigo) : Color.secondary)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(
@@ -375,7 +390,7 @@ private struct PortPopoverRowView: View, Equatable {
 
                     Text(":\(String(entry.port))")
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundStyle(Color.indigo)
+                        .foregroundStyle(ToolboxTheme.readableAccentText(for: .indigo))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1.5)
                         .background(Color.indigo.opacity(0.14), in: Capsule())
@@ -438,11 +453,17 @@ private struct PortPopoverRowView: View, Equatable {
                     .controlSize(.small)
                     .frame(width: 56)
             } else if isStuck {
-                Button("Force Kill") {
+                Button {
                     onKill(.sigkill)
+                } label: {
+                    Text("Force Kill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(ToolboxTheme.readableAccentText(for: .red))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.red.opacity(0.14), in: Capsule())
                 }
-                .buttonStyle(.toolboxProminent(.red))
-                .controlSize(.small)
+                .buttonStyle(.plain)
                 .instantTooltip(
                     id: "stuck.\(entry.id)",
                     text: "Still listening; send SIGKILL to force terminate",

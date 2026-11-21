@@ -112,6 +112,8 @@ struct CleanLockHUDCardView: View {
                     Text("\(state.remainingSeconds)")
                         .font(.system(size: 66, weight: .bold, design: .rounded))
                         .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                         .foregroundStyle(.primary)
                         .contentTransition(.numericText())
                     Text("sec")
@@ -145,8 +147,8 @@ struct CleanLockHUDCardView: View {
 
             VStack(spacing: 6) {
                 Text("Hold ⌃ ⌥ ⌘ Esc (3s) to unlock early")
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(state.killSwitchProgress > 0 ? .red : .secondary)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(state.killSwitchProgress > 0 ? ToolboxTheme.readableAccentText(for: .red) : Color.primary.opacity(0.78))
 
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {

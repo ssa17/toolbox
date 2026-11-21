@@ -13,17 +13,28 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 - **Clipboard** — pinned items can now be reordered: drag rows in the dropdown, use ⌘ ↑ / ⌘ ↓, or the right-click menu, and the saved order drives your ⌘ 1–9 quick paste
 - **Dashboard** — a **Compact / Detailed** switcher next to the Modules heading smoothly expands or collapses module descriptions in place with balanced compact card spacing and hover feedback (and remembers your choice), making all modules easier to scan at a glance
 - **Window Navigation** — navigate back and forward through visited pages with your mouse's Back/Forward buttons, swipe gestures, toolbar `<` / `>` buttons, or `⌘ [` / `⌘ ]`
+- **Keyboard Lock** — a new **5-minute** duration option
+- **Interaction Feedback** — a subtle press animation on buttons and controls app-wide, a momentary “Copied” confirmation on copy buttons (Custom Commands, Screen OCR, Config Editor), and a clear button in the Port Killer popover search field
 
 ### Changed
 - **HUD Toasts** — floating notifications are now bigger (larger text and icon in a taller pill) and sit a little lower below the top of the screen so they’re harder to miss
 - **Clipboard** — reorganized the dropdown into clean **Pinned** and **Recent** sections (moving **Clear All** to Recent), gave snippets full row width with top-right `⌘ 1–9` pills and larger hover/selection-revealed action buttons, and added multiline counts + relative timestamps
 - **Status Bar Menu** — added subtle hover highlights to rows and buttons (including a soft red highlight on Quit), upgraded the popover backdrop to a higher-contrast frosted surface so text stays crisp over any app background (also applied to the Port Killer popover), and removed the “Check for Updates” button (updates still check automatically in the background, and an “Update to v<version>…” button appears whenever a new release is available)
 - **Settings** — upgraded Status Bar Menu row drag-reordering to a smooth lifted-card interaction with live slot shifting, haptic ticks, Escape to cancel, and zero-jump drop settling
+- **Design System** — an app-wide visual refresh: brighter accent colors and status badges on dark surfaces, higher-contrast switches and destructive buttons, uppercase section headers with accent-tinted cards, and selectable option cards for multi-choice settings (Keep Awake, Keyboard Lock, Port Killer, Clipboard)
+- **Keyboard Lock** — the main button now shows the chosen duration (“Lock Input (3m)” / “Unlock Now (12s)”), is disabled with a hint when Toolbox is paused or Accessibility is missing, shows a “Resume Toolbox to use Keyboard Lock” toast when the shortcut fires while paused, and uses larger, crisper countdown text in the HUD
+- **Keep Awake** — the duration picker is redesigned as compact chips (15m / 30m / 1h / 2h / 4h / ∞) with the custom field tucked below, and the quick-start button shows the default duration
+- **Call Controls** — Settings is reorganized into Override Scope, Floating Pill & Notifications, and Typing Guard & Fallback sections with a responsive microphone/output quick-card layout
+- **Scroll Direction** — the live test panel shows a pulsing device indicator and scroll direction instead of raw delta values
+- **Dock Click to Minimize** — clearer one-line descriptions for each action on the Dashboard card and detail page
 
 ### Fixed
 - **Appearance & Buttons** — Toolbox windows, popovers, and HUDs now use a consistent dark theme on every Mac (while keeping the menu bar icon adaptive), and prominent colored buttons like **Lock Keyboard** always keep crisp white text and icons instead of turning dark or washing out in Light Mode or unfocused windows
 - **Status Bar Menu** — pausing Toolbox from the master toggle no longer causes the popover to jump in height; all sections stay visible while paused modules, quick actions, and quick commands are dimmed and disabled
 - **Status Bar Menu** — opening the menu-bar popover no longer pulls the Dashboard window to the front; it stays in the background until you choose to open it
+- **Dock Click to Minimize** — excluded apps now match case-insensitively, and the running-app list no longer includes Toolbox itself
+- **Keyboard Lock / Keep Awake / Screen OCR** — actions no longer fail silently while Toolbox is paused; they are disabled with a “Resume Toolbox first” hint
+- **Shortcut Recorder** — a shortcut being drafted resets when its window loses focus or closes, and key-only shortcuts show a clearer hint
 
 ## [1.5] - 2026-11-19
 

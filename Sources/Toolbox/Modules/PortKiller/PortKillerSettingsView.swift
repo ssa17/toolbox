@@ -48,8 +48,15 @@ struct PortKillerSettingsView: View {
         module.filteredPorts(query: uiState.searchQuery, filterMode: uiState.filterMode)
     }
 
+    private let refreshIntervalOptions = [3, 5, 10, 0]
+
+    private func refreshIntervalLabel(for seconds: Int) -> String {
+        seconds == 0 ? "Manual" : "\(seconds)s"
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 22) {
+            killSignalSection
             shortcutAndBehaviorSection
             favoritePortsSection
             livePortsSection
@@ -62,86 +69,103 @@ struct PortKillerSettingsView: View {
         }
     }
 
-    // MARK: - Shortcut & Behavior
+    // MARK: - Default Kill Signal
+
+    private var killSignalSection: some View {
+        FeatureCardGridSection(
+            "Default Kill Signal",
+            subtitle: "Choose which signal clicking a port in the popover sends by default."
+        ) {
+            Grid(horizontalSpacing: 12, verticalSpacing: 12) {
+                GridRow {
+                    SelectableOptionCard(
+                        title: "Graceful Stop",
+                        subtitle: "Asks processes to flush state and exit cleanly before closing.",
+                        symbolName: "hand.raised.circle.fill",
+                        accentColor: module.accentColor,
+                        badge: "SIGTERM · Safe",
+                        isSelected: configManager.config.portKiller.defaultSignal == .sigterm
+                    ) {
+                        configManager.config.portKiller.defaultSignal = .sigterm
+                    }
+
+                    SelectableOptionCard(
+                        title: "Force Kill",
+                        subtitle: "Terminates unresponsive processes immediately without cleanup.",
+                        symbolName: "bolt.slash.circle.fill",
+                        accentColor: .red,
+                        badge: "SIGKILL · Immediate",
+                        isSelected: configManager.config.portKiller.defaultSignal == .sigkill
+                    ) {
+                        configManager.config.portKiller.defaultSignal = .sigkill
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Shortcut & Popover
 
     private var shortcutAndBehaviorSection: some View {
         FeatureSection(
-            "SHORTCUT & BEHAVIOR",
-            subtitle: "Configure the floating Port Killer popover and termination behavior."
+            "Shortcut & Popover",
+            subtitle: "Configure the floating Port Killer popover and scan behavior."
         ) {
-            VStack(spacing: 0) {
-                SettingRow(
-                    "Global Popover Shortcut",
-                    subtitle: "Opens the searchable Port Killer dropdown near your cursor."
-                ) {
-                    HStack(spacing: 8) {
-                        ShortcutRecorderView(
-                            shortcut: configManager.config.portKiller.shortcut,
-                            defaultShortcut: ShortcutSpec(key: "p", modifiers: [.control, .option, .command]),
-                            sourceID: "port_killer",
-                            registrationKey: module.hotKeyName
-                        ) { newShortcut in
-                            configManager.config.portKiller.shortcut = newShortcut
-                        }
-                        Button("Open Popover") {
-                            module.showPopover()
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .focusEffectDisabled()
-                        .pointerCursor()
+            SettingRow(
+                "Global Popover Shortcut",
+                subtitle: "Opens the searchable Port Killer dropdown near your cursor."
+            ) {
+                HStack(spacing: 8) {
+                    ShortcutRecorderView(
+                        shortcut: configManager.config.portKiller.shortcut,
+                        defaultShortcut: ShortcutSpec(key: "p", modifiers: [.control, .option, .command]),
+                        sourceID: "port_killer",
+                        registrationKey: module.hotKeyName
+                    ) { newShortcut in
+                        configManager.config.portKiller.shortcut = newShortcut
                     }
-                }
-
-                Divider()
-
-                SettingRow(
-                    "Auto-Refresh Interval",
-                    subtitle: "Polls for new listeners only while the popover or this view is open."
-                ) {
-                    Picker("", selection: $configManager.config.portKiller.refreshIntervalSeconds) {
-                        Text("3 seconds").tag(3)
-                        Text("5 seconds").tag(5)
-                        Text("10 seconds").tag(10)
-                        Text("Manual only").tag(0)
+                    Button {
+                        module.showPopover()
+                    } label: {
+                        Label("Open Popover", systemImage: "arrow.up.right.square")
                     }
-                    .labelsHidden()
-                    .frame(width: 150)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .focusEffectDisabled()
                     .pointerCursor()
                 }
-
-                Divider()
-
-                SettingRow(
-                    "Default Kill Signal",
-                    subtitle: "SIGTERM asks processes to exit cleanly; SIGKILL terminates immediately."
-                ) {
-                    Picker("", selection: $configManager.config.portKiller.defaultSignal) {
-                        ForEach(PortKillSignal.allCases, id: \.self) { sig in
-                            Text(sig.label).tag(sig)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 210)
-                    .pointerCursor()
-                }
-
-                Divider()
-
-                SettingRow(
-                    "Hide macOS System Daemons",
-                    subtitle: "Filters Apple background services (e.g. ControlCenter, rapportd) while keeping root dev servers visible."
-                ) {
-                    Toggle("", isOn: $configManager.config.portKiller.hideSystemProcesses)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .pointerCursor()
-                }
-
-                Divider()
-
-                popoverSizeRow
+                .fixedSize(horizontal: true, vertical: false)
             }
+
+            Divider()
+
+            SettingRow(
+                "Auto-Refresh Interval",
+                subtitle: "Polls for new listeners only while the popover or this view is open."
+            ) {
+                ToolboxSegmentedControl(
+                    options: refreshIntervalOptions,
+                    selection: $configManager.config.portKiller.refreshIntervalSeconds,
+                    accentColor: module.accentColor,
+                    label: { refreshIntervalLabel(for: $0) }
+                )
+            }
+
+            Divider()
+
+            SettingRow(
+                "Hide macOS System Daemons",
+                subtitle: "Filters Apple background services (e.g. ControlCenter, rapportd) while keeping root dev servers visible."
+            ) {
+                Toggle("", isOn: $configManager.config.portKiller.hideSystemProcesses)
+                    .labelsHidden()
+                    .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
+                    .pointerCursor()
+            }
+
+            Divider()
+
+            popoverSizeRow
         }
     }
 
@@ -153,166 +177,208 @@ struct PortKillerSettingsView: View {
                 height: configManager.config.portKiller.popoverHeight
             )
 
-        return VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Popover Size")
-                    .font(.body)
+                    .font(.callout.weight(.semibold))
                 Spacer()
                 Text("\(String(configManager.config.portKiller.popoverWidth)) × \(String(configManager.config.portKiller.popoverHeight)) px")
-                    .font(.caption.monospacedDigit())
+                    .font(.caption.monospacedDigit().weight(.semibold))
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-                    .background(.quaternary.opacity(0.6), in: Capsule())
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 3)
+                    .background(Color.primary.opacity(0.06), in: Capsule())
             }
 
-            Picker("", selection: Binding(
-                get: { activePreset },
-                set: { newPreset in
-                    if let dims = newPreset.dimensions {
-                        uiState.isCustomSizeSelected = false
-                        configManager.config.portKiller.popoverWidth = dims.width
-                        configManager.config.portKiller.popoverHeight = dims.height
-                    } else {
-                        uiState.isCustomSizeSelected = true
+            ToolboxSegmentedControl(
+                options: Array(PortPopoverSizePreset.allCases),
+                selection: Binding(
+                    get: { activePreset },
+                    set: { newPreset in
+                        if let dims = newPreset.dimensions {
+                            uiState.isCustomSizeSelected = false
+                            configManager.config.portKiller.popoverWidth = dims.width
+                            configManager.config.portKiller.popoverHeight = dims.height
+                        } else {
+                            uiState.isCustomSizeSelected = true
+                        }
                     }
-                }
-            )) {
-                ForEach(PortPopoverSizePreset.allCases) { preset in
-                    Text(preset.rawValue).tag(preset)
-                }
+                ),
+                accentColor: module.accentColor,
+                isFullWidth: true,
+                label: { $0.rawValue }
+            )
+            .onAppear {
+                let w = configManager.config.portKiller.popoverWidth
+                let h = configManager.config.portKiller.popoverHeight
+                uiState.isCustomSizeSelected = PortPopoverSizePreset.matching(width: w, height: h) == .custom
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .pointerCursor()
 
             if activePreset == .custom {
-                HStack(spacing: 14) {
-                    HStack(spacing: 6) {
-                        Text("Width")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Stepper(
-                            "\(String(configManager.config.portKiller.popoverWidth)) px",
-                            value: $configManager.config.portKiller.popoverWidth,
-                            in: 360...760,
-                            step: 20
-                        )
-                        .font(.caption.monospacedDigit())
-                        .pointerCursor()
+                VStack(alignment: .leading, spacing: 6) {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 18) {
+                            customWidthStepper
+                            customHeightStepper
+                        }
+                        VStack(alignment: .leading, spacing: 8) {
+                            customWidthStepper
+                            customHeightStepper
+                        }
                     }
-
-                    HStack(spacing: 6) {
-                        Text("Height")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Stepper(
-                            "\(String(configManager.config.portKiller.popoverHeight)) px",
-                            value: $configManager.config.portKiller.popoverHeight,
-                            in: 300...780,
-                            step: 20
-                        )
-                        .font(.caption.monospacedDigit())
-                        .pointerCursor()
-                    }
+                    Text("Allowed size: 360–760 px wide, 300–780 px tall.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 .padding(.top, 2)
             }
         }
-        .padding(.vertical, 4)
+    }
+
+    private var customWidthStepper: some View {
+        HStack(spacing: 6) {
+            Text("Width")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text("\(String(configManager.config.portKiller.popoverWidth)) px")
+                .font(.caption.monospacedDigit().weight(.medium))
+            Stepper("", value: $configManager.config.portKiller.popoverWidth, in: 360...760, step: 20)
+                .labelsHidden()
+                .pointerCursor()
+        }
+    }
+
+    private var customHeightStepper: some View {
+        HStack(spacing: 6) {
+            Text("Height")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text("\(String(configManager.config.portKiller.popoverHeight)) px")
+                .font(.caption.monospacedDigit().weight(.medium))
+            Stepper("", value: $configManager.config.portKiller.popoverHeight, in: 300...780, step: 20)
+                .labelsHidden()
+                .pointerCursor()
+        }
     }
 
     // MARK: - Favorite Dev Ports
 
     private var favoritePortsSection: some View {
-        FeatureSection(
-            "FAVORITE DEV PORTS",
+        let indigoText = ToolboxTheme.readableAccentText(for: .indigo)
+
+        return FeatureSection(
+            "Favorite Dev Ports",
             subtitle: "Pinned ports always sort to the top of the list and appear in the Dev Ports filter."
         ) {
-            VStack(alignment: .leading, spacing: 12) {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 74, maximum: 92), spacing: 8)],
-                    alignment: .leading,
-                    spacing: 8
-                ) {
-                    ForEach(presetDevPorts, id: \.self) { port in
-                        let isPinned = configManager.config.portKiller.favoritePorts.contains(port)
-                        Button {
-                            module.toggleFavoritePort(port)
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: isPinned ? "star.fill" : "star")
-                                    .font(.caption2)
-                                Text(":\(String(port))")
-                                    .font(.caption.monospaced().weight(.semibold))
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 6)
-                            .foregroundStyle(isPinned ? Color.white : Color.primary)
-                            .background(
-                                isPinned ? Color.indigo : Color.primary.opacity(0.06),
-                                in: RoundedRectangle(cornerRadius: 8)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .strokeBorder(
-                                        isPinned ? Color.indigo : Color.primary.opacity(0.1),
-                                        lineWidth: 1
-                                    )
-                            )
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 74, maximum: 92), spacing: 8)],
+                alignment: .leading,
+                spacing: 8
+            ) {
+                ForEach(presetDevPorts, id: \.self) { port in
+                    let isPinned = configManager.config.portKiller.favoritePorts.contains(port)
+                    Button {
+                        module.toggleFavoritePort(port)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: isPinned ? "star.fill" : "star")
+                                .font(.caption2)
+                                .foregroundStyle(isPinned ? Color.orange : .secondary)
+                            Text(":\(String(port))")
+                                .font(.caption.monospaced().weight(.semibold))
+                                .foregroundStyle(.primary)
                         }
-                        .buttonStyle(.plain)
-                        .focusEffectDisabled()
-                        .pointerCursor()
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                        .background(
+                            isPinned ? module.accentColor.opacity(0.22) : Color.primary.opacity(0.055),
+                            in: RoundedRectangle(cornerRadius: 8)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .strokeBorder(
+                                    isPinned ? module.accentColor.opacity(0.58) : Color.primary.opacity(0.10),
+                                    lineWidth: isPinned ? 1.1 : 0.75
+                                )
+                        )
+                        .menuRowHover(cornerRadius: 8)
                     }
+                    .buttonStyle(.plain)
+                    .focusEffectDisabled()
+                    .help(isPinned ? "Unpin port :\(port)" : "Pin port :\(port)")
+                    .pointerCursor()
                 }
+            }
 
-                let customFavorites = configManager.config.portKiller.favoritePorts.filter { !presetDevPorts.contains($0) }
-                if !customFavorites.isEmpty {
-                    HStack(spacing: 6) {
-                        Text("Custom:")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+            let customFavorites = configManager.config.portKiller.favoritePorts.filter { !presetDevPorts.contains($0) }
+            if !customFavorites.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Custom Pinned Ports")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 76, maximum: 100), spacing: 8)],
+                        alignment: .leading,
+                        spacing: 8
+                    ) {
                         ForEach(customFavorites, id: \.self) { port in
                             HStack(spacing: 4) {
                                 Text(":\(String(port))")
                                     .font(.caption.monospaced().weight(.semibold))
+                                    .lineLimit(1)
+                                Spacer(minLength: 2)
                                 Button {
                                     module.toggleFavoritePort(port)
                                 } label: {
                                     Image(systemName: "xmark")
                                         .font(.system(size: 9, weight: .bold))
+                                        .frame(width: 22, height: 22)
+                                        .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
+                                .help("Remove :\(port)")
+                                .accessibilityLabel("Remove custom port \(port)")
                                 .pointerCursor()
                             }
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .foregroundStyle(Color.indigo)
+                            .padding(.leading, 9)
+                            .padding(.trailing, 3)
+                            .padding(.vertical, 2)
+                            .foregroundStyle(indigoText)
                             .background(Color.indigo.opacity(0.14), in: Capsule())
                         }
                     }
                 }
+            }
 
-                Divider()
+            Divider()
 
+            VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     TextField("Add custom port (e.g. 9229)", text: $uiState.customPortText)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 210)
-                        .onSubmit { addCustomPort() }
+                        .onSubmit {
+                            if canAddCustomPort {
+                                addCustomPort()
+                            }
+                        }
 
                     Button("Add Port") {
                         addCustomPort()
                     }
                     .buttonStyle(.bordered)
-                    .disabled(parsedCustomPort == nil)
-                    .pointerCursor()
+                    .disabled(!canAddCustomPort)
+                    .pointerCursor(canAddCustomPort)
 
                     Spacer()
                 }
+
+                if let error = customPortValidationError {
+                    Label(error, systemImage: "exclamationmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
+                }
             }
-            .padding(14)
         }
     }
 
@@ -322,43 +388,71 @@ struct PortKillerSettingsView: View {
         return port
     }
 
-    private func addCustomPort() {
-        guard let port = parsedCustomPort else { return }
-        if !configManager.config.portKiller.favoritePorts.contains(port) {
-            configManager.config.portKiller.favoritePorts.append(port)
-            configManager.config.portKiller.favoritePorts.sort()
+    private var isDuplicateCustomPort: Bool {
+        guard let port = parsedCustomPort else { return false }
+        return configManager.config.portKiller.favoritePorts.contains(port)
+    }
+
+    private var canAddCustomPort: Bool {
+        parsedCustomPort != nil && !isDuplicateCustomPort
+    }
+
+    private var customPortValidationError: String? {
+        let trimmed = uiState.customPortText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard let port = parsedCustomPort else {
+            return "Enter a valid port number from 1 to 65535."
         }
+        if isDuplicateCustomPort {
+            return "Port :\(port) is already pinned above."
+        }
+        return nil
+    }
+
+    private func addCustomPort() {
+        guard let port = parsedCustomPort, !isDuplicateCustomPort else { return }
+        configManager.config.portKiller.favoritePorts.append(port)
+        configManager.config.portKiller.favoritePorts.sort()
         uiState.customPortText = ""
     }
 
     // MARK: - Live Listening Ports
 
     private var livePortsSection: some View {
-        FeatureSection(
-            "LIVE LISTENING PORTS",
+        let items = visiblePorts
+        let hasActiveFilters = !uiState.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || uiState.filterMode != .all
+
+        return FeatureSection(
+            "Live Listening Ports",
             subtitle: "Includes all active TCP listeners on your Mac, including elevated root/service ports."
         ) {
-            VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     HStack(spacing: 6) {
                         Image(systemName: "magnifyingglass")
                             .foregroundStyle(.secondary)
                         TextField("Filter by port, process, folder, or PID…", text: $uiState.searchQuery)
                             .textFieldStyle(.plain)
+                        if !uiState.searchQuery.isEmpty {
+                            Button {
+                                uiState.searchQuery = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Clear filter")
+                            .pointerCursor()
+                        }
                     }
                     .padding(.horizontal, 9)
                     .padding(.vertical, 6)
                     .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
-
-                    Picker("", selection: $uiState.filterMode) {
-                        ForEach(PortFilterMode.allCases) { mode in
-                            Text(mode.rawValue).tag(mode)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .frame(width: 220)
-                    .pointerCursor()
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.75)
+                    )
 
                     Button {
                         module.refreshPorts()
@@ -374,33 +468,61 @@ struct PortKillerSettingsView: View {
                         }
                     }
                     .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .controlSize(.regular)
+                    .focusEffectDisabled()
                     .pointerCursor()
                 }
-                .padding(12)
 
-                Divider()
+                HStack(spacing: 8) {
+                    ToolboxSegmentedControl(
+                        options: Array(PortFilterMode.allCases),
+                        selection: $uiState.filterMode,
+                        accentColor: module.accentColor,
+                        label: { $0.rawValue }
+                    )
 
-                let items = visiblePorts
-                if items.isEmpty {
-                    VStack(spacing: 6) {
-                        Image(systemName: module.isScanning ? "network" : "checkmark.circle")
-                            .font(.title2)
-                            .foregroundStyle(.secondary)
-                        Text(module.isScanning ? "Scanning listening TCP ports…" : "No matching listening ports")
-                            .font(.callout.weight(.medium))
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 28)
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(Array(items.enumerated()), id: \.element.id) { idx, entry in
-                            if idx > 0 {
-                                Divider()
-                            }
-                            settingsPortRow(entry)
+                    Spacer(minLength: 8)
+
+                    Text(
+                        hasActiveFilters
+                            ? "\(items.count) of \(module.ports.count) ports"
+                            : "\(items.count) \(items.count == 1 ? "port" : "ports")"
+                    )
+                    .font(.caption.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(Color.primary.opacity(0.06), in: Capsule())
+                }
+            }
+
+            Divider()
+
+            if items.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: module.isScanning ? "network" : "checkmark.circle")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                    Text(module.isScanning ? "Scanning listening TCP ports…" : "No matching listening ports")
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    if !module.isScanning && hasActiveFilters {
+                        Button("Clear Filters") {
+                            uiState.searchQuery = ""
+                            uiState.filterMode = .all
                         }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .focusEffectDisabled()
+                        .pointerCursor()
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
+            } else {
+                VStack(spacing: 6) {
+                    ForEach(items) { entry in
+                        settingsPortRow(entry)
                     }
                 }
             }
@@ -412,6 +534,7 @@ struct PortKillerSettingsView: View {
         let isStuck = module.stuckPortKeys.contains(entry.id)
         let isKilling = module.killingPortKeys.contains(entry.id)
         let extraPorts = module.otherPorts(for: entry)
+        let indigoText = ToolboxTheme.readableAccentText(for: .indigo)
 
         return HStack(spacing: 10) {
             Button {
@@ -420,8 +543,11 @@ struct PortKillerSettingsView: View {
                 Image(systemName: isFavorite ? "star.fill" : "star")
                     .font(.caption)
                     .foregroundStyle(isFavorite ? Color.orange : Color.secondary.opacity(0.6))
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .menuRowHover(cornerRadius: 6)
             .help(isFavorite ? "Unpin port :\(entry.port)" : "Pin port :\(entry.port)")
             .pointerCursor()
 
@@ -433,7 +559,7 @@ struct PortKillerSettingsView: View {
 
                     Text(":\(String(entry.port))")
                         .font(.caption.monospaced().weight(.bold))
-                        .foregroundStyle(Color.indigo)
+                        .foregroundStyle(indigoText)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1.5)
                         .background(Color.indigo.opacity(0.14), in: Capsule())
@@ -445,7 +571,7 @@ struct PortKillerSettingsView: View {
                             Text(entry.ownerLabel ?? "admin")
                                 .font(.caption2.weight(.semibold))
                         }
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1.5)
                         .background(Color.orange.opacity(0.14), in: Capsule())
@@ -457,11 +583,13 @@ struct PortKillerSettingsView: View {
                     Text("PID \(String(entry.pid))")
                         .font(.caption.monospaced())
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: true, vertical: false)
                     Text("·")
                         .foregroundStyle(.tertiary)
                     Text(entry.bindDisplay)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: true, vertical: false)
                     if let folder = entry.cwdBasename {
                         Text("·")
                             .foregroundStyle(.tertiary)
@@ -469,6 +597,7 @@ struct PortKillerSettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
+                            .truncationMode(.middle)
                             .help(entry.workingDirectory ?? folder)
                     }
                     if !extraPorts.isEmpty {
@@ -476,24 +605,27 @@ struct PortKillerSettingsView: View {
                             .foregroundStyle(.tertiary)
                         Text("Also on \(extraPorts.map { ":\($0)" }.joined(separator: ", "))")
                             .font(.caption)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
                 }
                 .textSelection(.enabled)
             }
 
-            Spacer()
+            Spacer(minLength: 8)
 
             if isKilling {
                 ProgressView()
                     .controlSize(.small)
                     .frame(width: 64)
             } else if isStuck {
-                Button("Still running: Force Kill?") {
+                Button("Force Kill") {
                     module.killPort(entry, signal: .sigkill)
                 }
                 .buttonStyle(.toolboxProminent(.red))
                 .controlSize(.small)
+                .focusEffectDisabled()
                 .pointerCursor()
             } else {
                 HStack(spacing: 6) {
@@ -502,20 +634,27 @@ struct PortKillerSettingsView: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
+                    .focusEffectDisabled()
                     .pointerCursor()
 
                     Button("Force Kill") {
                         module.killPort(entry, signal: .sigkill)
                     }
-                    .buttonStyle(.bordered)
-                    .tint(.red)
+                    .buttonStyle(.toolboxDestructive)
                     .controlSize(.small)
+                    .focusEffectDisabled()
                     .pointerCursor()
                 }
+                .fixedSize(horizontal: true, vertical: false)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.primary.opacity(0.07), lineWidth: 0.75)
+        )
         .contextMenu {
             Button("Stop (SIGTERM)") {
                 module.killPort(entry, signal: .sigterm)

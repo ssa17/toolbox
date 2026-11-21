@@ -96,6 +96,15 @@ final class CleanLockModule: ToolboxModule, ObservableObject {
         guard !isLocked else { return true }
         finishKillSwitchReleaseGrace()
 
+        guard ConfigManager.shared.config.general.appEnabled else {
+            HUDToast.shared.show(
+                title: "Resume Toolbox to use Keyboard Lock",
+                symbol: "pause.circle.fill",
+                tint: .orange
+            )
+            return false
+        }
+
         guard PermissionsManager.isProcessTrusted() else {
             PermissionsManager.shared.refresh()
             PermissionsManager.shared.promptAndOpenSettings()
