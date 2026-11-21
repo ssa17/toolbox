@@ -103,7 +103,7 @@ tested in `SelfTestRunner` with synthesized line and pixel events.
 
 - `ConfigManager`: new `ScrollTarget` enum (`mouse`/`trackpad`) + `ScrollDirectionConfig`
   (`enabled: Bool = false`, `target: ScrollTarget = .mouse`, lenient decoding like the
-  other module configs) + `ToolboxConfig.scrollDirection` field; schema bumped to 3.
+  other module configs) + `ToolboxConfig.scrollDirection` field; schema bumped to 3 (now 10 — older configs still migrate via the same lenient decoding).
   Older configs without the key decode to the safe defaults (covered by self-tests).
 - `ModuleRegistry`: registers the module.
 - `PermissionsManager`: `onAccessibilityChanged((Bool) -> Void)` fires on grant **and**
@@ -113,7 +113,7 @@ tested in `SelfTestRunner` with synthesized line and pixel events.
 - `SnapshotRunner`: renders `module_scroll.png` alongside the other key views.
 - `SelfTestRunner`: three new suites (config + legacy migration; classification and
   inversion over synthesized line/pixel events, including the master/derived semantics;
-  module lifecycle + registry + status text) → 15 suites total.
+  module lifecycle + registry + status text) → 15 suites total as of v1.0 (the suite has grown since — `Toolbox --self-test` reports the current set).
 
 ### Classification edge cases
 
@@ -131,7 +131,7 @@ tested in `SelfTestRunner` with synthesized line and pixel events.
 ## 3. Verification (done)
 
 - `./scripts/build-app.sh --fast` → clean build (CLT, no XCTest/SwiftUI-macros needed).
-- `Toolbox --self-test` → all 15 suites pass, including the new scroll ones.
+- `Toolbox --self-test` → all suites pass (15 as of v1.0), including the new scroll ones.
 - `Toolbox --snapshot-ui .work/snapshots` → `dashboard_active.png` shows the module card
   (off by default, gray state dot) and `module_scroll.png` shows the settings view with
   the accessibility banner.

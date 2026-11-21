@@ -1,6 +1,6 @@
 # Toolbox: macOS quality-of-life utilities
 
-Lightweight, native macOS utilities for Dock window toggling, clipboard history, port management, call mic/video controls, keyboard-lock mode, display sleep control, independent mouse scroll direction, and global shortcuts.
+Lightweight, native macOS utilities for Dock window toggling, clipboard history, port management, screen OCR (text & QR), call mic/video controls, keyboard-lock mode, display sleep control, independent mouse scroll direction, and global shortcuts.
 
 **[Download .dmg](https://github.com/ssa17/toolbox/releases/latest/download/Toolbox.dmg)** · [Sponsor on GitHub](https://github.com/sponsors/ssa17) · [Support on Ko-fi](https://ko-fi.com/ssa17)
 
@@ -21,6 +21,7 @@ Toolbox checks for updates automatically via Sparkle and installs them in place.
 - **Dock Click to Minimize:** click the active app's Dock icon to hide its windows cleanly (Windows taskbar style, without cluttering the Dock's minimized tray) and click again to bring them straight back. Supports send-behind, minimize-tray modes, single/double-click, and per-app exclusions.
 - **Clipboard History (`⌘ ⌥ V`):** searchable floating clipboard dropdown with keyboard navigation (`↑`/`↓`/`⏎`/`Esc`), `⌘ 1`–`⌘ 9` quick-paste, full-text preview, pinning with custom titles, password-manager filtering, customizable history limits (`1–200`), optional auto-paste, and optional persistence across restarts.
 - **Port Killer (`⌃ ⌥ ⌘ P`):** inspect active listening TCP ports, pin favorite dev ports, and stop or force-kill stuck servers in one click.
+- **Screen OCR (`⇧ ⌘ 0`):** drag-select any area of the screen to copy unselectable text or decode QR/barcodes with on-device Apple Vision OCR — fast/accurate modes, line-break and toast options, plus a recent-captures list in Settings.
 - **Keep Awake (`⌘ ⌥ K`):** reads your Mac's `pmset` display sleep timeout and nudges the cursor just before sleep and/or holds an IOKit power assertion for quick timers (`15m`, `30m`, `1h`, `2h`) or indefinitely.
 - **Keyboard Lock:** temporarily lock your keyboard (including media, volume, and brightness keys) and mouse/trackpad input for `10s`–`3m` with a center-screen countdown and `Hold ⌃ ⌥ ⌘ Esc (3s)` emergency unlock.
 - **Custom Commands:** bind global hotkeys to shell commands, applications, URLs, or text snippets with optional toast feedback.
@@ -84,7 +85,7 @@ See [EXTENDING.md](EXTENDING.md) to add a new module, [docs/testing.md](docs/tes
 Sources/Toolbox/
 ├── ToolboxApp.swift          app entry point, CLI flags, single-instance guard
 ├── Core/                     module registry, config watcher, hotkeys, permissions, Sparkle, self-tests
-├── Modules/                  DockMinimize, Clipboard, PortKiller, KeepAwake, CleanLock, CustomCommands, ScrollDirection, CallControls
+├── Modules/                  DockMinimize, Clipboard, PortKiller, ScreenOCR, KeepAwake, CleanLock, CustomCommands, ScrollDirection, CallControls
 └── UI/                       dashboard, sidebar shell, menu bar popover, settings, JSON editor
 scripts/build-app.sh          builds, signs, and notarizes build/Toolbox.app
 scripts/make-dmg-bg.mjs       generates the Retina DMG installer background

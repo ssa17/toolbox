@@ -41,7 +41,7 @@ Never let automated tests mutate live user configuration or focus/kill the user'
 
 When changing SwiftUI views, menu bar popover layout, status icons, or color hierarchy, do not guess how the rendered output looks:
 
-1. Build `--fast` and generate offscreen dark-mode PNG renders of Dashboard, Module Detail, Menu Bar Popover (active + paused), and Status Bar Icons:
+1. Build `--fast` and generate the offscreen dark-mode PNG catalog of the app's key surfaces — Dashboard variants, every module detail page, the Clipboard / Port Killer popovers, HUD toasts and other floating HUDs, Settings and software-update states, the status-bar menu, the update dialog, and the developer views (the exact PNG list is defined in `Sources/Toolbox/Core/SnapshotRunner.swift`):
    ```bash
    ./scripts/build-app.sh --fast
    ./build/Toolbox.app/Contents/MacOS/Toolbox --snapshot-ui .work/snapshots
