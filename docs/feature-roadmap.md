@@ -81,4 +81,4 @@ Each feature's full detailed spec lives in its own file under [`docs/feature-spe
 
 ## 3. Backlog (spec draft, not yet in the rollout order)
 
-- **Window Snapping Templates** — multi-display layout templates, workflow profiles, and automated window placement. [`feature-specs/window_snapping.md`](feature-specs/window_snapping.md) (high-level plan; implementation details to be designed)
+- **Window Snapping** — interactive drag-to-zone snapping with 1:1 on-screen outline previews, keyboard placement, per-display divisions, and predefined workspace profiles that auto-set up apps and zones. [`feature-specs/window_snapping.md`](feature-specs/window_snapping.md) (implementation-ready design spec; not yet in the rollout order)
