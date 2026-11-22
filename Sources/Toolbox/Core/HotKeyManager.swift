@@ -291,6 +291,18 @@ final class HotKeyManager: ObservableObject {
                 }
             }
         }
+        let checkWindowHotKeys = (config.windowSnapper.enabled && config.windowSnapper.keyboardSnappingEnabled)
+            || (excludingSourceID?.hasPrefix("window_snapper.") == true)
+        let checkWindowProfilesAndZones = config.windowSnapper.enabled
+            || (excludingSourceID?.hasPrefix("window_snapper.") == true)
+        if checkWindowHotKeys || checkWindowProfilesAndZones {
+            for entry in config.windowSnapper.allShortcutEntries(
+                includeHotKeys: checkWindowHotKeys,
+                includeProfilesAndZones: checkWindowProfilesAndZones
+            ) where entry.sourceID != excludingSourceID && entry.shortcut == shortcut {
+                matches.append(entry.label)
+            }
+        }
         guard !matches.isEmpty else { return nil }
         return "Conflicts with \(matches.joined(separator: ", ")) (\(shortcut.displayString))."
     }
@@ -350,6 +362,35 @@ final class HotKeyManager: ObservableObject {
                 let sourceID = "custom_command.\(cmd.id)"
                 if cmd.enabled && sourceID != excludingSourceID && cmd.shortcut == shortcut {
                     config.customCommands.commands[idx].shortcut = .none
+                }
+            }
+        }
+        let clearWindowHotKeys = (config.windowSnapper.enabled && config.windowSnapper.keyboardSnappingEnabled)
+            || (excludingSourceID?.hasPrefix("window_snapper.") == true)
+        let clearWindowProfilesAndZones = config.windowSnapper.enabled
+            || (excludingSourceID?.hasPrefix("window_snapper.") == true)
+        if clearWindowHotKeys {
+            for action in WindowSnapperHotKeyAction.allCases {
+                if action.sourceID != excludingSourceID && config.windowSnapper.hotKeys.shortcut(for: action) == shortcut {
+                    config.windowSnapper.hotKeys.setShortcut(.none, for: action)
+                }
+            }
+        }
+        if clearWindowProfilesAndZones {
+            for idx in config.windowSnapper.profiles.indices {
+                let sourceID = "window_snapper.profile.\(config.windowSnapper.profiles[idx].id)"
+                if sourceID != excludingSourceID && config.windowSnapper.profiles[idx].shortcut == shortcut {
+                    config.windowSnapper.profiles[idx].shortcut = .none
+                }
+            }
+            for layoutIdx in config.windowSnapper.displayLayouts.indices {
+                let layoutID = config.windowSnapper.displayLayouts[layoutIdx].id
+                for zoneIdx in config.windowSnapper.displayLayouts[layoutIdx].customZones.indices {
+                    let zoneID = config.windowSnapper.displayLayouts[layoutIdx].customZones[zoneIdx].id
+                    let sourceID = "window_snapper.zone.\(layoutID).\(zoneID)"
+                    if sourceID != excludingSourceID && config.windowSnapper.displayLayouts[layoutIdx].customZones[zoneIdx].shortcut == shortcut {
+                        config.windowSnapper.displayLayouts[layoutIdx].customZones[zoneIdx].shortcut = .none
+                    }
                 }
             }
         }

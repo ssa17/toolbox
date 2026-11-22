@@ -20,6 +20,7 @@ enum ToolboxConfigSection: String, CaseIterable, Identifiable, Sendable {
     case scrollDirection
     case screenOCR
     case callControls
+    case windowSnapper
 
     var id: String { rawValue }
 
@@ -35,6 +36,7 @@ enum ToolboxConfigSection: String, CaseIterable, Identifiable, Sendable {
         case .scrollDirection: return "Scroll Direction"
         case .screenOCR: return "Screen OCR"
         case .callControls: return "Call Controls"
+        case .windowSnapper: return "Window Snapper"
         }
     }
 }
@@ -89,6 +91,8 @@ final class ConfigCheckpointStore: ObservableObject {
             next.screenOCR = ScreenOCRConfig()
         case .callControls:
             next.callControls = CallControlsConfig()
+        case .windowSnapper:
+            next.windowSnapper = WindowSnapperConfig()
         }
         ConfigManager.shared.config = next
     }

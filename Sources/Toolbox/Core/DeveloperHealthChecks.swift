@@ -854,6 +854,14 @@ final class DeveloperHealthCheckRunner: ObservableObject {
                 candidates.append(("custom_command.\(cmd.id)", "Command '\(cmd.name)'", cmd.shortcut))
             }
         }
+        if cfg.windowSnapper.enabled {
+            for entry in cfg.windowSnapper.allShortcutEntries(
+                includeHotKeys: cfg.windowSnapper.keyboardSnappingEnabled,
+                includeProfilesAndZones: true
+            ) {
+                candidates.append((entry.sourceID, entry.label, entry.shortcut))
+            }
+        }
 
         var issues: [String] = []
         for entry in candidates {
@@ -925,6 +933,14 @@ final class DeveloperHealthCheckRunner: ObservableObject {
         if cfg.customCommands.enabled {
             for cmd in cfg.customCommands.commands where cmd.enabled && !cmd.shortcut.isEmpty {
                 expectedNames.append("custom_command.\(cmd.id)")
+            }
+        }
+        if cfg.windowSnapper.enabled {
+            for entry in cfg.windowSnapper.allShortcutEntries(
+                includeHotKeys: cfg.windowSnapper.keyboardSnappingEnabled,
+                includeProfilesAndZones: true
+            ) {
+                expectedNames.append(entry.sourceID)
             }
         }
 

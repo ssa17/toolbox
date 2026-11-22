@@ -20,6 +20,7 @@ Features are ordered from zero-permission, self-contained utilities to modules t
 | 4 | **Screen OCR (Text Grabber)** | `screen_ocr` | Developer Tools | `⇧ ⌘ 0` | Screen Recording (OS-managed via `screencapture`) | `Vision`, `CoreGraphics`, `AppKit` | Done |
 | 5 | **Keyboard & Trackpad Clean Lock** | `clean_lock` | System & Power | None *(Button / Menu Bar only)* | Accessibility (required) | `CoreGraphics` (`CGEventTap`), `AppKit` | Done |
 | 6 | **Call Controls** | `call_controls` | System & Power | `⌃ ⌥ ⌘ M` (Mic) & `⌃ ⌥ ⌘ V` (Video), customizable per user | Accessibility (optional: Unified Call Keybind Override & Auto-Mute While Typing) | `CoreAudio`, `AudioToolbox`, `CoreMediaIO`, `CoreGraphics`, `ApplicationServices` | Done |
+| 7 | **Window Snapper** | `window_snapper` | Window & Dock | `⌃ ⌥ ⌘ ←/→/↑/↓` (plus halves, thirds, quarters, restore pre-snap size, and profile shortcuts) | Accessibility (required) | `ApplicationServices` (AX), `CoreGraphics`, `AppKit`, `Carbon` | Done |
 
 ---
 
@@ -76,9 +77,10 @@ Each feature's full detailed spec lives in its own file under [`docs/feature-spe
 | 4 | Screen OCR (Text Grabber) | Done | [`feature-specs/screen_ocr.md`](feature-specs/screen_ocr.md) |
 | 5 | Keyboard & Trackpad Clean Lock | Done | [`feature-specs/clean_lock.md`](feature-specs/clean_lock.md) |
 | 6 | Call Controls | Done | [`feature-specs/call_controls.md`](feature-specs/call_controls.md) |
+| 7 | Window Snapper | Done | [`feature-specs/window_snapper.md`](feature-specs/window_snapper.md) |
 
 ---
 
 ## 3. Backlog (spec draft, not yet in the rollout order)
 
-- **Window Snapping** — interactive drag-to-zone snapping with 1:1 on-screen outline previews, keyboard placement, per-display divisions, and predefined workspace profiles that auto-set up apps and zones. [`feature-specs/window_snapping.md`](feature-specs/window_snapping.md) (implementation-ready design spec; not yet in the rollout order)
+*(No pending backlog specs — Window Snapper moved to rollout #7 above.)*

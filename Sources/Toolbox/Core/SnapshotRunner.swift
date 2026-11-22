@@ -54,6 +54,11 @@ enum SnapshotRunner {
             size: NSSize(width: 1140, height: 760),
             to: outURL.appendingPathComponent("dashboard_active_default_width.png")
         )
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navDashboard),
+            size: NSSize(width: 420, height: 680),
+            to: outURL.appendingPathComponent("dashboard_compact.png")
+        )
 
         configManager.config.general.showModuleCardDetails = false
         saveViewSnapshot(
@@ -292,6 +297,442 @@ enum SnapshotRunner {
                 .padding(8),
             size: NSSize(width: 420, height: 68),
             to: outURL.appendingPathComponent("call_controls_floating_pill.png")
+        )
+
+        let prevWindowSnapper = configManager.config.windowSnapper
+        configManager.config.windowSnapper.enabled = true
+        DisplayRegistry.shared.refresh(gaps: configManager.config.windowSnapper.gaps)
+        if configManager.config.windowSnapper.profiles.isEmpty {
+            var templates = WorkspaceProfile.defaultTemplates
+            if let mainDisp = DisplayRegistry.shared.mainDisplay() ?? DisplayRegistry.shared.connectedDisplays.first,
+               !templates.isEmpty {
+                templates[0].displayLayoutOverrides = [
+                    DisplayLayoutConfig(
+                        display: mainDisp.signature,
+                        presetID: DisplayPresetKind.leftMainRightStack.rawValue,
+                        division: DisplayPresetKind.leftMainRightStack.defaultDivision
+                    )
+                ]
+            }
+            configManager.config.windowSnapper.profiles = templates
+        }
+        configManager.config.windowSnapper.activeProfileID = configManager.config.windowSnapper.profiles.first?.id
+
+        let navWindowSnapper = NavigationState()
+        navWindowSnapper.selection = .module("window_snapper")
+        navWindowSnapper.isSidebarVisible = true
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navWindowSnapper),
+            size: NSSize(width: 940, height: 1460),
+            to: outURL.appendingPathComponent("module_window_snapper.png")
+        )
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navWindowSnapper),
+            size: NSSize(width: 820, height: 1580),
+            to: outURL.appendingPathComponent("module_window_snapper_minwidth.png")
+        )
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navWindowSnapper),
+            size: NSSize(width: 420, height: 820),
+            to: outURL.appendingPathComponent("module_window_snapper_compact.png")
+        )
+        saveViewSnapshot(
+            ScrollView {
+                WindowSnapperSettingsView(
+                    module: ModuleRegistry.shared.windowSnapper,
+                    initialTab: .topEdgePanel
+                )
+                .padding(22)
+            },
+            size: NSSize(width: 940, height: 1660),
+            to: outURL.appendingPathComponent("module_window_snapper_top_panel.png")
+        )
+        saveViewSnapshot(
+            ScrollView {
+                WindowSnapperSettingsView(
+                    module: ModuleRegistry.shared.windowSnapper,
+                    initialTab: .generalAndDrag,
+                    initialShowAdvancedOptions: true
+                )
+                .padding(22)
+            },
+            size: NSSize(width: 940, height: 1500),
+            to: outURL.appendingPathComponent("module_window_snapper_advanced.png")
+        )
+        saveViewSnapshot(
+            ScrollView {
+                WindowSnapperSettingsView(
+                    module: ModuleRegistry.shared.windowSnapper,
+                    initialTab: .zonesAndDisplays
+                )
+                .padding(22)
+            },
+            size: NSSize(width: 940, height: 1520),
+            to: outURL.appendingPathComponent("module_window_snapper_zones.png")
+        )
+        saveViewSnapshot(
+            ScrollView {
+                WindowSnapperSettingsView(
+                    module: ModuleRegistry.shared.windowSnapper,
+                    initialTab: .profiles
+                )
+                .padding(22)
+            },
+            size: NSSize(width: 940, height: 1840),
+            to: outURL.appendingPathComponent("module_window_snapper_profiles.png")
+        )
+        saveViewSnapshot(
+            ScrollView {
+                WindowSnapperSettingsView(
+                    module: ModuleRegistry.shared.windowSnapper,
+                    initialTab: .shortcutsAndHistory
+                )
+                .padding(22)
+            },
+            size: NSSize(width: 940, height: 1320),
+            to: outURL.appendingPathComponent("module_window_snapper_shortcuts.png")
+        )
+        configManager.config.windowSnapper = prevWindowSnapper
+
+        let previewDisplayFrame = CGRect(x: 0, y: 0, width: 1280, height: 760)
+        let previewUsableAX = CGRect(x: 0, y: 24, width: 1280, height: 736)
+        let previewLayout = DisplayLayoutConfig(
+            display: DisplaySignature(
+                uuidString: "SNAP-PREVIEW",
+                vendorNumber: 1,
+                modelNumber: 1,
+                serialNumber: 1,
+                localizedName: "Studio Display",
+                arrangementIndex: 0
+            ),
+            presetID: DisplayPresetKind.thirds.rawValue,
+            division: DisplayPresetKind.thirds.defaultDivision
+        )
+        let previewZones = SnapGeometry.resolveZones(
+            layout: previewLayout,
+            usableAXRect: previewUsableAX,
+            primaryScreenHeight: 760,
+            gaps: GapConfig(outerMarginPoints: 12, innerGapPoints: 10)
+        )
+        if previewZones.count >= 3 {
+            let previewItems = [
+                ProfilePreviewOverlayItem(
+                    id: "rule-terminal",
+                    appName: "Terminal",
+                    bundleIdentifier: "com.apple.Terminal",
+                    zone: previewZones[0],
+                    status: .ready
+                ),
+                ProfilePreviewOverlayItem(
+                    id: "rule-xcode",
+                    appName: "Xcode",
+                    bundleIdentifier: "com.apple.dt.Xcode",
+                    zone: previewZones[1],
+                    status: .willLaunch
+                ),
+                ProfilePreviewOverlayItem(
+                    id: "rule-safari",
+                    appName: "Safari",
+                    bundleIdentifier: "com.apple.Safari",
+                    zone: previewZones[2],
+                    status: .alreadyPlaced
+                )
+            ]
+            saveViewSnapshot(
+                ZStack {
+                    Color(nsColor: NSColor(calibratedRed: 0.08, green: 0.09, blue: 0.14, alpha: 1.0))
+                    ZoneOverlayPreviewCanvasView(
+                        mode: .profileDryRun(
+                            profileName: "Coding",
+                            items: previewItems,
+                            displayTitle: "Studio Display · 3 Columns",
+                            style: OverlayStyleConfig()
+                        ),
+                        displayFrameAX: previewDisplayFrame,
+                        usableAXRect: previewUsableAX
+                    )
+                }
+                .frame(width: 1280, height: 760),
+                size: NSSize(width: 1280, height: 760),
+                to: outURL.appendingPathComponent("window_snapper_overlay_preview.png")
+            )
+        }
+
+        let topPanelConnected = ConnectedDisplay(
+            displayID: 707,
+            signature: DisplaySignature(
+                uuidString: "SNAP-TOP-PANEL",
+                vendorNumber: 1,
+                modelNumber: 1,
+                serialNumber: 1,
+                localizedName: "Studio Display",
+                arrangementIndex: 0
+            ),
+            frameAppKit: previewDisplayFrame,
+            visibleFrameAppKit: CGRect(x: 0, y: 0, width: 1280, height: 736),
+            frameAX: previewDisplayFrame,
+            usableAppKit: CGRect(x: 0, y: 0, width: 1280, height: 736),
+            usableAX: previewUsableAX,
+            safeAreaInsets: SafeAreaInsets(),
+            isMain: true,
+            primaryScreenHeight: 760
+        )
+        let pickerSlots = TopEdgePanelGeometry.visibleSlots(for: TopEdgePanelConfig())
+        let pickerLayout = TopEdgePanelGeometry.pickerLayout(for: topPanelConnected, slots: pickerSlots)
+        let stackPreviewZones = SnapGeometry.resolveTemplateZones(
+            preset: .leftMainRightStack,
+            usableAXRect: previewUsableAX,
+            primaryScreenHeight: 760,
+            gaps: GapConfig(outerMarginPoints: 8, innerGapPoints: 8)
+        )
+        saveViewSnapshot(
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color(nsColor: NSColor(calibratedRed: 0.08, green: 0.10, blue: 0.16, alpha: 1.0)),
+                        Color(nsColor: NSColor(calibratedRed: 0.13, green: 0.11, blue: 0.22, alpha: 1.0))
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                ZoneOverlayPreviewCanvasView(
+                    mode: .topEdgeTemplatePicker(
+                        layout: pickerLayout,
+                        activeSlot: .template(.leftMainRightStack),
+                        hoveredCellIndex: 1,
+                        previewZones: stackPreviewZones,
+                        highlightedZone: stackPreviewZones.dropFirst().first,
+                        style: OverlayStyleConfig()
+                    ),
+                    displayFrameAX: previewDisplayFrame,
+                    usableAXRect: previewUsableAX
+                )
+            }
+            .frame(width: 1280, height: 760),
+            size: NSSize(width: 1280, height: 760),
+            to: outURL.appendingPathComponent("window_snapper_top_panel_picker.png")
+        )
+
+        let quartersPreviewZones = SnapGeometry.resolveTemplateZones(
+            preset: .quarters,
+            usableAXRect: previewUsableAX,
+            primaryScreenHeight: 760,
+            gaps: GapConfig(outerMarginPoints: 8, innerGapPoints: 8)
+        )
+        if quartersPreviewZones.count == 4 {
+            let terminalThumb = syntheticSnapshotThumbnail(
+                size: NSSize(width: 360, height: 220),
+                headerTitle: "zsh — toolbox",
+                accent: NSColor.systemTeal,
+                lines: ["swift build", "Build complete! (2.41s)", "./build/Toolbox --self-test", "All 41 suites passed."]
+            )
+            let safariDocsThumb = syntheticSnapshotThumbnail(
+                size: NSSize(width: 340, height: 220),
+                headerTitle: "Safari — API Docs",
+                accent: NSColor.systemBlue,
+                lines: ["developer.apple.com", "ApplicationServices / AXUIElement", "SCShareableContent & CGWindowList"]
+            )
+            let notesThumb = syntheticSnapshotThumbnail(
+                size: NSSize(width: 320, height: 220),
+                headerTitle: "Notes — Sprint Checklist",
+                accent: NSColor.systemYellow,
+                lines: ["- Template picker", "- Glass panes", "- App cards + fallback"]
+            )
+            let mockCandidates: [AppCardCandidate] = [
+                AppCardCandidate(
+                    pid: 5001,
+                    bundleIdentifier: "com.apple.Terminal",
+                    appName: "Terminal",
+                    windowTitle: "zsh — toolbox",
+                    windowNumber: 8001,
+                    windowFrameAX: CGRect(x: 40, y: 40, width: 1080, height: 660),
+                    isMinimized: false,
+                    zOrderRank: 0
+                ),
+                AppCardCandidate(
+                    pid: 5004,
+                    bundleIdentifier: "com.apple.Safari",
+                    appName: "Safari",
+                    windowTitle: "API Docs",
+                    windowNumber: 8004,
+                    windowFrameAX: CGRect(x: 80, y: 60, width: 960, height: 620),
+                    isMinimized: false,
+                    zOrderRank: 1
+                ),
+                AppCardCandidate(
+                    pid: 5002,
+                    bundleIdentifier: "com.apple.Notes",
+                    appName: "Notes",
+                    windowTitle: "Sprint Checklist",
+                    windowNumber: 8002,
+                    windowFrameAX: CGRect(x: 120, y: 80, width: 780, height: 480),
+                    isMinimized: false,
+                    zOrderRank: 2
+                ),
+                AppCardCandidate(
+                    pid: 5003,
+                    bundleIdentifier: "com.apple.calculator",
+                    appName: "Calculator",
+                    windowTitle: "Basic",
+                    windowNumber: 8003,
+                    windowFrameAX: CGRect(x: 200, y: 120, width: 320, height: 240),
+                    isMinimized: false,
+                    zOrderRank: 3
+                )
+            ]
+            var mockIcons: [pid_t: NSImage] = [:]
+            for c in mockCandidates {
+                if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: c.bundleIdentifier) {
+                    mockIcons[c.pid] = NSWorkspace.shared.icon(forFile: url.path)
+                }
+            }
+            let mockThumbs: [Int: NSImage] = [
+                8001: terminalThumb,
+                8004: safariDocsThumb,
+                8002: notesThumb
+            ]
+            let firstPaneFrame = quartersPreviewZones[0].frameInAX
+
+            saveViewSnapshot(
+                ZStack(alignment: .topLeading) {
+                    LinearGradient(
+                        colors: [
+                            Color(nsColor: NSColor(calibratedRed: 0.08, green: 0.11, blue: 0.18, alpha: 1.0)),
+                            Color(nsColor: NSColor(calibratedRed: 0.14, green: 0.11, blue: 0.22, alpha: 1.0))
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+
+                    // Occupied cell 0 showing a snapped app window
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 6) {
+                            Circle().fill(Color.red.opacity(0.85)).frame(width: 9, height: 9)
+                            Circle().fill(Color.yellow.opacity(0.85)).frame(width: 9, height: 9)
+                            Circle().fill(Color.green.opacity(0.85)).frame(width: 9, height: 9)
+                            Text("Safari — Snapped Window")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.white.opacity(0.85))
+                            Spacer()
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.top, 10)
+
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.white.opacity(0.06))
+                            .padding(.horizontal, 12)
+                            .padding(.bottom, 12)
+                    }
+                    .frame(width: firstPaneFrame.width, height: firstPaneFrame.height)
+                    .background(Color(white: 0.14), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                    )
+                    .offset(x: firstPaneFrame.minX, y: firstPaneFrame.minY)
+
+                    // Remaining 3 cells as Glass Panes (1 active showing cards, 2 inactive)
+                    ForEach(Array(quartersPreviewZones.dropFirst().enumerated()), id: \.element.id) { idx, zone in
+                        let paneItem = GlassPaneItem(id: zone.id, zone: zone)
+                        GlassPaneSurfaceView(
+                            pane: paneItem,
+                            isActive: idx == 0,
+                            candidates: mockCandidates,
+                            thumbnailsByWindowNumber: mockThumbs,
+                            iconsByPID: mockIcons,
+                            style: OverlayStyleConfig(),
+                            showThumbnails: true,
+                            isEmbeddedInBackdrop: true,
+                            onActivate: {},
+                            onSelectCandidate: { _ in },
+                            onDismiss: {}
+                        )
+                        .frame(width: zone.frameInAX.width, height: zone.frameInAX.height)
+                        .offset(x: zone.frameInAX.minX, y: zone.frameInAX.minY)
+                    }
+                }
+                .frame(width: 1280, height: 760, alignment: .topLeading),
+                size: NSSize(width: 1280, height: 760),
+                to: outURL.appendingPathComponent("window_snapper_glass_panes.png")
+            )
+        }
+
+        let flashTriggerRect = TopEdgePanelGeometry.triggerZoneRectAX(
+            for: topPanelConnected,
+            layout: pickerLayout,
+            triggerDistancePoints: 24,
+            cornerBandPoints: 48
+        )
+        saveViewSnapshot(
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color(nsColor: NSColor(calibratedRed: 0.08, green: 0.10, blue: 0.16, alpha: 1.0)),
+                        Color(nsColor: NSColor(calibratedRed: 0.13, green: 0.11, blue: 0.22, alpha: 1.0))
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                ZoneOverlayPreviewCanvasView(
+                    mode: .triggerZoneFlash(
+                        regions: [
+                            TriggerFlashRegion(
+                                id: "top-edge-trigger",
+                                frameAX: flashTriggerRect,
+                                isZeroHairline: false,
+                                cornerRadius: 8
+                            )
+                        ],
+                        bannerText: "Top-Edge Trigger · 24 pt",
+                        bannerAnchorAX: CGPoint(x: flashTriggerRect.midX, y: flashTriggerRect.maxY + 20),
+                        style: OverlayStyleConfig()
+                    ),
+                    displayFrameAX: previewDisplayFrame,
+                    usableAXRect: previewUsableAX
+                )
+            }
+            .frame(width: 1280, height: 760),
+            size: NSSize(width: 1280, height: 760),
+            to: outURL.appendingPathComponent("window_snapper_trigger_flash.png")
+        )
+
+        let edgePullFlashRects = SnapGeometry.edgePullFlashRectsAX(
+            usableAX: previewUsableAX,
+            edgeProximityPoints: 12,
+            cornerBandPoints: 48
+        )
+        let edgeLabels = ["left", "right", "top"]
+        saveViewSnapshot(
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color(nsColor: NSColor(calibratedRed: 0.08, green: 0.10, blue: 0.16, alpha: 1.0)),
+                        Color(nsColor: NSColor(calibratedRed: 0.13, green: 0.11, blue: 0.22, alpha: 1.0))
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                ZoneOverlayPreviewCanvasView(
+                    mode: .triggerZoneFlash(
+                        regions: zip(edgeLabels, edgePullFlashRects).map { label, rect in
+                            TriggerFlashRegion(
+                                id: "edge-\(label)",
+                                frameAX: rect,
+                                isZeroHairline: false,
+                                cornerRadius: 6
+                            )
+                        },
+                        bannerText: "Edge Magnetic Pull · 12 pt",
+                        bannerAnchorAX: CGPoint(x: previewUsableAX.midX, y: previewUsableAX.minY + 36),
+                        style: OverlayStyleConfig()
+                    ),
+                    displayFrameAX: previewDisplayFrame,
+                    usableAXRect: previewUsableAX
+                )
+            }
+            .frame(width: 1280, height: 760),
+            size: NSSize(width: 1280, height: 760),
+            to: outURL.appendingPathComponent("window_snapper_edge_pull_flash.png")
         )
 
         let navJSON = NavigationState()
@@ -643,6 +1084,53 @@ enum SnapshotRunner {
         if let data = rep.representation(using: .png, properties: [:]) {
             try? data.write(to: url)
         }
+    }
+
+    private static func syntheticSnapshotThumbnail(
+        size: NSSize,
+        headerTitle: String,
+        accent: NSColor,
+        lines: [String]
+    ) -> NSImage {
+        let img = NSImage(size: size)
+        img.lockFocus()
+        defer { img.unlockFocus() }
+
+        NSColor(calibratedRed: 0.11, green: 0.12, blue: 0.16, alpha: 1.0).setFill()
+        NSRect(origin: .zero, size: size).fill()
+
+        let headerH: CGFloat = 28
+        NSColor(calibratedRed: 0.16, green: 0.17, blue: 0.22, alpha: 1.0).setFill()
+        NSRect(x: 0, y: size.height - headerH, width: size.width, height: headerH).fill()
+
+        accent.withAlphaComponent(0.24).setFill()
+        NSRect(x: 0, y: size.height - headerH - 2, width: size.width, height: 2).fill()
+
+        let dotColors: [NSColor] = [.systemRed, .systemYellow, .systemGreen]
+        for (i, dot) in dotColors.enumerated() {
+            dot.setFill()
+            NSBezierPath(ovalIn: NSRect(x: 10 + CGFloat(i) * 14, y: size.height - 19, width: 9, height: 9)).fill()
+        }
+
+        let headerAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+            .foregroundColor: NSColor(white: 0.90, alpha: 1.0)
+        ]
+        NSAttributedString(string: headerTitle, attributes: headerAttrs)
+            .draw(at: NSPoint(x: 58, y: size.height - 21))
+
+        let lineAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
+            .foregroundColor: NSColor(white: 0.78, alpha: 1.0)
+        ]
+        for (idx, line) in lines.enumerated() {
+            let y = size.height - headerH - 28 - CGFloat(idx) * 20
+            if y > 16 {
+                NSAttributedString(string: line, attributes: lineAttrs)
+                    .draw(at: NSPoint(x: 14, y: y))
+            }
+        }
+        return img
     }
 
     private static func saveUpdateDialogSnapshot(to url: URL) {

@@ -39,6 +39,8 @@ final class NavigationState: ObservableObject {
 
     @Published var selection: SidebarDestination = .dashboard
     @Published var isSidebarVisible: Bool = true
+    @Published var isCompactDrawerOpen: Bool = false
+    @Published var isCompactLayout: Bool = false
     @Published private(set) var history: [SidebarDestination] = []
     @Published private(set) var forwardHistory: [SidebarDestination] = []
 
@@ -69,6 +71,7 @@ final class NavigationState: ObservableObject {
     }
 
     func navigate(to destination: SidebarDestination) {
+        isCompactDrawerOpen = false
         guard destination != selection else { return }
         pushHistory(selection)
         forwardHistory.removeAll()
@@ -306,7 +309,8 @@ internal final class ToolboxWindow: NSWindow {
 final class MainWindowController: NSObject, NSWindowDelegate {
     static let shared = MainWindowController()
     static let defaultContentSize = NSSize(width: 1140, height: 760)
-    static let minimumContentSize = NSSize(width: 820, height: 560)
+    static let minimumContentSize = NSSize(width: 340, height: 300)
+    static let compactSidebarBreakpoint: CGFloat = 700
 
     let navState = NavigationState()
     private var window: NSWindow?
@@ -432,57 +436,24 @@ struct MainSplitView: View {
     @ObservedObject private var supportState = SupportState.shared
 
     var body: some View {
-        HStack(spacing: 0) {
-            if navState.isSidebarVisible {
-                sidebarView
-                    .frame(width: 228)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
-
-                Divider()
-            }
-
-            VStack(spacing: 0) {
-                if let newVer = updateManager.pendingUpdateVersion {
-                    updateAvailableBanner(version: newVer)
-                }
-
-                if navState.selection != .dashboard {
-                    detailTopBar
-                }
-
-                Group {
-                    switch navState.selection {
-                    case .dashboard:
-                        DashboardView(
-                            onSelectModule: { id in navState.navigate(to: .module(id)) }
-                        )
-                    case .module(let id):
-                        if let module = registry.module(withID: id) {
-                            ModuleDetailContainerView(module: module)
-                        } else {
-                            Text("Module not found")
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        }
-                    case .jsonConfig:
-                        ConfigEditorView()
-                    case .settings:
-                        SettingsView()
-                    case .support:
-                        SupportView()
-                    case .developer(let section):
-                        if developerMode.isUnlocked {
-                            DeveloperToolsView(section: section)
-                        } else {
-                            SettingsView()
-                        }
+        GeometryReader { proxy in
+            let isCompactWidth = proxy.size.width < MainWindowController.compactSidebarBreakpoint
+            mainSplitContent(isCompactWidth: isCompactWidth, availableWidth: proxy.size.width)
+                .onAppear {
+                    if navState.isCompactLayout != isCompactWidth {
+                        navState.isCompactLayout = isCompactWidth
+                    }
+                    if !isCompactWidth && navState.isCompactDrawerOpen {
+                        navState.isCompactDrawerOpen = false
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onChange(of: isCompactWidth) { _, compact in
+                    navState.isCompactLayout = compact
+                    if !compact {
+                        navState.isCompactDrawerOpen = false
+                    }
+                }
         }
-        .animation(.easeInOut(duration: 0.16), value: navState.isSidebarVisible)
         .onChange(of: developerMode.isUnlocked) { _, unlocked in
             if !unlocked {
                 navState.pruneDeveloperDestinations(fallback: .settings)
@@ -507,11 +478,21 @@ struct MainSplitView: View {
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Button {
-                    navState.toggleSidebar()
+                    if navState.isCompactLayout {
+                        withAnimation(.easeInOut(duration: 0.16)) {
+                            navState.isCompactDrawerOpen.toggle()
+                        }
+                    } else {
+                        navState.toggleSidebar()
+                    }
                 } label: {
                     Image(systemName: "sidebar.left")
                 }
-                .help(navState.isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
+                .help(
+                    navState.isCompactLayout
+                        ? (navState.isCompactDrawerOpen ? "Hide Sidebar" : "Show Sidebar")
+                        : (navState.isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
+                )
                 .pointerCursor()
             }
 
@@ -606,6 +587,93 @@ struct MainSplitView: View {
         }
         .animation(.easeInOut(duration: 0.15), value: permissions.isPresentingOnboardingModal)
         .toolboxDarkAppearance()
+    }
+
+    @ViewBuilder
+    private func mainSplitContent(isCompactWidth: Bool, availableWidth: CGFloat) -> some View {
+        if isCompactWidth {
+            ZStack(alignment: .leading) {
+                detailColumnView
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if navState.isCompactDrawerOpen {
+                    Color.black.opacity(0.42)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.16)) {
+                                navState.isCompactDrawerOpen = false
+                            }
+                        }
+
+                    sidebarView
+                        .frame(width: min(228, max(190, availableWidth * 0.78)))
+                        .background(Color(nsColor: .windowBackgroundColor))
+                        .overlay(alignment: .trailing) {
+                            Divider()
+                        }
+                        .shadow(color: .black.opacity(0.38), radius: 16, x: 4, y: 0)
+                        .transition(.move(edge: .leading))
+                }
+            }
+            .animation(.easeInOut(duration: 0.16), value: navState.isCompactDrawerOpen)
+        } else {
+            HStack(spacing: 0) {
+                if navState.isSidebarVisible {
+                    sidebarView
+                        .frame(width: 228)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+
+                    Divider()
+                }
+
+                detailColumnView
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .animation(.easeInOut(duration: 0.16), value: navState.isSidebarVisible)
+        }
+    }
+
+    private var detailColumnView: some View {
+        VStack(spacing: 0) {
+            if let newVer = updateManager.pendingUpdateVersion {
+                updateAvailableBanner(version: newVer)
+            }
+
+            if navState.selection != .dashboard {
+                detailTopBar
+            }
+
+            Group {
+                switch navState.selection {
+                case .dashboard:
+                    DashboardView(
+                        onSelectModule: { id in navState.navigate(to: .module(id)) }
+                    )
+                case .module(let id):
+                    if let module = registry.module(withID: id) {
+                        ModuleDetailContainerView(module: module)
+                    } else {
+                        Text("Module not found")
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                case .jsonConfig:
+                    ConfigEditorView()
+                case .settings:
+                    SettingsView()
+                case .support:
+                    SupportView()
+                case .developer(let section):
+                    if developerMode.isUnlocked {
+                        DeveloperToolsView(section: section)
+                    } else {
+                        SettingsView()
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 
     private var sidebarView: some View {

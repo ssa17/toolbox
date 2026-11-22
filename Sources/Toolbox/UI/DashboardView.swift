@@ -1,10 +1,17 @@
 import SwiftUI
 
 enum DashboardLayoutMetrics: Sendable {
+    static let twoColumnMinWidth: CGFloat = 520
     static let threeColumnMinWidth: CGFloat = 810
 
     static func columnCount(forAvailableWidth width: CGFloat) -> Int {
-        width >= threeColumnMinWidth ? 3 : 2
+        if width >= threeColumnMinWidth {
+            return 3
+        }
+        if width >= twoColumnMinWidth {
+            return 2
+        }
+        return 1
     }
 
     static func gridSpacing(showDetails: Bool) -> CGFloat {
@@ -17,6 +24,7 @@ struct DashboardView: View {
     @ObservedObject private var permissions = PermissionsManager.shared
     @ObservedObject private var registry = ModuleRegistry.shared
     @ObservedObject private var screenOCR = ModuleRegistry.shared.screenOCR
+    @ObservedObject private var windowSnapper = ModuleRegistry.shared.windowSnapper
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let onSelectModule: (String) -> Void
@@ -56,6 +64,12 @@ struct DashboardView: View {
                         accessibilityBanner
                     } else if configManager.config.screenOCR.enabled && !screenOCR.screenRecordingGranted {
                         screenRecordingBanner
+                    }
+
+                    if configManager.config.windowSnapper.enabled
+                        && configManager.config.windowSnapper.drag.enabled
+                        && windowSnapper.sequoiaConflictStatus.hasConflictWithToolboxDrag {
+                        windowTilingConflictBanner
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
@@ -107,6 +121,7 @@ struct DashboardView: View {
         }
         .onAppear {
             permissions.refresh()
+            windowSnapper.refreshSequoiaConflictStatus()
         }
     }
 
@@ -126,64 +141,104 @@ struct DashboardView: View {
     private var headerBanner: some View {
         let isAppEnabled = configManager.config.general.appEnabled
         return SectionCard(accentTint: isAppEnabled ? ToolboxTheme.accentBlue : .orange) {
-            HStack(spacing: 14) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(
-                            LinearGradient(
-                                colors: [Color(red: 0.16, green: 0.18, blue: 0.22), Color(red: 0.08, green: 0.09, blue: 0.11)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        .frame(width: 48, height: 48)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
-                        )
-                    ToolboxBentoMark(size: 26, primaryColor: .white, accentColor: Color(red: 0.29, green: 0.62, blue: 1.0))
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 14) {
+                    headerBannerIcon
+                    headerBannerText(isAppEnabled: isAppEnabled)
+                    if !isAppEnabled {
+                        Spacer(minLength: 8)
+                        headerResumeButton
+                    }
                 }
 
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 12) {
+                        headerBannerIcon
+                        headerBannerText(isAppEnabled: isAppEnabled)
+                    }
+                    if !isAppEnabled {
+                        headerResumeButton
+                    }
+                }
+            }
+        }
+    }
+
+    private var headerBannerIcon: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(
+                    LinearGradient(
+                        colors: [Color(red: 0.16, green: 0.18, blue: 0.22), Color(red: 0.08, green: 0.09, blue: 0.11)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .frame(width: 48, height: 48)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
+                )
+            ToolboxBentoMark(size: 26, primaryColor: .white, accentColor: Color(red: 0.29, green: 0.62, blue: 1.0))
+        }
+    }
+
+    private func headerBannerText(isAppEnabled: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    Text("Toolbox")
+                        .font(.title2.bold())
+                    headerBannerVersionPill
+                    headerBannerStatusBadge(isAppEnabled: isAppEnabled)
+                }
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
                         Text("Toolbox")
                             .font(.title2.bold())
-                        Text(versionText)
-                            .font(.caption.monospaced())
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 2)
-                            .background(Color.primary.opacity(0.08), in: Capsule())
-                        StatusBadge(
-                            text: isAppEnabled
-                                ? "\(activeCount)/\(toggleableModules.count) enabled"
-                                : "Paused",
-                            color: isAppEnabled
-                                ? (activeCount > 0 ? .green : .secondary)
-                                : .orange
-                        )
+                        headerBannerVersionPill
                     }
-                    Text(
-                        isAppEnabled
-                            ? "Lightweight, config-driven utilities tailored to how you use your Mac."
-                            : "Toolbox is paused. Resume to reactivate your enabled modules."
-                    )
-                        .font(.callout)
-                        .foregroundStyle(Color.primary.opacity(0.76))
-                }
-                .textSelection(.enabled)
-
-                if !isAppEnabled {
-                    Spacer()
-
-                    Button("Resume") {
-                        configManager.config.general.appEnabled = true
-                    }
-                    .buttonStyle(.toolboxProminent(.orange))
-                    .fixedSize(horizontal: true, vertical: false)
-                    .pointerCursor()
+                    headerBannerStatusBadge(isAppEnabled: isAppEnabled)
                 }
             }
+            Text(
+                isAppEnabled
+                    ? "Lightweight, config-driven utilities tailored to how you use your Mac."
+                    : "Toolbox is paused. Resume to reactivate your enabled modules."
+            )
+            .font(.callout)
+            .foregroundStyle(Color.primary.opacity(0.76))
+            .fixedSize(horizontal: false, vertical: true)
         }
+        .textSelection(.enabled)
+    }
+
+    private var headerBannerVersionPill: some View {
+        Text(versionText)
+            .font(.caption.monospaced())
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(Color.primary.opacity(0.08), in: Capsule())
+    }
+
+    private func headerBannerStatusBadge(isAppEnabled: Bool) -> some View {
+        StatusBadge(
+            text: isAppEnabled
+                ? "\(activeCount)/\(toggleableModules.count) enabled"
+                : "Paused",
+            color: isAppEnabled
+                ? (activeCount > 0 ? .green : .secondary)
+                : .orange
+        )
+    }
+
+    private var headerResumeButton: some View {
+        Button("Resume") {
+            configManager.config.general.appEnabled = true
+        }
+        .buttonStyle(.toolboxProminent(.orange))
+        .fixedSize(horizontal: true, vertical: false)
+        .pointerCursor()
     }
 
     private var accessibilityBanner: some View {
@@ -345,6 +400,63 @@ struct DashboardView: View {
                     }
                     .buttonStyle(.toolboxProminent(.orange))
                     .controlSize(.large)
+                    .pointerCursor()
+                }
+            }
+        }
+    }
+
+    private var windowTilingConflictBanner: some View {
+        let count = windowSnapper.sequoiaConflictStatus.activeSettingLabels.count
+        return SectionCard(accentTint: .orange) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.orange)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("macOS Native Window Tiling Is Enabled")
+                            .font(.headline)
+                        Text("\(count) macOS Desktop & Dock tiling option\(count == 1 ? " is" : "s are") enabled. Turn \(count == 1 ? "it" : "them") off so Window Snapper handles every drag cleanly.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Button("Desktop & Dock Settings…") {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.Desktop-Settings.extension") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                    .buttonStyle(.toolboxProminent(.orange))
+                    .controlSize(.regular)
+                    .pointerCursor()
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.title3)
+                            .foregroundStyle(.orange)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("macOS Native Window Tiling Is Enabled")
+                                .font(.headline)
+                            Text("\(count) macOS Desktop & Dock tiling option\(count == 1 ? " is" : "s are") enabled. Turn \(count == 1 ? "it" : "them") off so Window Snapper handles every drag cleanly.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    Button("Desktop & Dock Settings…") {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.Desktop-Settings.extension") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                    .buttonStyle(.toolboxProminent(.orange))
+                    .controlSize(.regular)
                     .pointerCursor()
                 }
             }

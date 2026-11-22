@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 import CoreGraphics
 import Foundation
 import SwiftUI
@@ -49,9 +50,13 @@ enum SelfTestRunner {
         testPermissionsFlowAndPointerCursorSheetDealloc()
         testForcedDarkAppearanceAndProminentButtons()
         testHUDToastSizingAndPositioning()
+        testWindowSnapperGeometryAndCoordinateConversion()
+        testWindowSnapperMinSizeClampingAndDragLogic()
+        testWindowSnapperDisplayRegistryAndUndoStack()
+        testWindowSnapperConfigHotKeysProfilesAndLifecycle()
 
         if failures.isEmpty {
-            print("All 36 self-test suites passed.")
+            print("All 40 self-test suites passed.")
             return 0
         } else {
             for f in failures {
@@ -238,6 +243,7 @@ enum SelfTestRunner {
         toggledModuleCfg.dockMinimize.enabled.toggle()
         expect(!cfg.runtimeBehaviorEquals(toggledModuleCfg), "runtimeBehaviorEquals should return false when dockMinimize.enabled differs")
 
+        expect(DashboardLayoutMetrics.columnCount(forAvailableWidth: 400) == 1, "400pt available width should use 1 column")
         expect(DashboardLayoutMetrics.columnCount(forAvailableWidth: 547) == 2, "547pt available width should use 2 columns")
         expect(DashboardLayoutMetrics.columnCount(forAvailableWidth: 667) == 2, "667pt available width should use 2 columns")
         expect(DashboardLayoutMetrics.columnCount(forAvailableWidth: 809) == 2, "809pt available width should use 2 columns")
@@ -1115,6 +1121,7 @@ enum SelfTestRunner {
                 ("scroll_direction", .module("scroll_direction"), NSPoint(x: 500, y: detailEmptyY)),
                 ("screen_ocr", .module("screen_ocr"), NSPoint(x: 500, y: detailEmptyY)),
                 ("call_controls", .module("call_controls"), NSPoint(x: 500, y: detailEmptyY)),
+                ("window_snapper", .module("window_snapper"), NSPoint(x: 500, y: detailEmptyY)),
             ]
             for (label, dest, emptyPt) in destinations {
                 MainWindowController.shared.navState.navigate(to: dest)
@@ -1130,8 +1137,8 @@ enum SelfTestRunner {
             expect(MainWindowController.shared.navState.selection == .dashboard, "NavigationState.goBack() must return to dashboard")
             win.layoutIfNeeded()
         }
-        expect(win.contentMinSize.width >= 820 && win.contentMinSize.height >= 560, "Dashboard NSWindow contentMinSize must prevent squishing: \(win.contentMinSize)")
-        expect(win.minSize.width >= 820 && win.minSize.height >= 588, "Dashboard NSWindow minSize mismatch: \(win.minSize)")
+        expect(win.contentMinSize.width == 340 && win.contentMinSize.height == 300, "Dashboard NSWindow contentMinSize must shrink to 340x300: \(win.contentMinSize)")
+        expect(win.minSize.width == 340 && win.minSize.height >= 328 && win.minSize.height <= 380, "Dashboard NSWindow minSize mismatch: \(win.minSize)")
 
         for module in registry.modules {
             let texts = [module.name, module.tagline, module.aboutSummary] + module.featureTips
@@ -1157,7 +1164,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(cfg),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.scrollDirection == cfg.scrollDirection, "ScrollDirectionConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 10, "ToolboxConfig schemaVersion should be 10")
+            expect(decoded.schemaVersion == 11, "ToolboxConfig schemaVersion should be 11")
         } else {
             failures.append("ToolboxConfig Codable encode/decode failed")
         }
@@ -1401,7 +1408,7 @@ enum SelfTestRunner {
     private static func testMenuBarCustomizationOrderAndVisibility() {
         var cfg = ToolboxConfig()
         let registry = ModuleRegistry.shared
-        let expectedDefaultOrder = ["dock_minimize", "clipboard", "port_killer", "screen_ocr", "keep_awake", "custom_commands", "scroll_direction", "call_controls"]
+        let expectedDefaultOrder = ["dock_minimize", "clipboard", "port_killer", "screen_ocr", "keep_awake", "custom_commands", "scroll_direction", "call_controls", "window_snapper"]
 
         expect(!cfg.general.hasCustomMenuBarLayout, "Default config should not report custom menu bar layout")
         expect(cfg.general.showQuickActionsInMenuBar, "Quick actions should be shown in menu bar by default")
@@ -1412,32 +1419,32 @@ enum SelfTestRunner {
         )
         expect(
             registry.visibleMenuBarModules(for: cfg).map(\.id) == expectedDefaultOrder,
-            "All 8 menu-bar-eligible modules should be visible in menu bar by default"
+            "All 9 menu-bar-eligible modules should be visible in menu bar by default"
         )
 
         cfg.general.moveModuleInMenuBar(id: "keep_awake", direction: -1)
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["dock_minimize", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "scroll_direction", "call_controls"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["dock_minimize", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "scroll_direction", "call_controls", "window_snapper"],
             "Moving keep_awake up by 1 should place it before screen_ocr"
         )
         expect(cfg.general.hasCustomMenuBarLayout, "Reordering should mark hasCustomMenuBarLayout = true")
 
         cfg.general.moveModuleInMenuBar(fromId: "scroll_direction", toId: "dock_minimize")
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "dock_minimize", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "call_controls"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "dock_minimize", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "call_controls", "window_snapper"],
             "Dragging scroll_direction to dock_minimize should place it first"
         )
 
         cfg.general.setModuleVisibleInMenuBar("dock_minimize", visible: false)
         expect(
-            registry.visibleMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "call_controls"],
+            registry.visibleMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "call_controls", "window_snapper"],
             "Hiding dock_minimize from menu bar should omit it from visibleMenuBarModules"
         )
         expect(cfg.dockMinimize.enabled, "Hiding dock_minimize from status bar menu must not disable the module itself")
 
         cfg.general.menuBarModuleOrder = ["keep_awake", "clean_lock", "keep_awake", "unknown_id"]
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["keep_awake", "dock_minimize", "clipboard", "port_killer", "screen_ocr", "custom_commands", "scroll_direction", "call_controls"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["keep_awake", "dock_minimize", "clipboard", "port_killer", "screen_ocr", "custom_commands", "scroll_direction", "call_controls", "window_snapper"],
             "Partial, non-menu-bar, or unknown menuBarModuleOrder must normalize with remaining eligible modules and no duplicates"
         )
 
@@ -1465,7 +1472,7 @@ enum SelfTestRunner {
             return
         }
         expect(settingsLayout.distanceAboveDraggedCenter == 266, "distanceAboveDraggedCenter for index 4 should be 266 (got \(settingsLayout.distanceAboveDraggedCenter))")
-        expect(settingsLayout.distanceBelowDraggedCenter == 206, "distanceBelowDraggedCenter for index 4 should be 206 (got \(settingsLayout.distanceBelowDraggedCenter))")
+        expect(settingsLayout.distanceBelowDraggedCenter == 266, "distanceBelowDraggedCenter for index 4 should be 266 (got \(settingsLayout.distanceBelowDraggedCenter))")
         expect(settingsLayout.restingShift(forRowAt: 2, targetIndex: 1) == 60, "Row shifting down past 52pt card + 8pt spacing should shift +60")
 
         let dragState = VerticalDragReorderState<String>()
@@ -1481,7 +1488,7 @@ enum SelfTestRunner {
         }
         expect(!dragState.isDragging, "finishDrag should end active drag")
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["clipboard", "port_killer", "screen_ocr", "keep_awake", "dock_minimize", "custom_commands", "scroll_direction", "call_controls"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["clipboard", "port_killer", "screen_ocr", "keep_awake", "dock_minimize", "custom_commands", "scroll_direction", "call_controls", "window_snapper"],
             "Downward Settings drag should place dock_minimize after keep_awake (got \(registry.orderedMenuBarModules(for: cfg).map(\.id)))"
         )
         expect(!cfg.general.menuBarModuleOrder.contains("clean_lock"), "menuBarModuleOrder must never include non-menu-bar clean_lock")
@@ -1495,7 +1502,7 @@ enum SelfTestRunner {
             cfg.general.moveModuleInMenuBar(fromId: draggedID, toId: targetID, allModuleIDs: eligibleIDs)
         }
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["call_controls", "clipboard", "port_killer", "screen_ocr", "keep_awake", "dock_minimize", "custom_commands", "scroll_direction"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["call_controls", "clipboard", "port_killer", "screen_ocr", "keep_awake", "dock_minimize", "custom_commands", "scroll_direction", "window_snapper"],
             "Upward Settings drag should place call_controls at top (got \(registry.orderedMenuBarModules(for: cfg).map(\.id)))"
         )
 
@@ -2088,7 +2095,7 @@ enum SelfTestRunner {
 
     private static func testCallControlsConfigAndCoreAudioEnumeration() {
         let cfg = ToolboxConfig()
-        expect(cfg.schemaVersion == 10, "ToolboxConfig schemaVersion should be 10")
+        expect(cfg.schemaVersion == 11, "ToolboxConfig schemaVersion should be 11")
         expect(!cfg.callControls.enabled, "Call Controls should default to disabled")
         expect(cfg.callControls.overrideScope == .everywhere, "Default overrideScope should be everywhere")
         expect(cfg.callControls.typingUnmuteDelayMs == 450, "Default typingUnmuteDelayMs should be 450")
@@ -2123,7 +2130,7 @@ enum SelfTestRunner {
         let legacyJSON = "{\"schemaVersion\": 5, \"general\": {\"appEnabled\": true}}"
         if let data = legacyJSON.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 10, "Legacy config should upgrade to schemaVersion 10")
+            expect(migrated.schemaVersion == 11, "Legacy config should upgrade to schemaVersion 11")
             expect(!migrated.callControls.enabled, "Legacy config must migrate callControls.enabled = false")
             expect(migrated.callControls.overrideScope == .everywhere, "Migrated default overrideScope should be everywhere")
             expect(migrated.callControls.showFloatingPillOnlyDuringCalls, "Legacy config must migrate showFloatingPillOnlyDuringCalls = true")
@@ -2138,7 +2145,7 @@ enum SelfTestRunner {
         """
         if let data = v6JSON.data(using: .utf8),
            let upgraded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgraded.schemaVersion == 10, "v6 config should migrate to schemaVersion 10")
+            expect(upgraded.schemaVersion == 11, "v6 config should migrate to schemaVersion 11")
             expect(upgraded.callControls.overrideScope == .everywhere, "v6 active_call_app_only should upgrade to everywhere")
             expect(upgraded.callControls.showFloatingPillOnlyDuringCalls, "v6 config should upgrade showFloatingPillOnlyDuringCalls to true")
         } else {
@@ -2151,7 +2158,7 @@ enum SelfTestRunner {
         """
         if let data = v7JSON.data(using: .utf8),
            let upgradedV7 = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgradedV7.schemaVersion == 10, "v7 config should migrate to schemaVersion 10")
+            expect(upgradedV7.schemaVersion == 11, "v7 config should migrate to schemaVersion 11")
             expect(upgradedV7.callControls.showFloatingPillOnlyDuringCalls, "v7 showFloatingPillOnlyDuringCalls should upgrade to true")
         } else {
             failures.append("Failed to migrate v7 audioGuard config")
@@ -2163,7 +2170,7 @@ enum SelfTestRunner {
         """
         if let data = v8JSON.data(using: .utf8),
            let upgradedV8 = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgradedV8.schemaVersion == 10, "v8 config should migrate to schemaVersion 10")
+            expect(upgradedV8.schemaVersion == 11, "v8 config should migrate to schemaVersion 11")
             expect(upgradedV8.callControls.enabled, "v8 audioGuard.enabled must migrate to callControls.enabled")
             expect(upgradedV8.callControls.typingUnmuteDelayMs == 725, "v8 audioGuard fields must be preserved in callControls")
             expect(
@@ -2929,7 +2936,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(customCfg),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.screenOCR == customCfg.screenOCR, "ScreenOCRConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 10, "ToolboxConfig schemaVersion should be 10")
+            expect(decoded.schemaVersion == 11, "ToolboxConfig schemaVersion should be 11")
         } else {
             failures.append("ToolboxConfig with screenOCR failed Codable encode/decode")
         }
@@ -2939,7 +2946,7 @@ enum SelfTestRunner {
         let legacyJSON = "{\"schemaVersion\": 9, \"general\": {\"appEnabled\": true}}"
         if let data = legacyJSON.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 10, "Legacy v9 config should upgrade to schemaVersion 10")
+            expect(migrated.schemaVersion == 11, "Legacy v9 config should upgrade to schemaVersion 11")
             expect(!migrated.screenOCR.enabled, "Legacy config must migrate screenOCR.enabled = false")
         } else {
             failures.append("Failed to decode pre-ScreenOCR JSON config")
@@ -4407,5 +4414,1460 @@ enum SelfTestRunner {
         } else {
             failures.append("Could not sample background pixel for HUDToast edge check")
         }
+    }
+
+    private static func testWindowSnapperGeometryAndCoordinateConversion() {
+        // 1. Primary-screen height invariant round-trip across asymmetric multi-display geometries
+        let primaryHeight: CGFloat = 1117
+        let primaryRectAppKit = CGRect(x: 0, y: 78, width: 1728, height: 1007)
+        let primaryAX = SnapGeometry.appKitToAX(primaryRectAppKit, primaryScreenHeight: primaryHeight)
+        expect(primaryAX == CGRect(x: 0, y: 32, width: 1728, height: 1007), "Primary AX conversion mismatch: \(primaryAX)")
+        expect(SnapGeometry.axToAppKit(primaryAX, primaryScreenHeight: primaryHeight) == primaryRectAppKit, "Primary round-trip mismatch")
+
+        // Secondary display positioned ABOVE primary (y > primaryHeight in AppKit -> negative y in AX)
+        let aboveAppKit = CGRect(x: -200, y: 1117, width: 2560, height: 1415)
+        let aboveAX = SnapGeometry.appKitToAX(aboveAppKit, primaryScreenHeight: primaryHeight)
+        expect(aboveAX == CGRect(x: -200, y: -1415, width: 2560, height: 1415), "Above-primary AX conversion mismatch: \(aboveAX)")
+        expect(SnapGeometry.axToAppKit(aboveAX, primaryScreenHeight: primaryHeight) == aboveAppKit, "Above-primary round-trip mismatch")
+
+        // Secondary display positioned BELOW primary (negative y in AppKit -> y > primaryHeight in AX)
+        let belowAppKit = CGRect(x: 100, y: -900, width: 1440, height: 875)
+        let belowAX = SnapGeometry.appKitToAX(belowAppKit, primaryScreenHeight: primaryHeight)
+        expect(belowAX == CGRect(x: 100, y: 1142, width: 1440, height: 875), "Below-primary AX conversion mismatch: \(belowAX)")
+        expect(SnapGeometry.axToAppKit(belowAX, primaryScreenHeight: primaryHeight) == belowAppKit, "Below-primary round-trip mismatch")
+
+        // 2. Usable rect calculation: visibleFrame + notch safeAreaInsets + Stage Manager strip
+        let notchedScreen = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        let autoHideMenuVisible = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        let usableNotchSM = SnapGeometry.usableAppKitRect(
+            screenFrame: notchedScreen,
+            visibleFrame: autoHideMenuVisible,
+            safeAreaInsets: SafeAreaInsets(top: 38, left: 0, bottom: 0, right: 0),
+            stageManagerActive: true,
+            stageManagerEdge: .left,
+            stageManagerReservePoints: 78
+        )
+        expect(
+            usableNotchSM == CGRect(x: 78, y: 0, width: 1434, height: 944),
+            "Usable rect with notch + left Stage Manager strip mismatch: \(usableNotchSM)"
+        )
+
+        // When visibleFrame already excluded menu bar, safeAreaInsets must NOT double-subtract
+        let shownMenuVisible = CGRect(x: 0, y: 78, width: 1512, height: 866)
+        let usableNoDoubleSubtract = SnapGeometry.usableAppKitRect(
+            screenFrame: notchedScreen,
+            visibleFrame: shownMenuVisible,
+            safeAreaInsets: SafeAreaInsets(top: 38, left: 0, bottom: 0, right: 0),
+            stageManagerActive: false
+        )
+        expect(usableNoDoubleSubtract == shownMenuVisible, "Shown menu bar visibleFrame must not double-subtract notch safe area (got \(usableNoDoubleSubtract))")
+
+        expect(
+            SnapGeometry.isStageManagerStripVisible(windowManagerDefaults: ["GloballyEnabled": true, "AutoHide": false]),
+            "Stage Manager enabled + non-autohide must report strip visible"
+        )
+        expect(
+            !SnapGeometry.isStageManagerStripVisible(windowManagerDefaults: ["GloballyEnabled": true, "AutoHide": true]),
+            "Stage Manager with AutoHide=true must report strip hidden"
+        )
+
+        // 3. Outer margin (P_out) & inner gap (G_in) division formulas across all built-in presets
+        let usableAX = CGRect(x: 100, y: 50, width: 1800, height: 1000)
+        let pOut: CGFloat = 10
+        let gIn: CGFloat = 12
+        let gaps = GapConfig(outerMarginPoints: Double(pOut), innerGapPoints: Double(gIn))
+
+        for preset in DisplayPresetKind.allCases where preset != .custom {
+            let layout = DisplayLayoutConfig(
+                display: DisplaySignature(localizedName: "Test"),
+                presetID: preset.rawValue,
+                division: preset.defaultDivision
+            )
+            let zones = SnapGeometry.resolveZones(
+                layout: layout,
+                usableAXRect: usableAX,
+                primaryScreenHeight: 1100,
+                gaps: gaps
+            )
+            let expectedCount = preset.zoneCount
+            expect(zones.count == expectedCount, "Preset \(preset.rawValue) zone count mismatch: \(zones.count) vs \(expectedCount)")
+
+            // No zone overflows outer margins
+            for z in zones {
+                expect(z.frameInAX.minX >= usableAX.minX + pOut - 0.5, "\(preset.rawValue) minX overflow: \(z.frameInAX)")
+                expect(z.frameInAX.maxX <= usableAX.maxX - pOut + 0.5, "\(preset.rawValue) maxX overflow: \(z.frameInAX)")
+                expect(z.frameInAX.minY >= usableAX.minY + pOut - 0.5, "\(preset.rawValue) minY overflow: \(z.frameInAX)")
+                expect(z.frameInAX.maxY <= usableAX.maxY - pOut + 0.5, "\(preset.rawValue) maxY overflow: \(z.frameInAX)")
+            }
+
+            if preset == .leftMainRightStack {
+                let leftMain = zones[0]
+                let topRight = zones[1]
+                let bottomRight = zones[2]
+                expect(abs((topRight.frameInAX.minX - leftMain.frameInAX.maxX) - gIn) <= 1.0, "leftMainRightStack horizontal gap mismatch")
+                expect(abs((bottomRight.frameInAX.minY - topRight.frameInAX.maxY) - gIn) <= 1.0, "leftMainRightStack vertical gap mismatch")
+                expect(abs(leftMain.frameInAX.height - (bottomRight.frameInAX.maxY - topRight.frameInAX.minY)) <= 1.0, "leftMainRightStack Left Main must span full usable height")
+            } else if preset == .leftStackRightMain {
+                let topLeft = zones[0]
+                let bottomLeft = zones[1]
+                let rightMain = zones[2]
+                expect(abs((rightMain.frameInAX.minX - topLeft.frameInAX.maxX) - gIn) <= 1.0, "leftStackRightMain horizontal gap mismatch")
+                expect(abs((bottomLeft.frameInAX.minY - topLeft.frameInAX.maxY) - gIn) <= 1.0, "leftStackRightMain vertical gap mismatch")
+                expect(abs(rightMain.frameInAX.height - (bottomLeft.frameInAX.maxY - topLeft.frameInAX.minY)) <= 1.0, "leftStackRightMain Right Main must span full usable height")
+            } else {
+                // Adjacent horizontal & vertical cells maintain exact G_in gap
+                let cols = preset.defaultDivision.columnWeights.count
+                let rows = preset.defaultDivision.rowWeights.count
+                if cols > 1 {
+                    for c in 0..<(cols - 1) {
+                        let leftCell = zones.first { $0.gridCoord == GridCellCoord(col: c, row: 0) }!
+                        let rightCell = zones.first { $0.gridCoord == GridCellCoord(col: c + 1, row: 0) }!
+                        let actualGap = rightCell.frameInAX.minX - leftCell.frameInAX.maxX
+                        expect(abs(actualGap - gIn) <= 1.0, "\(preset.rawValue) col gap mismatch: \(actualGap) vs \(gIn)")
+                    }
+                }
+                if rows > 1 {
+                    for r in 0..<(rows - 1) {
+                        let topCell = zones.first { $0.gridCoord == GridCellCoord(col: 0, row: r) }!
+                        let bottomCell = zones.first { $0.gridCoord == GridCellCoord(col: 0, row: r + 1) }!
+                        let actualGap = bottomCell.frameInAX.minY - topCell.frameInAX.maxY
+                        expect(abs(actualGap - gIn) <= 1.0, "\(preset.rawValue) row gap mismatch: \(actualGap) vs \(gIn)")
+                    }
+                }
+            }
+        }
+
+        // 4. Multi-cell span union collapses internal seams cleanly while preserving outer margins
+        let thirds = DisplayPresetKind.thirds.defaultDivision
+        if let spannedLeftTwoThirds = SnapGeometry.resolveSpannedZone(
+            span: GridSpan(startCol: 0, endCol: 1, startRow: 0, endRow: 0),
+            division: thirds,
+            usableAXRect: usableAX,
+            primaryScreenHeight: 1100,
+            outerMargin: pOut,
+            innerGap: gIn
+        ), let rightOneThird = SnapGeometry.resolveSpannedZone(
+            span: GridSpan(startCol: 2, endCol: 2, startRow: 0, endRow: 0),
+            division: thirds,
+            usableAXRect: usableAX,
+            primaryScreenHeight: 1100,
+            outerMargin: pOut,
+            innerGap: gIn
+        ) {
+            expect(spannedLeftTwoThirds.frameInAX.minX == usableAX.minX + pOut, "Spanned left 2/3 must align with outer margin")
+            expect(abs((rightOneThird.frameInAX.minX - spannedLeftTwoThirds.frameInAX.maxX) - gIn) <= 1.0, "Gap after spanned 2/3 to right 1/3 must equal gIn")
+            expect(spannedLeftTwoThirds.id == "span:0:1:0:0", "Spanned zoneID mismatch: \(spannedLeftTwoThirds.id)")
+        } else {
+            failures.append("Failed to resolve spanned 2/3 zone")
+        }
+
+        // 5. Repeat-direction cycling steps (1/2 -> 2/3 -> 1/3)
+        expect(abs(SnapDirectionAction.leftHalf.normalizedRect(forStep: 0).width - 0.5) < 0.01, "Step 0 width must be 1/2")
+        expect(abs(SnapDirectionAction.leftHalf.normalizedRect(forStep: 1).width - (2.0 / 3.0)) < 0.01, "Step 1 width must be 2/3")
+        expect(abs(SnapDirectionAction.leftHalf.normalizedRect(forStep: 2).width - (1.0 / 3.0)) < 0.01, "Step 2 width must be 1/3")
+    }
+
+    private static func testWindowSnapperMinSizeClampingAndDragLogic() {
+        // 1. Normal shrink snap (1400 -> 700) succeeds; min-size overflow clamps origin strictly inside usable rect
+        let usable = CGRect(x: 0, y: 25, width: 1440, height: 875)
+        let rightZone = CGRect(x: 724, y: 33, width: 708, height: 859)
+        let normalShrink = SnapGeometry.clampFrameForMinimumSize(
+            targetFrame: rightZone,
+            actualSize: CGSize(width: 708, height: 859),
+            usableRect: usable
+        )
+        expect(normalShrink == rightZone, "Normal shrink snap to 708pt wide must keep exact target origin (got \(normalShrink))")
+
+        // App enforces 900x920 min size inside a 708x859 right-edge zone: origin must shift left/up to stay inside usable rect
+        let minConstrained = SnapGeometry.clampFrameForMinimumSize(
+            targetFrame: rightZone,
+            actualSize: CGSize(width: 900, height: 920),
+            usableRect: usable
+        )
+        expect(minConstrained.maxX <= usable.maxX, "Clamped maxX must not overflow right screen edge (got \(minConstrained.maxX) > \(usable.maxX))")
+        expect(minConstrained.minX >= usable.minX, "Clamped minX must stay inside left screen edge")
+        expect(minConstrained.minY >= usable.minY, "Clamped minY must stay below menu bar")
+
+        // 2. Confirmed window-drag gate
+        let initialWin = CGRect(x: 200, y: 150, width: 900, height: 600)
+        expect(
+            WindowDragMonitor.evaluateConfirmedWindowDrag(
+                initialFrameAX: initialWin,
+                currentFrameAX: CGRect(x: 215, y: 158, width: 900, height: 600)
+            ) == .confirmedMove,
+            "Origin movement with constant size must confirm window drag"
+        )
+        expect(
+            WindowDragMonitor.evaluateConfirmedWindowDrag(
+                initialFrameAX: initialWin,
+                currentFrameAX: CGRect(x: 200, y: 150, width: 940, height: 600)
+            ) == .rejectedResizeOrSelection,
+            "Width change must reject drag snapping (window resize)"
+        )
+        expect(
+            WindowDragMonitor.evaluateConfirmedWindowDrag(
+                initialFrameAX: initialWin,
+                currentFrameAX: initialWin
+            ) == .pending,
+            "Unchanged frame (text selection / canvas drag) must stay pending"
+        )
+
+        // 3. Inter-display pass-through suppression across shared seams vs outer boundaries
+        let leftDisp = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        let rightDisp = CGRect(x: 1512, y: 0, width: 2560, height: 1440)
+        let bothDisplays = [leftDisp, rightDisp]
+        expect(
+            WindowDragMonitor.shouldSuppressSharedEdgeSnap(
+                pointerAX: CGPoint(x: 1502, y: 400),
+                velocityX: 920,
+                velocityY: 0,
+                displayFrameAX: leftDisp,
+                allDisplayFramesAX: bothDisplays
+            ),
+            "Fast rightward transit across shared seam into rightDisp must suppress outgoing edge snap"
+        )
+        expect(
+            !WindowDragMonitor.shouldSuppressSharedEdgeSnap(
+                pointerAX: CGPoint(x: 1502, y: 400),
+                velocityX: 120,
+                velocityY: 0,
+                displayFrameAX: leftDisp,
+                allDisplayFramesAX: bothDisplays
+            ),
+            "Slow deliberate approach near shared seam must allow edge snap"
+        )
+        expect(
+            !WindowDragMonitor.shouldSuppressSharedEdgeSnap(
+                pointerAX: CGPoint(x: 5, y: 400),
+                velocityX: -1100,
+                velocityY: 0,
+                displayFrameAX: leftDisp,
+                allDisplayFramesAX: bothDisplays
+            ),
+            "Fast transit against outer unshared left edge must NOT suppress snap"
+        )
+
+        // 4. Built-in template -> cell resolution & Maximize edge-to-edge behavior
+        let dropDispSig = DisplaySignature(localizedName: "Drop Test Display")
+        let dropDisp = ConnectedDisplay(
+            displayID: 91,
+            signature: dropDispSig,
+            frameAppKit: CGRect(x: 0, y: 0, width: 1440, height: 900),
+            visibleFrameAppKit: CGRect(x: 0, y: 0, width: 1440, height: 875),
+            frameAX: CGRect(x: 0, y: 0, width: 1440, height: 900),
+            usableAppKit: CGRect(x: 0, y: 0, width: 1440, height: 875),
+            usableAX: usable,
+            safeAreaInsets: SafeAreaInsets(),
+            isMain: true,
+            primaryScreenHeight: 900
+        )
+        let halvesLayout = DisplayLayoutConfig(
+            display: dropDispSig,
+            presetID: DisplayPresetKind.halves.rawValue,
+            division: DisplayPresetKind.halves.defaultDivision
+        )
+        for preset in DisplayPresetKind.builtInTemplates {
+            for spacing in [GapConfig(), GapConfig(outerMarginPoints: 12, innerGapPoints: 12)] {
+                let cells = SnapGeometry.resolveTemplateZones(
+                    preset: preset,
+                    usableAXRect: dropDisp.usableAX,
+                    primaryScreenHeight: 900,
+                    gaps: spacing
+                )
+                expect(
+                    cells.count == preset.zoneCount,
+                    "Template \(preset.label) must resolve to \(preset.zoneCount) cells (got \(cells.count))"
+                )
+                for (i, cell) in cells.enumerated() {
+                    expect(
+                        dropDisp.usableAX.insetBy(dx: -1, dy: -1).contains(cell.frameInAX),
+                        "Template \(preset.label) cell \(i) must stay inside usableAXRect"
+                    )
+                    for j in (i + 1)..<cells.count {
+                        let inter = cell.frameInAX.intersection(cells[j].frameInAX)
+                        expect(
+                            inter.isNull || inter.width <= 1 || inter.height <= 1,
+                            "Template \(preset.label) cells \(i) and \(j) must not overlap"
+                        )
+                    }
+                }
+            }
+        }
+        let maximizeWithSpacing = SnapGeometry.resolveUniversalOrBuiltInZone(
+            id: "universal:maximize",
+            usableAXRect: dropDisp.usableAX,
+            primaryScreenHeight: 900,
+            gaps: GapConfig(outerMarginPoints: 16, innerGapPoints: 16)
+        )
+        expect(
+            maximizeWithSpacing?.frameInAX == dropDisp.usableAX,
+            "Maximize must always fill usableAXRect edge-to-edge even with 16pt Tile Spacing"
+        )
+
+        // 5. Top edge always Maximizes and bottom edge stays inert (while bottom corners still snap)
+        let defaultDragCfg = DragSnapConfig()
+        let topEdgeDefault = SnapGeometry.hitTestEdgeOrCorner(
+            pointerAX: CGPoint(x: 720, y: 2),
+            screenFrameAX: dropDisp.frameAX,
+            usableAXRect: dropDisp.usableAX,
+            primaryScreenHeight: 900,
+            dragConfig: defaultDragCfg,
+            gaps: GapConfig(),
+            layout: halvesLayout
+        )
+        let bottomEdgeDefault = SnapGeometry.hitTestEdgeOrCorner(
+            pointerAX: CGPoint(x: 720, y: 896),
+            screenFrameAX: dropDisp.frameAX,
+            usableAXRect: dropDisp.usableAX,
+            primaryScreenHeight: 900,
+            dragConfig: defaultDragCfg,
+            gaps: GapConfig(),
+            layout: halvesLayout
+        )
+        let bottomRightCorner = SnapGeometry.hitTestEdgeOrCorner(
+            pointerAX: CGPoint(x: 1435, y: 895),
+            screenFrameAX: dropDisp.frameAX,
+            usableAXRect: dropDisp.usableAX,
+            primaryScreenHeight: 900,
+            dragConfig: defaultDragCfg,
+            gaps: GapConfig(),
+            layout: halvesLayout
+        )
+        expect(topEdgeDefault?.id == "universal:maximize", "Top edge drag must always target Maximize")
+        expect(bottomEdgeDefault == nil, "Bottom edge drag must always stay inert")
+        expect(bottomRightCorner?.id == "preset:bottom_right", "Bottom-right corner drag must still target Bottom Right")
+
+        let leftDockUsable = CGRect(x: 80, y: 25, width: 1360, height: 875)
+        let leftDockEdgeHit = SnapGeometry.hitTestEdgeOrCorner(
+            pointerAX: CGPoint(x: 84, y: 450),
+            screenFrameAX: dropDisp.frameAX,
+            usableAXRect: leftDockUsable,
+            primaryScreenHeight: 900,
+            dragConfig: defaultDragCfg,
+            gaps: GapConfig(),
+            layout: halvesLayout
+        )
+        expect(leftDockEdgeHit?.id == "cell:0:0", "Left Dock boundary drag must snap to left zone (got \(String(describing: leftDockEdgeHit?.id)))")
+
+        let rightDockUsable = CGRect(x: 0, y: 25, width: 1360, height: 875)
+        let rightDockEdgeHit = SnapGeometry.hitTestEdgeOrCorner(
+            pointerAX: CGPoint(x: 1354, y: 450),
+            screenFrameAX: dropDisp.frameAX,
+            usableAXRect: rightDockUsable,
+            primaryScreenHeight: 900,
+            dragConfig: defaultDragCfg,
+            gaps: GapConfig(),
+            layout: halvesLayout
+        )
+        expect(rightDockEdgeHit?.id == "cell:1:0", "Right Dock boundary drag must snap to right zone (got \(String(describing: rightDockEdgeHit?.id)))")
+
+        expect(
+            SnapGeometry.easeOutCubic(0) == 0
+                && SnapGeometry.easeOutCubic(1) == 1
+                && abs(SnapGeometry.easeOutCubic(0.5) - 0.875) < 0.0001,
+            "easeOutCubic must match cubic ease-out curve at 0, 0.5, and 1"
+        )
+        let animRectStart = CGRect(x: 0, y: 25, width: 720, height: 875)
+        let animRectEnd = CGRect(x: 0, y: 25, width: 1440, height: 875)
+        let animRectMid = SnapGeometry.interpolatedRect(from: animRectStart, to: animRectEnd, progress: 0.5)
+        expect(
+            SnapGeometry.interpolatedRect(from: animRectStart, to: animRectEnd, progress: 0) == animRectStart
+                && animRectMid.width == 1350
+                && SnapGeometry.interpolatedRect(from: animRectStart, to: animRectEnd, progress: 1) == animRectEnd,
+            "interpolatedRect must interpolate smoothly between start and end frames"
+        )
+        expect(
+            SnapGeometry.interpolatedSize(from: animRectStart.size, to: CGSize(width: 900, height: 600), progress: 1) == CGSize(width: 900, height: 600),
+            "interpolatedSize at progress 1.0 must reach target size"
+        )
+
+        // 6. Zone min-size pre-flight evaluation (large-min-size app vs shrinkable 340x328 Toolbox window)
+        let laptopUsable = CGRect(x: 0, y: 32, width: 1728, height: 1017)
+        let largeMinApp = CGSize(width: 820, height: 588)
+        let toolboxCompactMin = CGSize(width: 340, height: 328)
+        let halfTarget = CGRect(x: 8, y: 40, width: 852, height: 1001)
+        let thirdTarget = CGRect(x: 8, y: 40, width: 565, height: 1001)
+        let bottomRightQuarterTarget = CGRect(x: 868, y: 545, width: 852, height: 496)
+        expect(
+            SnapGeometry.evaluateMinSizeFit(targetFrameAX: halfTarget, minSize: largeMinApp, usableAXRect: laptopUsable) == nil,
+            "Half zone (852x1001) must fit 820x588 window without min-size warning"
+        )
+        expect(
+            SnapGeometry.evaluateMinSizeFit(targetFrameAX: thirdTarget, minSize: toolboxCompactMin, usableAXRect: laptopUsable) == nil
+                && SnapGeometry.evaluateMinSizeFit(targetFrameAX: bottomRightQuarterTarget, minSize: toolboxCompactMin, usableAXRect: laptopUsable) == nil,
+            "Toolbox 340x328 min size must fit cleanly in laptop thirds and quarters"
+        )
+        let thirdWarning = SnapGeometry.evaluateMinSizeFit(targetFrameAX: thirdTarget, minSize: largeMinApp, usableAXRect: laptopUsable)
+        expect(
+            thirdWarning != nil && thirdWarning!.exceedsWidth && !thirdWarning!.exceedsHeight && thirdWarning!.clampedFrameAX.width == 820,
+            "Third zone (565pt wide) must warn on width for 820x588 window (got \(String(describing: thirdWarning)))"
+        )
+        let quarterWarning = SnapGeometry.evaluateMinSizeFit(targetFrameAX: bottomRightQuarterTarget, minSize: largeMinApp, usableAXRect: laptopUsable)
+        expect(
+            quarterWarning != nil && !quarterWarning!.exceedsWidth && quarterWarning!.exceedsHeight && quarterWarning!.clampedFrameAX.height == 588 && quarterWarning!.clampedFrameAX.maxY <= laptopUsable.maxY,
+            "Quarter zone (496pt tall) must warn on height and clamp inside usable rect (got \(String(describing: quarterWarning)))"
+        )
+
+        // 7. Hold-to-preview keyboard state cycling and modifier release checks
+        let chord: [KeyModifier] = [.control, .option, .command]
+        var kbState = KeyboardPreviewState(target: .directional(.leftHalf), requiredModifiers: chord)
+        expect(kbState.directionalStep == 0, "Initial directional preview step must be 0")
+        kbState.apply(nextTarget: .directional(.leftHalf), requiredModifiers: chord, cycleEnabled: true)
+        expect(kbState.directionalStep == 1, "Second Left tap must advance preview step to 1 (2/3)")
+        kbState.apply(nextTarget: .directional(.leftHalf), requiredModifiers: chord, cycleEnabled: true)
+        expect(kbState.directionalStep == 2, "Third Left tap must advance preview step to 2 (1/3)")
+        kbState.apply(nextTarget: .directional(.leftHalf), requiredModifiers: chord, cycleEnabled: true)
+        expect(kbState.directionalStep == 0, "Fourth Left tap must wrap back to step 0 (1/2)")
+        kbState.apply(nextTarget: .directional(.rightHalf), requiredModifiers: chord, cycleEnabled: true)
+        expect(kbState.directionalAction == .rightHalf && kbState.directionalStep == 0, "Switching direction must reset step to 0")
+        kbState.apply(nextTarget: .preset(id: "universal:maximize", fallbackName: "Maximize"), requiredModifiers: chord, cycleEnabled: true)
+        expect(kbState.directionalAction == nil, "Preset target must clear directionalAction")
+        expect(
+            KeyboardPreviewState.modifiersStillHeld(chord, liveFlags: [.maskControl, .maskAlternate, .maskCommand]),
+            "modifiersStillHeld must return true while all chord modifiers remain held"
+        )
+        expect(
+            !KeyboardPreviewState.modifiersStillHeld(chord, liveFlags: [.maskControl, .maskCommand]),
+            "modifiersStillHeld must return false when any chord modifier is released"
+        )
+        expect(
+            !KeyboardPreviewState.modifiersStillHeld([], liveFlags: [.maskControl]),
+            "modifiersStillHeld must return false for unmodified shortcuts"
+        )
+        expect(
+            KeyboardSnapPreviewTap.isCancelKeyCode(UInt16(kVK_Delete))
+                && KeyboardSnapPreviewTap.isCancelKeyCode(UInt16(kVK_ForwardDelete))
+                && KeyboardSnapPreviewTap.isCancelKeyCode(UInt16(kVK_Escape))
+                && KeyboardSnapPreviewTap.isCancelKeyCode(UInt16(kVK_ANSI_KeypadClear)),
+            "KeyboardSnapPreviewTap.isCancelKeyCode must accept Delete, Forward Delete, Escape, and Keypad Clear"
+        )
+        expect(
+            !KeyboardSnapPreviewTap.isCancelKeyCode(UInt16(kVK_LeftArrow))
+                && !KeyboardSnapPreviewTap.isCancelKeyCode(UInt16(kVK_Return)),
+            "KeyboardSnapPreviewTap.isCancelKeyCode must ignore directional and snap keys"
+        )
+        expect(
+            WindowSnapperModule.shouldSuppressPostCancelRestore(now: 100.1, cancelUptime: 100.0)
+                && !WindowSnapperModule.shouldSuppressPostCancelRestore(now: 100.5, cancelUptime: 100.0)
+                && !WindowSnapperModule.shouldSuppressPostCancelRestore(now: 100.1, cancelUptime: 0),
+            "shouldSuppressPostCancelRestore must guard briefly after cancel and expire after grace interval"
+        )
+    }
+
+    private static func testWindowSnapperDisplayRegistryAndUndoStack() {
+        // 1. DisplayRegistry matching: exact UUID, identical-monitor collision fallback, topology matching
+        let builtin = DisplaySignature(
+            uuidString: "UUID-BUILTIN",
+            vendorNumber: 1552,
+            modelNumber: 40998,
+            serialNumber: 0,
+            localizedName: "Built-in Retina Display",
+            arrangementIndex: 0
+        )
+        let dellLeft = DisplaySignature(
+            uuidString: "UUID-DELL-1",
+            vendorNumber: 4268,
+            modelNumber: 16800,
+            serialNumber: 0,
+            localizedName: "DELL U2723QE",
+            arrangementIndex: 1
+        )
+        let dellRight = DisplaySignature(
+            uuidString: "UUID-DELL-2",
+            vendorNumber: 4268,
+            modelNumber: 16800,
+            serialNumber: 0,
+            localizedName: "DELL U2723QE",
+            arrangementIndex: 2
+        )
+
+        let candidates = [builtin, dellLeft, dellRight]
+        expect(DisplayRegistry.matchDisplay(for: dellRight, among: candidates) == dellRight, "Exact UUID match must resolve dellRight")
+
+        // Simulated Apple Silicon identical-monitor UUID swap after wake: UUID changed, slot/hardware matches
+        let dellRightSwapped = DisplaySignature(
+            uuidString: "UUID-NEW-SWAPPED",
+            vendorNumber: 4268,
+            modelNumber: 16800,
+            serialNumber: 0,
+            localizedName: "DELL U2723QE",
+            arrangementIndex: 2
+        )
+        expect(
+            DisplayRegistry.matchDisplay(for: dellRightSwapped, among: candidates) == dellRight,
+            "Hardware tuple + arrangementIndex fallback must resolve right-side identical Dell monitor"
+        )
+        expect(
+            DisplayRegistry.topologiesMatch(bound: [builtin, dellLeft], connected: [dellLeft, builtin]),
+            "topologiesMatch must match connected displays regardless of array order"
+        )
+        expect(
+            !DisplayRegistry.topologiesMatch(bound: [builtin, dellLeft, dellRight], connected: [builtin]),
+            "topologiesMatch must return false when external displays are unplugged"
+        )
+
+        // 2. Atomic Undo stack: single snap, grouped Profile batch, drag-away lookup, maxDepth eviction
+        var stack = WindowSnapUndoStack(maxDepth: 5)
+        let preDragRect = CGRect(x: 120, y: 120, width: 1000, height: 700)
+        let snappedRect = CGRect(x: 0, y: 32, width: 720, height: 900)
+        let item1 = WindowSnapUndoItem(
+            pid: 1001,
+            bundleIdentifier: "com.apple.Safari",
+            appName: "Safari",
+            windowTitle: "Docs",
+            initialFrameAX: preDragRect,
+            afterFrameAX: snappedRect,
+            zoneName: "Left Half"
+        )
+        stack.pushSingle(item1)
+
+        if let foundPreSnap = stack.latestPreSnapItem(forPID: 1001, windowTitle: "Docs", currentFrameAX: snappedRect) {
+            expect(foundPreSnap.initialFrameAX == preDragRect, "Pre-snap drag-away lookup must return initialFrameAX captured before drag")
+        } else {
+            failures.append("latestPreSnapItem failed to match recently snapped window")
+        }
+
+        let profA = WindowSnapUndoItem(
+            pid: 2001,
+            bundleIdentifier: "com.microsoft.VSCode",
+            appName: "VS Code",
+            windowTitle: "Toolbox",
+            initialFrameAX: CGRect(x: 50, y: 50, width: 900, height: 650),
+            afterFrameAX: CGRect(x: 0, y: 32, width: 1100, height: 900),
+            zoneName: "Left 2/3"
+        )
+        let profB = WindowSnapUndoItem(
+            pid: 2002,
+            bundleIdentifier: "com.apple.Terminal",
+            appName: "Terminal",
+            windowTitle: "zsh",
+            initialFrameAX: CGRect(x: 300, y: 200, width: 600, height: 400),
+            afterFrameAX: CGRect(x: 1108, y: 32, width: 540, height: 900),
+            zoneName: "Right 1/3"
+        )
+        stack.pushBatch(title: "Profile 'Coding'", isProfileBatch: true, items: [profA, profB])
+        expect(stack.batches.count == 2, "Stack should hold single + profile batch")
+
+        let poppedProfile = stack.popUndo()
+        expect(poppedProfile?.isProfileBatch == true && poppedProfile?.items.count == 2, "popUndo must pop entire multi-window profile batch atomically")
+        expect(stack.popUndo()?.items.first?.initialFrameAX == preDragRect, "Second popUndo must return Safari pre-drag frame")
+        expect(stack.popUndo() == nil, "Empty stack must return nil")
+
+        // Eviction at maxDepth = 5
+        for i in 0..<8 {
+            stack.pushSingle(WindowSnapUndoItem(
+                pid: Int32(3000 + i),
+                bundleIdentifier: "com.test.app",
+                appName: "App \(i)",
+                windowTitle: "W\(i)",
+                initialFrameAX: preDragRect,
+                afterFrameAX: snappedRect,
+                zoneName: "Zone \(i)"
+            ))
+        }
+        expect(stack.batches.count == 5, "Undo stack must enforce maxDepth=5 (got \(stack.batches.count))")
+        expect(stack.batches.first?.items.first?.zoneName == "Zone 7", "Newest batch must stay at top of undo stack")
+
+        // 3. PreSnapFrameStore: remembers original unsnapped size across chained snaps, origin shift & title change
+        var preSnapStore = PreSnapFrameStore()
+        let origRect = CGRect(x: 180, y: 140, width: 800, height: 600)
+        let leftHalfRect = CGRect(x: 0, y: 25, width: 720, height: 900)
+        let topMaxRect = CGRect(x: 0, y: 25, width: 1440, height: 900)
+        let testBox = AXElementBox(AXUIElementCreateApplication(4242), selfWindowNumber: 777)
+
+        let snap1Win = DiscoveredAXWindow(
+            pid: 4242,
+            windowNumber: 777,
+            bundleIdentifier: "com.apple.Safari",
+            appName: "Safari",
+            title: "Original Tab",
+            frameAX: origRect,
+            isFullscreen: false,
+            isMinimized: false,
+            elementBox: testBox
+        )
+        let effOrig1 = preSnapStore.lookupOriginalFrameIfSnapped(for: snap1Win) ?? snap1Win.frameAX
+        preSnapStore.recordSnap(window: snap1Win, preSnapFrameAX: effOrig1, appliedFrameAX: leftHalfRect)
+
+        // Chained second snap from Left Half -> Top Maximize must preserve original 800x600 size
+        let snap2Win = DiscoveredAXWindow(
+            pid: 4242,
+            windowNumber: 777,
+            bundleIdentifier: "com.apple.Safari",
+            appName: "Safari",
+            title: "Original Tab",
+            frameAX: leftHalfRect,
+            isFullscreen: false,
+            isMinimized: false,
+            elementBox: testBox
+        )
+        let effOrig2 = preSnapStore.lookupOriginalFrameIfSnapped(for: snap2Win) ?? snap2Win.frameAX
+        expect(effOrig2 == origRect, "Chained snap must preserve initial 800x600 frame (got \(effOrig2))")
+        preSnapStore.recordSnap(window: snap2Win, preSnapFrameAX: effOrig2, appliedFrameAX: topMaxRect)
+
+        // Dragging away: origin moved by 120pt and title changed, size still Top Maximize -> must return 800x600
+        let draggedAwayWin = DiscoveredAXWindow(
+            pid: 4242,
+            windowNumber: 777,
+            bundleIdentifier: "com.apple.Safari",
+            appName: "Safari",
+            title: "Renamed Tab",
+            frameAX: CGRect(x: topMaxRect.minX + 120, y: topMaxRect.minY + 120, width: topMaxRect.width, height: topMaxRect.height),
+            isFullscreen: false,
+            isMinimized: false,
+            elementBox: testBox
+        )
+        expect(
+            preSnapStore.lookupOriginalFrameIfSnapped(for: draggedAwayWin) == origRect,
+            "PreSnapFrameStore must look up original 800x600 frame despite 120pt origin shift and title change"
+        )
+
+        preSnapStore.clearRecord(for: draggedAwayWin)
+        expect(
+            preSnapStore.lookupOriginalFrameIfSnapped(for: draggedAwayWin) == nil,
+            "PreSnapFrameStore.clearRecord must clear restored window record"
+        )
+
+        // 4. Detached release origin alignment & idempotent hideDragOverlays
+        let usableArea = CGRect(x: 0, y: 25, width: 1440, height: 875)
+        let inBoundsFrame = CGRect(x: -100, y: 120, width: 800, height: 600)
+        expect(
+            WindowDragMonitor.detachedReleaseOriginIfNeeded(
+                liveFrameAX: inBoundsFrame,
+                releasePointAX: CGPoint(x: 420, y: 140),
+                horizontalGrabRatio: 0.5,
+                usableAXRect: usableArea
+            ) == nil,
+            "detachedReleaseOriginIfNeeded must return nil when pointer remains within restored window bounds"
+        )
+
+        let shrunkLeftFrame = CGRect(x: 0, y: 160, width: 600, height: 500)
+        let detachedAligned = WindowDragMonitor.detachedReleaseOriginIfNeeded(
+            liveFrameAX: shrunkLeftFrame,
+            releasePointAX: CGPoint(x: 1220, y: 180),
+            horizontalGrabRatio: 0.85,
+            usableAXRect: usableArea
+        )
+        expect(
+            detachedAligned == CGPoint(x: 710, y: 160),
+            "detachedReleaseOriginIfNeeded must re-center horizontally under detached cursor while preserving liveFrameAX.minY (got \(String(describing: detachedAligned)))"
+        )
+
+        ZoneOverlayController.shared.hideDragOverlays()
+        ZoneOverlayController.shared.hideDragOverlays()
+        expect(
+            !ZoneOverlayController.shared.anyPassivePanelIsVisibleForTesting(),
+            "Repeated hideDragOverlays must leave passive overlay panels hidden"
+        )
+    }
+
+    private static func testWindowSnapperConfigHotKeysProfilesAndLifecycle() {
+        // 1. Config defaults, migration from schema 10 -> 11, and lenient partial decode
+        let defaultCfg = ToolboxConfig()
+        expect(defaultCfg.schemaVersion == 11, "ToolboxConfig schemaVersion must be 11")
+        expect(!defaultCfg.windowSnapper.enabled, "WindowSnapper should default to disabled")
+        expect(
+            defaultCfg.windowSnapper.gaps.outerMarginPoints == 0 && defaultCfg.windowSnapper.gaps.innerGapPoints == 0,
+            "Default WindowSnapper Tile Spacing must be 0 pt flush"
+        )
+        expect(defaultCfg.windowSnapper.hotKeys == .toolboxSafe, "Default WindowSnapper hotkeys must use conflict-free Toolbox Safe (Ctrl+Opt+Cmd)")
+
+        let legacyV10 = "{\"schemaVersion\": 10, \"general\": {\"appEnabled\": true}}"
+        if let data = legacyV10.data(using: .utf8),
+           let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
+            expect(migrated.schemaVersion == 11, "v10 config must upgrade to schemaVersion 11")
+            expect(!migrated.windowSnapper.enabled, "Migrated windowSnapper.enabled must default to false")
+            expect(
+                migrated.windowSnapper.gaps.outerMarginPoints == 0 && migrated.windowSnapper.gaps.innerGapPoints == 0,
+                "Migrated outerMarginPoints and innerGapPoints must default to 0"
+            )
+        } else {
+            failures.append("Failed to decode legacy v10 config")
+        }
+
+        if let neutralData = "{\"useAccentTint\": false}".data(using: .utf8),
+           let neutralStyle = try? JSONDecoder().decode(OverlayStyleConfig.self, from: neutralData),
+           let indigoData = "{\"useAccentTint\": true}".data(using: .utf8),
+           let indigoStyle = try? JSONDecoder().decode(OverlayStyleConfig.self, from: indigoData),
+           let tealData = "{\"tintColor\": \"teal\", \"useAccentTint\": true}".data(using: .utf8),
+           let tealStyle = try? JSONDecoder().decode(OverlayStyleConfig.self, from: tealData) {
+            expect(neutralStyle.tintColor == .neutral, "Legacy useAccentTint=false must decode to .neutral")
+            expect(indigoStyle.tintColor == .indigo, "Legacy useAccentTint=true must decode to .indigo")
+            expect(tealStyle.tintColor == .teal, "Explicit tintColor=teal must decode to .teal")
+        } else {
+            failures.append("Failed to decode OverlayStyleConfig legacy/tintColor variants")
+        }
+        expect(
+            OverlayStyleConfig(fillOpacity: 0.0).fillOpacity == 0.0,
+            "OverlayStyleConfig must preserve 0% outline-only fill opacity"
+        )
+        expect(
+            OverlayStyleConfig(borderWidthPoints: 1.0).borderWidthPoints == 1.0
+                && OverlayStyleConfig(borderWidthPoints: 7.0).borderWidthPoints == 7.0
+                && OverlayStyleConfig(borderWidthPoints: 12.0).borderWidthPoints == 8.0,
+            "OverlayStyleConfig must preserve Thin (1 pt) through Bold (7 pt) border widths and clamp at 8 pt"
+        )
+        expect(
+            WindowAnimationSpeed.off.snapDuration == 0
+                && WindowAnimationSpeed.snappy.snapDuration <= 0.12
+                && WindowAnimationSpeed.smooth.snapDuration >= 0.20
+                && WindowAnimationSpeed.gentle.snapDuration >= 0.40
+                && WindowAnimationSpeed.snappy.snapDuration < WindowAnimationSpeed.smooth.snapDuration
+                && WindowAnimationSpeed.smooth.snapDuration < WindowAnimationSpeed.gentle.snapDuration,
+            "WindowAnimationSpeed durations must have a clear spread from off to gentle"
+        )
+        expect(
+            defaultCfg.windowSnapper.animateWindowTransitions && defaultCfg.windowSnapper.windowAnimationSpeed == .smooth,
+            "WindowSnapperConfig must default windowAnimationSpeed to .smooth"
+        )
+        if let offData = "{\"animateWindowTransitions\": false}".data(using: .utf8),
+           let offCfg = try? JSONDecoder().decode(WindowSnapperConfig.self, from: offData),
+           let snappyData = "{\"windowAnimationSpeed\": \"snappy\"}".data(using: .utf8),
+           let snappyCfg = try? JSONDecoder().decode(WindowSnapperConfig.self, from: snappyData) {
+            expect(offCfg.windowAnimationSpeed == .off && !offCfg.animateWindowTransitions, "Legacy animateWindowTransitions=false must decode to .off")
+            expect(snappyCfg.windowAnimationSpeed == .snappy && snappyCfg.animateWindowTransitions, "Explicit windowAnimationSpeed=snappy must decode cleanly")
+        } else {
+            failures.append("Failed to decode WindowAnimationSpeed legacy/explicit variants")
+        }
+
+        let legacyKeyJSON = """
+        {
+          "schemaVersion": 11,
+          "general": {
+            "menuBarModuleOrder": ["window_snapping", "clipboard"],
+            "menuBarHiddenModules": ["window_snapping"]
+          },
+          "windowSnapping": {
+            "enabled": true,
+            "gaps": { "outerMarginPoints": 14 }
+          }
+        }
+        """
+        if let data = legacyKeyJSON.data(using: .utf8),
+           let decodedLegacy = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
+            expect(decodedLegacy.windowSnapper.enabled, "Legacy windowSnapping key must migrate to windowSnapper.enabled")
+            expect(decodedLegacy.windowSnapper.gaps.outerMarginPoints == 14, "Legacy windowSnapping.gaps must migrate to windowSnapper.gaps")
+            expect(decodedLegacy.general.menuBarModuleOrder.first == "window_snapper", "Legacy menuBarModuleOrder must migrate window_snapping -> window_snapper")
+            expect(decodedLegacy.general.menuBarHiddenModules == ["window_snapper"], "Legacy menuBarHiddenModules must migrate window_snapping -> window_snapper")
+        } else {
+            failures.append("Failed to decode legacy windowSnapping JSON config")
+        }
+
+        var roundTripCfg = ToolboxConfig()
+        roundTripCfg.windowSnapper.enabled = true
+        roundTripCfg.windowSnapper.windowAnimationSpeed = .gentle
+        roundTripCfg.windowSnapper.gaps.outerMarginPoints = 12
+        roundTripCfg.windowSnapper.overlayStyle.fillOpacity = 0.0
+        roundTripCfg.windowSnapper.overlayStyle.borderWidthPoints = 3.0
+        roundTripCfg.windowSnapper.hotKeys = .rectangleStyle
+        roundTripCfg.windowSnapper.profiles = WorkspaceProfile.defaultTemplates
+        if let encoded = try? JSONEncoder().encode(roundTripCfg),
+           let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: encoded) {
+            expect(decoded.windowSnapper == roundTripCfg.windowSnapper, "WindowSnapperConfig Codable round-trip mismatch")
+        } else {
+            failures.append("WindowSnapperConfig Codable round-trip failed")
+        }
+
+        // 2. Sequoia native tiling preference parser & flash auto-hide regression check
+        let allOnConflict = SnapGeometry.evaluateSequoiaTilingConflict(
+            windowManagerDefaults: [
+                "EnableTilingByEdgeDrag": true,
+                "EnableTopTilingByEdgeDrag": true,
+                "EnableTilingOptionAccelerator": true
+            ],
+            macOSMajorVersion: 15
+        )
+        expect(
+            allOnConflict.hasConflictWithToolboxDrag && allOnConflict.activeSettingLabels.count == 3,
+            "All 3 Sequoia tiling options enabled must flag conflict with 3 active labels (got \(allOnConflict.activeSettingLabels.count))"
+        )
+        let optionOnlyConflict = SnapGeometry.evaluateSequoiaTilingConflict(
+            windowManagerDefaults: [
+                "EnableTilingByEdgeDrag": false,
+                "EnableTopTilingByEdgeDrag": false,
+                "EnableTilingOptionAccelerator": true
+            ],
+            macOSMajorVersion: 15
+        )
+        expect(
+            optionOnlyConflict.hasConflictWithToolboxDrag && optionOnlyConflict.activeSettingLabels.count == 1,
+            "Option-key-only Sequoia tiling must still flag conflict with 1 active label"
+        )
+        let appleDefaultConflict = SnapGeometry.evaluateSequoiaTilingConflict(
+            windowManagerDefaults: [:],
+            macOSMajorVersion: 15
+        )
+        expect(
+            appleDefaultConflict.hasConflictWithToolboxDrag && appleDefaultConflict.activeSettingLabels.count == 3,
+            "Missing keys on macOS 15+ must treat Apple defaults as enabled"
+        )
+        let allDisabledConflict = SnapGeometry.evaluateSequoiaTilingConflict(
+            windowManagerDefaults: [
+                "EnableTilingByEdgeDrag": false,
+                "EnableTopTilingByEdgeDrag": false,
+                "EnableTilingOptionAccelerator": false
+            ],
+            macOSMajorVersion: 15
+        )
+        expect(
+            !allDisabledConflict.hasConflictWithToolboxDrag && allDisabledConflict.activeSettingLabels.isEmpty,
+            "Disabled Sequoia tiling options must NOT flag conflict"
+        )
+        expect(
+            !SnapGeometry.evaluateSequoiaTilingConflict(
+                windowManagerDefaults: [
+                    "EnableTilingByEdgeDrag": true,
+                    "EnableTopTilingByEdgeDrag": true,
+                    "EnableTilingOptionAccelerator": true
+                ],
+                macOSMajorVersion: 14
+            ).hasConflictWithToolboxDrag,
+            "Pre-Sequoia macOS 14 must NOT flag Sequoia tiling conflict"
+        )
+
+        // 3. HotKeyManager conflict detection & one-click resolution across built-in actions, custom zones, and profiles
+        let hk = HotKeyManager.shared
+        var conflictCfg = ToolboxConfig()
+        conflictCfg.windowSnapper.enabled = true
+        conflictCfg.clipboard.enabled = true
+        conflictCfg.clipboard.shortcut = conflictCfg.windowSnapper.hotKeys.leftHalf
+        expect(
+            hk.inAppConflictDescription(
+                for: conflictCfg.windowSnapper.hotKeys.leftHalf,
+                excludingSourceID: WindowSnapperHotKeyAction.leftHalf.sourceID,
+                in: conflictCfg
+            ) != nil,
+            "HotKeyManager must detect collision between Window Snapper Left Half and Clipboard"
+        )
+        hk.clearConflictingShortcuts(
+            matching: conflictCfg.windowSnapper.hotKeys.leftHalf,
+            excludingSourceID: WindowSnapperHotKeyAction.leftHalf.sourceID,
+            in: &conflictCfg
+        )
+        expect(conflictCfg.clipboard.shortcut.isEmpty, "clearConflictingShortcuts must clear colliding Clipboard shortcut")
+        expect(!conflictCfg.windowSnapper.hotKeys.leftHalf.isEmpty, "clearConflictingShortcuts must preserve excluded Left Half shortcut")
+
+        // 4. ProfileEngine dry-run preview builder (Ready, Will launch, Already placed, Main display fallback)
+        let mainSig = DisplaySignature(uuidString: "MAIN-1", localizedName: "Built-in", arrangementIndex: 0)
+        let extSig = DisplaySignature(uuidString: "EXT-1", localizedName: "Studio Display", arrangementIndex: 1)
+        let mainDisp = ConnectedDisplay(
+            displayID: 1,
+            signature: mainSig,
+            frameAppKit: CGRect(x: 0, y: 0, width: 1440, height: 900),
+            visibleFrameAppKit: CGRect(x: 0, y: 0, width: 1440, height: 875),
+            frameAX: CGRect(x: 0, y: 0, width: 1440, height: 900),
+            usableAppKit: CGRect(x: 0, y: 0, width: 1440, height: 875),
+            usableAX: CGRect(x: 0, y: 25, width: 1440, height: 875),
+            safeAreaInsets: SafeAreaInsets(),
+            isMain: true,
+            primaryScreenHeight: 900
+        )
+
+        var wsCfg = WindowSnapperConfig()
+        let leftZone = SnapGeometry.resolveZones(
+            layout: nil,
+            usableAXRect: mainDisp.usableAX,
+            primaryScreenHeight: 900,
+            gaps: wsCfg.gaps
+        ).first!
+
+        let dummyElement = AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier)
+        let visibleWins = [
+            DiscoveredAXWindow(
+                pid: 10,
+                windowNumber: 1,
+                bundleIdentifier: "com.apple.Safari",
+                appName: "Safari",
+                title: "Docs",
+                frameAX: leftZone.frameInAX,
+                isFullscreen: false,
+                isMinimized: false,
+                elementBox: AXElementBox(dummyElement)
+            )
+        ]
+
+        let profile = WorkspaceProfile(
+            name: "Dry Run Test",
+            appRules: [
+                ProfileAppRule(bundleIdentifier: "com.apple.Safari", appName: "Safari", targetDisplay: .main, targetZoneID: "cell:0:0"),
+                ProfileAppRule(bundleIdentifier: "com.apple.Notes", appName: "Notes", targetDisplay: .main, targetZoneID: "cell:1:0", launchIfNotRunning: true),
+                ProfileAppRule(bundleIdentifier: "com.apple.Terminal", appName: "Terminal", targetDisplay: .specific(extSig), targetZoneID: "cell:1:0")
+            ],
+            disconnectedFallback: .moveToMainDisplay
+        )
+
+        let dryRun = ProfileEngine.buildDryRunPreview(
+            profile: profile,
+            displays: [mainDisp],
+            visibleWindows: visibleWins,
+            runningBundleIDs: ["com.apple.Safari"],
+            config: wsCfg
+        )
+        let mainItems = dryRun[mainDisp.displayID] ?? []
+        expect(mainItems.count == 3, "Dry-run preview should map all 3 rules onto main display (got \(mainItems.count))")
+        expect(mainItems.first { $0.appName == "Safari" }?.status == .alreadyPlaced, "Safari already inside target zone must report .alreadyPlaced")
+        expect(mainItems.first { $0.appName == "Notes" }?.status == .willLaunch, "Closed Notes with launchIfNotRunning must report .willLaunch")
+        expect(mainItems.first { $0.appName == "Terminal" }?.status == .mainDisplayFallback, "Unplugged external monitor rule must report .mainDisplayFallback")
+
+        let selfPID = ProcessInfo.processInfo.processIdentifier
+        let selfBox = AXElementBox(AXUIElementCreateApplication(selfPID))
+        let remoteBox = AXElementBox(AXUIElementCreateApplication(selfPID + 50000))
+        let taggedSelfBox = AXElementBox(AXUIElementCreateApplication(selfPID + 50000), selfWindowNumber: 42)
+        expect(selfBox.isSelfProcess, "AXElementBox targeting own PID must report isSelfProcess=true")
+        expect(taggedSelfBox.isSelfProcess, "AXElementBox with selfWindowNumber must report isSelfProcess=true")
+        expect(!remoteBox.isSelfProcess, "AXElementBox targeting foreign PID must report isSelfProcess=false")
+
+        final class OffMainResultBox: @unchecked Sendable {
+            var value: WindowSnapExecutionResult? = WindowSnapExecutionResult(
+                appliedFrameAX: .zero,
+                clampedForMinSize: false,
+                minSizeReported: nil
+            )
+        }
+        let offMainGuardGroup = DispatchGroup()
+        let offMainBox = OffMainResultBox()
+        offMainGuardGroup.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            offMainBox.value = AXWindowController.applyFrameSequenceSync(
+                to: selfBox.element,
+                currentFrameAX: CGRect(x: 0, y: 0, width: 800, height: 600),
+                targetFrameAX: mainDisp.usableAX,
+                usableAXRect: mainDisp.usableAX
+            )
+            offMainGuardGroup.leave()
+        }
+        offMainGuardGroup.wait()
+        expect(offMainBox.value == nil, "AXWindowController.applyFrameSequenceSync must refuse self-process AX calls off the main thread")
+
+        // 5. Module lifecycle & clean hotkey cleanup on stop()
+        let mod = ModuleRegistry.shared.windowSnapper
+        expect(ModuleRegistry.shared.module(withID: "window_snapper") === mod, "ModuleRegistry must resolve window_snapper")
+        expect(mod.category == .windowAndDock, "WindowSnapper category must be .windowAndDock")
+        expect(mod.requiresAccessibility, "WindowSnapper must require Accessibility")
+
+        var activeCfg = ToolboxConfig()
+        activeCfg.windowSnapper.enabled = true
+        activeCfg.windowSnapper.drag.enabled = false
+        activeCfg.windowSnapper.hotKeys = .unbound
+        activeCfg.windowSnapper.hotKeys.maximize = ShortcutSpec(key: "F18", modifiers: [.control, .option, .command])
+        mod.reload(with: activeCfg)
+        expect(mod.isRunning, "WindowSnapperModule must report isRunning=true when enabled")
+        expect(hk.isRegistered(name: WindowSnapperHotKeyAction.maximize.registrationName), "WindowSnapper hotkey must register when active")
+
+        mod.stop()
+        expect(!mod.isRunning, "WindowSnapperModule.stop() must clear isRunning")
+        expect(!hk.isRegistered(name: WindowSnapperHotKeyAction.maximize.registrationName), "WindowSnapperModule.stop() must unregister all window_snapper.* hotkeys")
+        expect(!mod.dragMonitor.isTapInstalled, "WindowSnapperModule.stop() must uninstall drag event tap")
+
+        // 6. Overlay flash auto-hide regression test (flashZone must dismiss overlay instead of leaving it stuck)
+        ZoneOverlayController.shared.hideAllPreviews()
+        ZoneOverlayController.shared.flashZone(
+            leftZone,
+            on: mainDisp,
+            style: OverlayStyleConfig(),
+            duration: 0.03
+        )
+        expect(
+            ZoneOverlayController.shared.anyPassivePanelIsVisibleForTesting(),
+            "flashZone must display passive overlay panel immediately"
+        )
+        RunLoop.main.run(until: Date().addingTimeInterval(0.09))
+        expect(
+            !ZoneOverlayController.shared.anyPassivePanelIsVisibleForTesting(),
+            "flashZone must auto-hide overlay panel after duration expires"
+        )
+        ZoneOverlayController.shared.hideAllPreviews()
+
+        // 7. Top Edge Panel slot config, legacy migration, picker hit-testing, app card sizing & glass pane state
+        var panelCfg = TopEdgePanelConfig()
+        expect(
+            panelCfg.slots == [.halves, .asymmetric, .asymmetricRight, .leftMainRightStack, .leftStackRightMain, .quarters],
+            "TopEdgePanelConfig defaultSlots must match Left [Side by Side, Focus Left, Focus Right] / Right [Left + 2 Right, 2 Left + Right, 4 Quarters]"
+        )
+        expect(
+            TopEdgePanelConfig.normalizedSlots([.halves, .custom, .halves, .thirds]) == [.halves, nil, nil, .thirds, nil, nil],
+            "normalizedSlots must reject .custom, deduplicate duplicates, and pad to 6 slots"
+        )
+        expect(
+            !panelCfg.setSlot(.thirds, at: -1) && !panelCfg.setSlot(.custom, at: 0),
+            "setSlot must reject out-of-bounds indices and .custom"
+        )
+        expect(!panelCfg.setSlot(.quarters, at: 0), "setSlot must prevent duplicate template across slots")
+        expect(panelCfg.setSlot(.thirds, at: 0) && panelCfg.slots[0] == .thirds, "setSlot must accept non-duplicate template")
+        expect(panelCfg.setSlot(nil, at: 4) && panelCfg.slots[4] == nil, "setSlot(nil) must clear a slot")
+
+        var swapCfg = TopEdgePanelConfig()
+        expect(!swapCfg.assignOrSwapSlot(.custom, at: 0) && !swapCfg.assignOrSwapSlot(.halves, at: 9), "assignOrSwapSlot must reject .custom and out-of-bounds index")
+        expect(swapCfg.assignOrSwapSlot(.thirds, at: 0) && swapCfg.slots[0] == .thirds, "assignOrSwapSlot must assign unassigned template")
+        expect(
+            swapCfg.assignOrSwapSlot(.quarters, at: 0)
+                && swapCfg.slots[0] == .quarters
+                && swapCfg.slots[5] == .thirds,
+            "assignOrSwapSlot must swap when selecting a template already assigned to another slot"
+        )
+        expect(
+            swapCfg.swapSlots(0, 5)
+                && swapCfg.slots[0] == .thirds
+                && swapCfg.slots[5] == .quarters,
+            "swapSlots must swap two valid slot indices"
+        )
+        expect(swapCfg.assignOrSwapSlot(nil, at: 4) && swapCfg.slots[4] == nil, "assignOrSwapSlot(nil) must hide slot")
+
+        let legacyTopDropJSON = """
+        {
+          "schemaVersion": 11,
+          "windowSnapper": {
+            "enabled": true,
+            "drag": {
+              "showTopEdgeDropBar": false,
+              "topDropBarTriggerDistancePoints": 44,
+              "snapOnTopEdgeMaximize": false
+            }
+          }
+        }
+        """
+        if let legacyData = legacyTopDropJSON.data(using: .utf8),
+           let migratedPanelCfg = try? JSONDecoder().decode(ToolboxConfig.self, from: legacyData) {
+            expect(!migratedPanelCfg.windowSnapper.topEdgePanel.enabled, "Legacy drag.showTopEdgeDropBar must migrate to topEdgePanel.enabled")
+            expect(migratedPanelCfg.windowSnapper.topEdgePanel.triggerDistancePoints == 44, "Legacy drag.topDropBarTriggerDistancePoints must migrate to topEdgePanel.triggerDistancePoints")
+            expect(migratedPanelCfg.windowSnapper.topEdgePanel.slots == TopEdgePanelConfig.defaultSlots, "Legacy config without slots must populate default TopEdgePanelConfig slots")
+        } else {
+            failures.append("Failed to decode legacy topEdgePanel migration JSON")
+        }
+
+        var customPanelRoundTrip = ToolboxConfig()
+        customPanelRoundTrip.windowSnapper.topEdgePanel = TopEdgePanelConfig(
+            enabled: true,
+            triggerDistancePoints: 12,
+            slots: [.halves, nil, .thirds, nil, nil, .quarters],
+            showAppCards: false,
+            showWindowThumbnails: false
+        )
+        if let encodedPanel = try? JSONEncoder().encode(customPanelRoundTrip),
+           let decodedPanel = try? JSONDecoder().decode(ToolboxConfig.self, from: encodedPanel) {
+            expect(decodedPanel.windowSnapper.topEdgePanel == customPanelRoundTrip.windowSnapper.topEdgePanel, "TopEdgePanelConfig Codable round-trip mismatch")
+        } else {
+            failures.append("TopEdgePanelConfig Codable round-trip failed")
+        }
+
+        let asymCfg = TopEdgePanelConfig(
+            slots: [.halves, .asymmetric, .thirds, .quarters, nil, nil]
+        )
+        let asymVisible = TopEdgePanelGeometry.visibleSlots(for: asymCfg)
+        expect(
+            asymVisible.count == 5 && asymVisible[3].kind == .maximize,
+            "visibleSlots must omit nil slots and place Maximize at index 3 (got \(asymVisible.count))"
+        )
+        let symLayout = TopEdgePanelGeometry.pickerLayout(
+            for: mainDisp,
+            slots: TopEdgePanelGeometry.visibleSlots(for: TopEdgePanelConfig())
+        )
+        let asymLayout = TopEdgePanelGeometry.pickerLayout(for: mainDisp, slots: asymVisible)
+        let maxOnlyLayout = TopEdgePanelGeometry.pickerLayout(
+            for: mainDisp,
+            slots: TopEdgePanelGeometry.visibleSlots(for: TopEdgePanelConfig(slots: [nil, nil, nil, nil, nil, nil]))
+        )
+        expect(
+            abs((symLayout.maximizeSlot?.frameAX.midX ?? 0) - mainDisp.usableAX.midX) <= 1.0
+                && abs((asymLayout.maximizeSlot?.frameAX.midX ?? 0) - mainDisp.usableAX.midX) <= 1.0
+                && abs((maxOnlyLayout.maximizeSlot?.frameAX.midX ?? 0) - mainDisp.usableAX.midX) <= 1.0,
+            "Maximize slot must stay centered on screen across symmetric, asymmetric, and Maximize-only slot configurations"
+        )
+        expect(
+            TopEdgePanelGeometry.isPointerInTriggerZone(
+                pointerAX: CGPoint(x: mainDisp.usableAX.midX, y: 40),
+                display: mainDisp,
+                layout: symLayout,
+                triggerDistancePoints: 24,
+                cornerBandPoints: 48
+            ) && !TopEdgePanelGeometry.isPointerInTriggerZone(
+                pointerAX: CGPoint(x: mainDisp.usableAX.midX, y: 40),
+                display: mainDisp,
+                layout: symLayout,
+                triggerDistancePoints: 12,
+                cornerBandPoints: 48
+            ) && TopEdgePanelGeometry.isPointerInTriggerZone(
+                pointerAX: CGPoint(x: mainDisp.usableAX.midX, y: 26),
+                display: mainDisp,
+                layout: symLayout,
+                triggerDistancePoints: 0,
+                cornerBandPoints: 48
+            ) && !TopEdgePanelGeometry.isPointerInTriggerZone(
+                pointerAX: CGPoint(x: 10, y: 10),
+                display: mainDisp,
+                layout: symLayout,
+                triggerDistancePoints: 24,
+                cornerBandPoints: 48
+            ),
+            "TopEdgePanelGeometry trigger zone must respect triggerDistancePoints and exclude corners"
+        )
+
+        // Direct mini-cell hit-testing inside Top Edge Panel picker tiles
+        guard let left2RightSlot = symLayout.slots.first(where: { $0.item.kind == .template(.leftMainRightStack) }),
+              let quartersSlot = symLayout.slots.first(where: { $0.item.kind == .template(.quarters) }),
+              let maximizeSlot = symLayout.maximizeSlot else {
+            expect(false, "Default picker layout must contain leftMainRightStack, quarters, and maximize slots")
+            return
+        }
+        expect(
+            left2RightSlot.cells.count == 3 && quartersSlot.cells.count == 4 && maximizeSlot.cells.count == 1,
+            "Picker slots must expose mini-cells matching each template cell count"
+        )
+        for cellIdx in 0..<3 {
+            let cellRect = left2RightSlot.cells[cellIdx].frameAX
+            let hit = TopEdgePanelGeometry.hitTestPickerCell(
+                pointerAX: CGPoint(x: cellRect.midX, y: cellRect.midY),
+                in: symLayout
+            )
+            expect(
+                hit?.slotKind == .template(.leftMainRightStack) && hit?.cellIndex == cellIdx,
+                "hitTestPickerCell must directly hit Left + 2 Right mini-cell \(cellIdx)"
+            )
+        }
+        for cellIdx in 0..<4 {
+            let cellRect = quartersSlot.cells[cellIdx].frameAX
+            let hit = TopEdgePanelGeometry.hitTestPickerCell(
+                pointerAX: CGPoint(x: cellRect.midX, y: cellRect.midY),
+                in: symLayout
+            )
+            expect(
+                hit?.slotKind == .template(.quarters) && hit?.cellIndex == cellIdx,
+                "hitTestPickerCell must directly hit 4 Quarters mini-cell \(cellIdx)"
+            )
+        }
+        // Gutter forgiveness between mini-cells inside the same template tile
+        let gutterPoint = CGPoint(
+            x: (quartersSlot.cells[0].frameAX.maxX + quartersSlot.cells[1].frameAX.minX) * 0.5,
+            y: quartersSlot.cells[0].frameAX.midY
+        )
+        let gutterHit = TopEdgePanelGeometry.hitTestPickerCell(pointerAX: gutterPoint, in: symLayout)
+        expect(
+            gutterHit?.slotKind == .template(.quarters) && gutterHit?.cellIndex != nil,
+            "hitTestPickerCell must snap gutter hover inside a template tile to the nearest mini-cell"
+        )
+        let maxHit = TopEdgePanelGeometry.hitTestPickerCell(
+            pointerAX: CGPoint(x: maximizeSlot.frameAX.midX, y: maximizeSlot.frameAX.midY),
+            in: symLayout
+        )
+        expect(
+            maxHit?.slotKind == .maximize && maxHit?.cellIndex == 0,
+            "hitTestPickerCell must hit Maximize slot center"
+        )
+        expect(
+            TopEdgePanelGeometry.hitTestPickerCell(pointerAX: CGPoint(x: 20, y: 400), in: symLayout) == nil,
+            "hitTestPickerCell must return nil outside the picker strip"
+        )
+
+        // Occupied split-cell filtering & z-order occlusion checks
+        let halvesZones = SnapGeometry.resolveTemplateZones(
+            preset: .halves,
+            usableAXRect: mainDisp.usableAX,
+            primaryScreenHeight: 900,
+            gaps: GapConfig()
+        )
+        let quartersZones = SnapGeometry.resolveTemplateZones(
+            preset: .quarters,
+            usableAXRect: mainDisp.usableAX,
+            primaryScreenHeight: 900,
+            gaps: GapConfig(outerMarginPoints: 8, innerGapPoints: 8)
+        )
+        let leftHalfOccupiedOnly = TopEdgePanelGeometry.unoccupiedRemainingCells(
+            allCells: halvesZones,
+            snappedCellID: halvesZones[0].id,
+            snappedWindowNumber: 300,
+            visibleWindowsFrontToBack: [
+                VisibleWindowFootprint(windowNumber: 301, ownerPID: 202, boundsAX: halvesZones[1].frameInAX)
+            ]
+        )
+        expect(
+            leftHalfOccupiedOnly.unoccupiedCells.isEmpty && leftHalfOccupiedOnly.occupiedWindowNumbers == [301],
+            "Attaching right half when another window already occupies right/opposite cell must skip glass panes"
+        )
+        let backgroundMaxDoesNotSuppress = TopEdgePanelGeometry.unoccupiedRemainingCells(
+            allCells: halvesZones,
+            snappedCellID: halvesZones[0].id,
+            snappedWindowNumber: 300,
+            visibleWindowsFrontToBack: [
+                VisibleWindowFootprint(windowNumber: 302, ownerPID: 203, boundsAX: mainDisp.usableAX)
+            ]
+        )
+        expect(
+            backgroundMaxDoesNotSuppress.unoccupiedCells.count == 1 && backgroundMaxDoesNotSuppress.occupiedWindowNumbers.isEmpty,
+            "A maximized background window behind a split must not mark a split cell occupied"
+        )
+        let occludedBehindFrontMax = TopEdgePanelGeometry.unoccupiedRemainingCells(
+            allCells: halvesZones,
+            snappedCellID: halvesZones[0].id,
+            snappedWindowNumber: 300,
+            visibleWindowsFrontToBack: [
+                VisibleWindowFootprint(windowNumber: 303, ownerPID: 204, boundsAX: mainDisp.usableAX),
+                VisibleWindowFootprint(windowNumber: 304, ownerPID: 205, boundsAX: halvesZones[1].frameInAX)
+            ]
+        )
+        expect(
+            occludedBehindFrontMax.unoccupiedCells.count == 1 && occludedBehindFrontMax.occupiedWindowNumbers.isEmpty,
+            "A front window covering most of the cell must stop the z-order scan so hidden split windows underneath do not count as occupying"
+        )
+        let quarterMixOccupancy = TopEdgePanelGeometry.unoccupiedRemainingCells(
+            allCells: quartersZones,
+            snappedCellID: quartersZones[0].id,
+            snappedWindowNumber: 306,
+            visibleWindowsFrontToBack: [
+                VisibleWindowFootprint(windowNumber: 305, ownerPID: 206, boundsAX: quartersZones[2].frameInAX),
+                VisibleWindowFootprint(windowNumber: 306, ownerPID: 201, boundsAX: quartersZones[0].frameInAX)
+            ]
+        )
+        expect(
+            quarterMixOccupancy.unoccupiedCells.map(\.id) == [quartersZones[1].id, quartersZones[3].id]
+                && quarterMixOccupancy.occupiedWindowNumbers == [305],
+            "4 Quarters with cell 0 snapped and cell 2 already occupied must open glass panes only for the 2 unoccupied cells"
+        )
+
+        // Multi-window same-app card retention, per-window filtering, footprint sizing & flow layout
+        let rawCards: [AppCardCandidate] = [
+            AppCardCandidate(pid: selfPID, bundleIdentifier: "app.toolbox.desktop", appName: "Toolbox", windowTitle: "Settings", windowNumber: 100, windowFrameAX: CGRect(x: 0, y: 25, width: 940, height: 660), isMinimized: false, zOrderRank: 0),
+            AppCardCandidate(pid: 201, bundleIdentifier: "com.apple.Safari", appName: "Safari", windowTitle: "Snapped Tab", windowNumber: 101, windowFrameAX: CGRect(x: 0, y: 25, width: 720, height: 875), isMinimized: false, zOrderRank: 1),
+            AppCardCandidate(pid: 201, bundleIdentifier: "com.apple.Safari", appName: "Safari", windowTitle: "Reference Docs", windowNumber: 102, windowFrameAX: CGRect(x: 100, y: 60, width: 1280, height: 800), isMinimized: false, zOrderRank: 2),
+            AppCardCandidate(pid: 201, bundleIdentifier: "com.apple.Safari", appName: "Safari", windowTitle: "Reference Docs", windowNumber: 102, windowFrameAX: CGRect(x: 100, y: 60, width: 1280, height: 800), isMinimized: false, zOrderRank: 3),
+            AppCardCandidate(pid: 204, bundleIdentifier: "com.apple.Notes", appName: "Notes", windowTitle: "Scratchpad", windowNumber: 104, windowFrameAX: CGRect(x: 200, y: 120, width: 820, height: 540), isMinimized: false, zOrderRank: 4),
+            AppCardCandidate(pid: 205, bundleIdentifier: "com.apple.Calculator", appName: "Calculator", windowTitle: "Basic", windowNumber: 105, windowFrameAX: CGRect(x: 40, y: 200, width: 320, height: 240), isMinimized: false, zOrderRank: 5)
+        ]
+        let dedupedCards = AppCardLayoutEngine.dedupeAndFilterCandidates(
+            rawCards,
+            excludingPIDs: [selfPID],
+            excludingWindowNumbers: [101]
+        )
+        expect(
+            dedupedCards.map(\.windowNumber) == [102, 104, 105],
+            "dedupeAndFilterCandidates must keep sibling Safari window 102 when window 101 is snapped, drop Toolbox & exact duplicate window 102, and sort descending by footprint"
+        )
+        let cardItems = AppCardLayoutEngine.cardSizes(for: dedupedCards, in: CGSize(width: 680, height: 420))
+        expect(cardItems.count == 3, "cardSizes must emit one item per deduped window candidate")
+        expect(
+            cardItems[0].area > cardItems[1].area && cardItems[1].area > cardItems[2].area,
+            "App card sizes must scale monotonically with window footprint (got \(cardItems.map { "\(Int($0.size.width))x\(Int($0.size.height))" }))"
+        )
+        let narrowRows = AppCardLayoutEngine.layoutRows(for: dedupedCards, in: CGSize(width: 280, height: 320), spacing: 12)
+        expect(!narrowRows.isEmpty, "layoutRows must emit rows for narrow panes")
+        for row in narrowRows {
+            let rowW = row.items.reduce(CGFloat(0)) { $0 + $1.size.width } + CGFloat(max(0, row.items.count - 1)) * 12
+            expect(rowW <= 280.1 && row.items.allSatisfy { $0.size.width >= 96 && $0.size.height >= 70 }, "Narrow pane card row must stay readable and within pane width")
+        }
+
+        // Glass pane state machine (per-window placement + sibling window retention)
+        let maxGlass = GlassPaneSessionState.begin(
+            remainingZones: [],
+            snappedWindowNumber: 101,
+            snappedCandidateID: rawCards[1].id,
+            selfPID: selfPID,
+            initialCandidates: rawCards
+        )
+        expect(!maxGlass.isActive, "Maximize snap with 0 remaining zones must not activate glass panes")
+
+        let twoPaneGlass = GlassPaneSessionState.begin(
+            remainingZones: [quartersZones[1]],
+            snappedWindowNumber: 101,
+            snappedCandidateID: rawCards[1].id,
+            selfPID: selfPID,
+            initialCandidates: rawCards
+        )
+        expect(
+            twoPaneGlass.isActive
+                && twoPaneGlass.activePaneID == quartersZones[1].id
+                && twoPaneGlass.candidates.contains(where: { $0.windowNumber == 102 }),
+            "Single remaining pane must activate automatically and still offer sibling windows of the snapped app"
+        )
+
+        var multiGlass = GlassPaneSessionState.begin(
+            remainingZones: Array(quartersZones.dropFirst()),
+            snappedWindowNumber: 101,
+            snappedCandidateID: rawCards[1].id,
+            occupiedWindowNumbers: [105],
+            selfPID: selfPID,
+            initialCandidates: rawCards
+        )
+        expect(
+            multiGlass.panes.count == 3
+                && multiGlass.activePaneID == nil
+                && multiGlass.candidates.map(\.windowNumber) == [102, 104],
+            "Multiple remaining panes must start with no active pane and exclude already-occupied window numbers"
+        )
+        let safariSecondCandidate = multiGlass.candidates[0]
+        multiGlass.activatePane(id: quartersZones[2].id)
+        expect(multiGlass.activePaneID == quartersZones[2].id, "activatePane must activate the clicked pane only")
+        multiGlass.completePlacement(paneID: quartersZones[2].id, placedCandidate: safariSecondCandidate)
+        expect(
+            multiGlass.panes.count == 2
+                && multiGlass.activePaneID == nil
+                && !multiGlass.candidates.contains(where: { $0.windowNumber == 102 }),
+            "Completing placement in a 3-pane session must leave 2 inactive panes and remove only the placed window"
+        )
+        let notesCandidate = multiGlass.candidates[0]
+        multiGlass.activatePane(id: quartersZones[1].id)
+        multiGlass.completePlacement(paneID: quartersZones[1].id, placedCandidate: notesCandidate)
+        expect(
+            multiGlass.panes.count == 1 && multiGlass.activePaneID == quartersZones[3].id,
+            "When 1 pane remains after placement, that sole remaining pane should activate"
+        )
+        multiGlass.completePlacement(paneID: quartersZones[3].id, placedCandidate: notesCandidate)
+        expect(!multiGlass.isActive, "Completing placement in the last pane must end the glass pane session")
+
+        // Trigger-area flash geometry & overlay auto-hide verification
+        let triggerRect24 = TopEdgePanelGeometry.triggerZoneRectAX(
+            for: mainDisp,
+            layout: symLayout,
+            triggerDistancePoints: 24,
+            cornerBandPoints: 48
+        )
+        let triggerRect0 = TopEdgePanelGeometry.triggerZoneRectAX(
+            for: mainDisp,
+            layout: symLayout,
+            triggerDistancePoints: 0,
+            cornerBandPoints: 48
+        )
+        expect(
+            abs(triggerRect24.minY - mainDisp.usableAX.minY) <= 0.1
+                && abs(triggerRect24.height - 24) <= 0.1
+                && abs(triggerRect0.height - 4) <= 0.1
+                && triggerRect24.width >= 96,
+            "TopEdgePanelGeometry.triggerZoneRectAX must anchor directly below the menu bar and clamp 0 pt to a 4 pt hairline"
+        )
+
+        let edgeRects20 = SnapGeometry.edgePullFlashRectsAX(
+            usableAX: mainDisp.usableAX,
+            edgeProximityPoints: 20,
+            cornerBandPoints: 48
+        )
+        let edgeRects0 = SnapGeometry.edgePullFlashRectsAX(
+            usableAX: mainDisp.usableAX,
+            edgeProximityPoints: 0,
+            cornerBandPoints: 48
+        )
+        expect(
+            edgeRects20.count == 3
+                && abs(edgeRects20[0].width - 20) <= 0.1
+                && abs(edgeRects20[1].maxX - mainDisp.usableAX.maxX) <= 0.1
+                && abs(edgeRects20[2].height - 20) <= 0.1
+                && abs(edgeRects0[0].width - 4) <= 0.1
+                && !edgeRects20[0].intersects(edgeRects20[2])
+                && !edgeRects20[1].intersects(edgeRects20[2])
+                && !edgeRects20[0].intersects(edgeRects20[1]),
+            "SnapGeometry.edgePullFlashRectsAX must emit non-overlapping Left, Right, and Top strips with hairline floor at 0 pt"
+        )
+
+        let cornerRects64 = SnapGeometry.cornerBandFlashRectsAX(usableAX: mainDisp.usableAX, cornerBandPoints: 64)
+        expect(
+            cornerRects64.count == 4
+                && cornerRects64.allSatisfy { abs($0.width - 64) <= 0.1 && abs($0.height - 64) <= 0.1 }
+                && abs(cornerRects64[0].minX - mainDisp.usableAX.minX) <= 0.1
+                && abs(cornerRects64[3].maxX - mainDisp.usableAX.maxX) <= 0.1
+                && abs(cornerRects64[3].maxY - mainDisp.usableAX.maxY) <= 0.1,
+            "SnapGeometry.cornerBandFlashRectsAX must emit four 64x64 corner squares inside usableAX"
+        )
+
+        ZoneOverlayController.shared.hideAllPreviews()
+        ZoneOverlayController.shared.flashTriggerZones(
+            on: [mainDisp],
+            regionsProvider: { _ in
+                (
+                    regions: [
+                        TriggerFlashRegion(
+                            id: "top-edge-test",
+                            frameAX: triggerRect24,
+                            isZeroHairline: false,
+                            cornerRadius: 8
+                        )
+                    ],
+                    bannerAnchorAX: CGPoint(x: triggerRect24.midX, y: triggerRect24.maxY + 20)
+                )
+            },
+            bannerText: "Top-Edge Trigger · 24 pt",
+            style: OverlayStyleConfig(),
+            holdDuration: 0.02,
+            fadeDuration: 0.04
+        )
+        expect(
+            ZoneOverlayController.shared.anyPassivePanelIsVisibleForTesting(),
+            "flashTriggerZones must show passive overlay panel immediately"
+        )
+        RunLoop.main.run(until: Date().addingTimeInterval(0.20))
+        expect(
+            !ZoneOverlayController.shared.anyPassivePanelIsVisibleForTesting(),
+            "flashTriggerZones must auto-hide overlay panel after hold and fade expire"
+        )
+        ZoneOverlayController.shared.hideAllPreviews()
+
+        // TopEdgeTriggerWidth Codable + trigger rect width ordering + descriptive preset labels
+        var widthRoundTrip = ToolboxConfig()
+        widthRoundTrip.windowSnapper.topEdgePanel.triggerWidth = .wide
+        if let encodedW = try? JSONEncoder().encode(widthRoundTrip),
+           let decodedW = try? JSONDecoder().decode(ToolboxConfig.self, from: encodedW) {
+            expect(
+                decodedW.windowSnapper.topEdgePanel.triggerWidth == .wide,
+                "TopEdgeTriggerWidth must round-trip through JSON Codable"
+            )
+        } else {
+            failures.append("TopEdgeTriggerWidth Codable round-trip failed")
+        }
+        if let legacyNoWidthData = legacyTopDropJSON.data(using: .utf8),
+           let decodedNoWidth = try? JSONDecoder().decode(ToolboxConfig.self, from: legacyNoWidthData) {
+            expect(
+                decodedNoWidth.windowSnapper.topEdgePanel.triggerWidth == .matchPanel,
+                "Missing triggerWidth in JSON must default to .matchPanel"
+            )
+        }
+
+        let compactRect = TopEdgePanelGeometry.triggerZoneRectAX(
+            for: mainDisp,
+            layout: symLayout,
+            triggerDistancePoints: 24,
+            cornerBandPoints: 48,
+            triggerWidth: .compact
+        )
+        let matchRect = TopEdgePanelGeometry.triggerZoneRectAX(
+            for: mainDisp,
+            layout: symLayout,
+            triggerDistancePoints: 24,
+            cornerBandPoints: 48,
+            triggerWidth: .matchPanel
+        )
+        let wideRect = TopEdgePanelGeometry.triggerZoneRectAX(
+            for: mainDisp,
+            layout: symLayout,
+            triggerDistancePoints: 24,
+            cornerBandPoints: 48,
+            triggerWidth: .wide
+        )
+        expect(
+            compactRect.width < matchRect.width
+                && matchRect.width < wideRect.width
+                && compactRect.minX >= mainDisp.usableAX.minX + 48 - 0.1
+                && wideRect.maxX <= mainDisp.usableAX.maxX - 48 + 0.1,
+            "TopEdgeTriggerWidth must order compact < matchPanel < wide while staying clear of corner bands"
+        )
+
+        expect(
+            TopEdgePanelConfig.triggerDistanceLabel(for: 0) == "Edge Only"
+                && TopEdgePanelConfig.triggerDistanceLabel(for: 12) == "Close"
+                && TopEdgePanelConfig.triggerDistanceLabel(for: 24) == "Medium"
+                && TopEdgePanelConfig.triggerDistanceLabel(for: 44) == "Generous"
+                && DragSnapConfig.edgeProximityLabel(for: 0) == "Touch Edge"
+                && DragSnapConfig.edgeProximityLabel(for: 8) == "Tight"
+                && DragSnapConfig.edgeProximityLabel(for: 12) == "Medium"
+                && DragSnapConfig.edgeProximityLabel(for: 20) == "Wide"
+                && DragSnapConfig.cornerBandLabel(for: 32) == "Small"
+                && DragSnapConfig.cornerBandLabel(for: 48) == "Medium"
+                && DragSnapConfig.cornerBandLabel(for: 64) == "Large"
+                && DragSnapConfig.cornerBandLabel(for: 80) == "Extra Large"
+                && GapConfig.spacingPresetLabel(for: 0) == "Flush"
+                && GapConfig.spacingPresetLabel(for: 4) == "Tight"
+                && GapConfig.spacingPresetLabel(for: 8) == "Cozy"
+                && GapConfig.spacingPresetLabel(for: 12) == "Relaxed"
+                && GapConfig.spacingPresetLabel(for: 16) == "Spacious",
+            "Descriptive spacing and trigger preset labels must map cleanly across all tiers"
+        )
+
+        wsCfg.enabled = false
+        _ = wsCfg
     }
 }

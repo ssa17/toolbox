@@ -65,20 +65,34 @@ struct ModuleDetailContainerView: View {
                         }
 
                         VStack(alignment: .leading, spacing: 4) {
-                            HStack(spacing: 8) {
-                                Text(module.name)
-                                    .font(.title3.bold())
-                                StatusBadge(
-                                    text: module.statusText(
-                                        in: configManager.config,
-                                        accessibilityGranted: permissions.isAccessibilityGranted
-                                    ),
-                                    color: statusBadgeColor
-                                )
+                            ViewThatFits(in: .horizontal) {
+                                HStack(spacing: 8) {
+                                    Text(module.name)
+                                        .font(.title3.bold())
+                                    StatusBadge(
+                                        text: module.statusText(
+                                            in: configManager.config,
+                                            accessibilityGranted: permissions.isAccessibilityGranted
+                                        ),
+                                        color: statusBadgeColor
+                                    )
+                                }
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(module.name)
+                                        .font(.title3.bold())
+                                    StatusBadge(
+                                        text: module.statusText(
+                                            in: configManager.config,
+                                            accessibilityGranted: permissions.isAccessibilityGranted
+                                        ),
+                                        color: statusBadgeColor
+                                    )
+                                }
                             }
                             Text(module.tagline)
                                 .font(.callout)
                                 .foregroundStyle(Color.primary.opacity(0.74))
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                         .textSelection(.enabled)
 

@@ -501,6 +501,8 @@ struct MenuBarPopoverView: View {
     @ObservedObject private var clipboard = ModuleRegistry.shared.clipboard
     @ObservedObject private var portKiller = ModuleRegistry.shared.portKiller
     @ObservedObject private var callControls = ModuleRegistry.shared.callControls
+    @ObservedObject private var windowSnapper = ModuleRegistry.shared.windowSnapper
+    @ObservedObject private var overlayController = ZoneOverlayController.shared
     @ObservedObject private var updateManager = UpdateManager.shared
     @StateObject private var headerHover = MenuBarHeaderHoverState()
 
@@ -669,6 +671,9 @@ struct MenuBarPopoverView: View {
             let showQuickCommands = configManager.config.general.showQuickCommandsInMenuBar
                 && configManager.config.customCommands.enabled
                 && !activeCommands.isEmpty
+            let activeProfiles = configManager.config.windowSnapper.profiles
+            let showWindowProfiles = configManager.config.windowSnapper.enabled
+                && !activeProfiles.isEmpty
 
             if !visibleModules.isEmpty {
                 Divider()
@@ -682,7 +687,7 @@ struct MenuBarPopoverView: View {
                 .disabled(!isAppEnabled)
             }
 
-            if showQuickActions || showQuickCommands {
+            if showQuickActions || showQuickCommands || showWindowProfiles {
                 Divider()
 
                 VStack(alignment: .leading, spacing: 12) {
@@ -888,12 +893,72 @@ struct MenuBarPopoverView: View {
                             }
                         }
                     }
+
+                    if showWindowProfiles {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("Workspace Profiles")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
+
+                            ForEach(activeProfiles.prefix(4)) { profile in
+                                let isActiveProfile = configManager.config.windowSnapper.activeProfileID == profile.id
+                                let isDryRun = overlayController.isDryRunPreviewActive && overlayController.activeDryRunProfileID == profile.id
+
+                                HStack(spacing: 6) {
+                                    Button {
+                                        onClosePopover(false)
+                                        windowSnapper.applyProfile(profile)
+                                    } label: {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: profile.symbolName)
+                                                .font(.caption)
+                                                .foregroundStyle(ToolboxTheme.readableAccentText(for: .indigo))
+                                            Text(profile.name)
+                                                .font(.caption.weight(isActiveProfile ? .semibold : .regular))
+                                                .lineLimit(1)
+                                            if isActiveProfile {
+                                                Circle()
+                                                    .fill(Color.green)
+                                                    .frame(width: 5, height: 5)
+                                            }
+                                            Spacer()
+                                            if !profile.shortcut.isEmpty {
+                                                ShortcutPill(text: profile.shortcut.displayString)
+                                            }
+                                        }
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 5)
+                                        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .focusEffectDisabled()
+                                    .pointerCursor(isAppEnabled)
+                                    .menuRowHover(cornerRadius: 6)
+
+                                    Button {
+                                        windowSnapper.previewProfile(profile)
+                                    } label: {
+                                        Image(systemName: "eye")
+                                            .font(.caption.weight(.medium))
+                                            .foregroundStyle(isDryRun ? ToolboxTheme.readableAccentText(for: .indigo) : .secondary)
+                                            .frame(width: 26, height: 24)
+                                            .background(Color.primary.opacity(isDryRun ? 0.16 : 0.05), in: RoundedRectangle(cornerRadius: 6))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .focusEffectDisabled()
+                                    .help("Preview profile for 3s")
+                                    .pointerCursor(isAppEnabled)
+                                    .menuRowHover(cornerRadius: 6)
+                                }
+                            }
+                        }
+                    }
                 }
                 .opacity(isAppEnabled ? 1.0 : 0.55)
                 .disabled(!isAppEnabled)
             }
 
-            if visibleModules.isEmpty && !showQuickActions && !showQuickCommands {
+            if visibleModules.isEmpty && !showQuickActions && !showQuickCommands && !showWindowProfiles {
                 Divider()
 
                 Button {

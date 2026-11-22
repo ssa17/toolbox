@@ -124,6 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ModuleRegistry.shared.cleanLock.stop()
         ModuleRegistry.shared.callControls.stop()
         ModuleRegistry.shared.screenOCR.stop()
+        ModuleRegistry.shared.windowSnapper.stop()
     }
 
     private func applyGeneralPreferences(_ general: GeneralConfig) {

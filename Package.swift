@@ -31,6 +31,7 @@ let package = Package(
                 .linkedFramework("ImageIO"),
                 .linkedFramework("Vision"),
                 .linkedFramework("IOKit"),
+                .linkedFramework("ScreenCaptureKit"),
                 .linkedFramework("ServiceManagement"),
                 .unsafeFlags([
                     "-F", sparkleDir,

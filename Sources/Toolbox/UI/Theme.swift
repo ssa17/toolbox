@@ -1248,10 +1248,11 @@ private struct SettingRowLayout: Layout {
                 anchor: .topLeading,
                 proposal: ProposedViewSize(width: bounds.width, height: labelSize.height)
             )
+            let clampedControlWidth = min(controlSize.width, bounds.width)
             control.place(
                 at: CGPoint(x: bounds.maxX, y: bounds.maxY),
                 anchor: .bottomTrailing,
-                proposal: ProposedViewSize(width: controlSize.width, height: controlSize.height)
+                proposal: ProposedViewSize(width: clampedControlWidth, height: controlSize.height)
             )
         }
     }
