@@ -3,24 +3,29 @@
     <channel>
         <title>Toolbox</title>
         <item>
-            <title>1.5</title>
-            <pubDate>Thu, 19 Nov 2026 00:24:25 +0000</pubDate>
-            <sparkle:version>1.5</sparkle:version>
-            <sparkle:shortVersionString>1.5</sparkle:shortVersionString>
+            <title>1.6</title>
+            <pubDate>Sun, 22 Nov 2026 23:05:23 +0000</pubDate>
+            <sparkle:version>1.6</sparkle:version>
+            <sparkle:shortVersionString>1.6</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <description sparkle:format="markdown"><![CDATA[
+### Added
+- **Window Snapper** — snap windows with magnetic edges & corners, a Top Edge Panel with frosted glass panes for filling empty slots, customizable per-display grids with a 1:1 on-screen divider editor, smooth window glide animations, hold-to-preview keyboard shortcuts (plus a Rectangle-style preset), 1:1 on-screen previews on style & trigger controls, and one-click Workspace Profiles with shortcut toggle-restore and display auto-apply
+- **Appearance (Text Size)** — choose **Small**, **Standard**, **Large**, or **Extra Large** text in Settings to scale typography live across windows, popovers, the JSON editor, and HUDs
+- **Compact Window & Navigation** — shrink Toolbox down to `340×300 pt` with an auto-collapsing sidebar, switch between **Compact** and **Detailed** Dashboard cards, and navigate back/forward via mouse buttons, swipes, toolbar arrows, or `⌘ [` / `⌘ ]`
+- **Clipboard & Keyboard Lock** — drag or press `⌘ ↑` / `⌘ ↓` to reorder pinned clipboard items (driving `⌘ 1–9` quick paste), and lock input for up to **5 minutes** in Keyboard Lock
+
 ### Changed
-- **Software Update** — the update dialog is wider and shows release notes with proper formatting (group headings, bullets, and bold lead-ins) instead of raw Markdown, and the Dashboard banner and status-bar menu now show the download size when a new release is detected
-- **Main Window** — increased the default Dashboard window size so the 3-column module grid and detail pages fit comfortably on open
-- **Support Toolbox** — moved support links to a dedicated **Support Toolbox** sidebar page with prominent **Sponsor on GitHub** and **Support on Ko-fi** cards, a **Free Ways to Help** card grid, a high-five confetti button, and an honor-system **Supporter ♥** badge (shown in the sidebar, Settings, window titlebar, and a custom gold-accented Dock icon)
+- **Visual & Readability Refresh** — consistent dark theme across every Mac, higher-contrast cards, switches, badges, and buttons, larger HUD toasts, subtle press feedback, and clearer minimum text sizes
+- **Status Bar Menu & Popovers** — upgraded frosted popover backdrops with hover highlights, smooth section collapse/expand keeping switches anchored, Clipboard split into **Pinned** and **Recent** sections, and redesigned Keep Awake, Keyboard Lock, Call Controls, Scroll Direction, and Settings layouts
 
 ### Fixed
-- **Dock Click to Minimize** — Dock icons can be dragged to reorganise again; the click action now waits for the release and yields to the Dock whenever you drag, instead of firing on press and swallowing the gesture
-- **Accessibility & Permission Flow** — fixed a crash when closing the Accessibility explanation sheet, a Mac-wide input freeze when revoking Accessibility in System Settings, and a duplicate Accessibility prompt at startup; permission state no longer goes stale after changes in System Settings, and the Dashboard setup banner walks through Accessibility → Screen Recording step by step and returns you to Toolbox
+- **Window Snapper** — eliminated false unsnaps while selecting text, stabilized Electron/custom-titlebar drags and single-resize unsnap restoration, prevented accidental Top Edge Panel opens when dragging down from Maximize, and ensured `⌫`/`Esc` cleanly cancels keyboard snap previews
+- **Status Bar Menu & Modules** — kept the menu-bar popover from pulling Dashboard forward or jumping height when paused, fixed case-insensitive Dock exclusions, disabled actions with clear hints while paused, and cleaned up Shortcut Recorder focus handling
 
 ]]></description>
-            <enclosure url="https://github.com/ssa17/toolbox/releases/download/v1.5/Toolbox-1.5.zip" length="4999121" type="application/octet-stream" sparkle:edSignature="yzgiTN55Ul8bh7sesnTJ6msXTwrimT8Ve5EgLffXVWAWZVrz6JnDhrilcWgIIK/RQLom8rPNyIPSVyGR9VoPAw=="/>
+            <enclosure url="https://github.com/ssa17/toolbox/releases/download/v1.6/Toolbox-1.6.zip" length="7296462" type="application/octet-stream" sparkle:edSignature="bR74n8/WrN5cnc88bvBZqNbbF9y5AVvmDIGdNZoZY+eSkNXeCc2VqLiwwnKaI1Kuhc5kWv6AmN0t+l/gQ1KoCQ=="/>
         </item>
     </channel>
 </rss>
