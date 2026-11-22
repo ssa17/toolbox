@@ -51,7 +51,7 @@ enum SnapshotRunner {
         )
         saveViewSnapshot(
             MainWindowController.makeRootView(navState: navDashboard),
-            size: NSSize(width: 1140, height: 760),
+            size: NSSize(width: 1140, height: 870),
             to: outURL.appendingPathComponent("dashboard_active_default_width.png")
         )
         saveViewSnapshot(

@@ -62,3 +62,4 @@ Every bug fix or behavior change must add or extend an assertion in `Sources/Too
 - Master ON/OFF pause & resume lifecycle + instant zero-animation popover (`testMasterTogglePauseResumeAndInstantPopover`)
 - Clipboard capture, deduplication, concealed types, pinning, and non-activating `NSPanel` behavior
 - `pmset` parsing and `KeepAwakeModule` activation/deactivation
+- Window Snapper geometry, drag lifecycle, style/trigger previews, and divider editor assertions in `SelfTestRunner.swift`

@@ -121,8 +121,8 @@ This unified renderer powers **four visual preview modes**:
 1. **Edge & Corner Magnetic Pull:**
    - Moving the cursor within `edgeProximityPoints` (default `12 pt`; `0` requires touching the screen edge) of a display edge or corner shows the Single-Zone Drag Preview:
      - Left / Right edges → Left Half / Right Half (or leftmost / rightmost column of the display's active layout).
-     - Top edge → Maximize (default), or Top Half when **Top / Bottom Halves** is enabled in *Advanced & Appearance*.
-     - Bottom edge → Bottom Half when **Top / Bottom Halves** is enabled in *Advanced & Appearance*.
+     - Top edge → Maximize (edge-to-edge usable area).
+     - Bottom edge → Left free for the Dock.
      - Top-Left / Top-Right / Bottom-Left / Bottom-Right corners (configurable corner band `default 48 pt`) → Quadrants.
 2. **Modifier-Hold Full-Grid Overlay (`⇧` + Drag):**
    - Press and hold the Grid Modifier (`⇧` by default; `flagsChanged` updates the overlay immediately even mid-drag) to illuminate all zones on the cursor's display with multi-zone spanning.
@@ -155,7 +155,7 @@ Following [Toolbox Feature Roadmap](../feature-roadmap.md) Checklist #4, default
 | Top Half *(repeat cycles 1/2 → 2/3 → 1/3)* | `⌃ ⌥ ⌘ ↑` | `⌃ ⌥ ↑` | — |
 | Bottom Half *(repeat cycles 1/2 → 2/3 → 1/3)* | `⌃ ⌥ ⌘ ↓` | `⌃ ⌥ ↓` | — |
 | Top-Left / Top-Right / Bottom-Left / Bottom-Right | `⌃ ⌥ ⌘ 1–4` | `⌃ ⌥ U / I / J / K` | Quadrants |
-| Maximize (Fill Usable Area) | `⌃ ⌥ ⌘ ↩` (`"return"`) | `⌃ ⌥ ↩` | Respects outer margins |
+| Maximize (Fill Usable Area) | `⌃ ⌥ ⌘ ↩` (`"return"`) | `⌃ ⌥ ↩` | Fills usable area edge-to-edge |
 | Center | `⌃ ⌥ ⌘ C` | `⌃ ⌥ C` | Configurable fraction |
 | Move to Previous / Next Display | `⌃ ⌥ ⌘ [` / `⌃ ⌥ ⌘ ]` | `⌃ ⌥ ⌘ ←` / `⌃ ⌥ ⌘ →` | Preserves normalized zone |
 | Restore Pre-Snap Size (Un-snap) | `⌃ ⌥ ⌘ ⌫` (`"delete"`) | `⌃ ⌥ ⌫` | Also cancels active keyboard preview |

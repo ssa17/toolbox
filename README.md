@@ -1,6 +1,6 @@
 # Toolbox: macOS quality-of-life utilities
 
-Lightweight, native macOS utilities for Dock window toggling, clipboard history, port management, screen OCR (text & QR), call mic/video controls, keyboard-lock mode, display sleep control, independent mouse scroll direction, and global shortcuts.
+Lightweight, native macOS utilities for Dock window toggling, clipboard history, port management, screen OCR (text & QR), call mic/video controls, window snapping & workspace profiles, keyboard-lock mode, display sleep control, independent mouse scroll direction, and global shortcuts.
 
 **[Download .dmg](https://github.com/ssa17/toolbox/releases/latest/download/Toolbox.dmg)** · [Sponsor on GitHub](https://github.com/sponsors/ssa17) · [Support on Ko-fi](https://ko-fi.com/ssa17)
 
@@ -18,21 +18,31 @@ Toolbox checks for updates automatically via Sparkle and installs them in place.
 
 ## What you get
 
+- **Window Snapper (`⌃ ⌥ ⌘ ←/→/↑/↓`):** snap windows cleanly with magnetic edges & corners (edge-to-edge Maximize, Dock-safe bottom edge), `⇧`-hold full-grid overlays with seam-proximity spanning, a Windows 11-style **Top Edge Panel** with **frosted glass panes** (live window thumbnails when Screen Recording is granted or app icon + name fallback), smooth window glide animations, hold-to-preview keyboard shortcuts (plus a Rectangle-style preset), per-display templates & a 1:1 on-screen divider editor with live percentages, 1:1 on-screen previews when adjusting style & trigger presets, and one-click **Workspace Profiles** with shortcut toggle-restore and display-topology auto-apply.
 - **Dock Click to Minimize:** click the active app's Dock icon to hide its windows cleanly (Windows taskbar style, without cluttering the Dock's minimized tray) and click again to bring them straight back. Supports send-behind, minimize-tray modes, single/double-click, and per-app exclusions.
-- **Clipboard History (`⌘ ⌥ V`):** searchable floating clipboard dropdown with keyboard navigation (`↑`/`↓`/`⏎`/`Esc`), `⌘ 1`–`⌘ 9` quick-paste, full-text preview, pinning with custom titles, password-manager filtering, customizable history limits (`1–200`), optional auto-paste, and optional persistence across restarts.
+- **Clipboard History (`⌘ ⌥ V`):** searchable floating clipboard dropdown split into **Pinned** and **Recent** sections with keyboard navigation (`↑`/`↓`/`⏎`/`Esc`), drag or `⌘ ↑`/`⌘ ↓` pin reordering driving `⌘ 1`–`⌘ 9` quick-paste, full-text preview, multiline counts, relative timestamps, password-manager filtering, customizable history limits (`1–200`), optional auto-paste, and optional persistence across restarts.
 - **Port Killer (`⌃ ⌥ ⌘ P`):** inspect active listening TCP ports, pin favorite dev ports, and stop or force-kill stuck servers in one click.
 - **Screen OCR (`⇧ ⌘ 0`):** drag-select any area of the screen to copy unselectable text or decode QR/barcodes with on-device Apple Vision OCR — fast/accurate modes, line-break and toast options, plus a recent-captures list in Settings.
-- **Keep Awake (`⌘ ⌥ K`):** reads your Mac's `pmset` display sleep timeout and nudges the cursor just before sleep and/or holds an IOKit power assertion for quick timers (`15m`, `30m`, `1h`, `2h`) or indefinitely.
-- **Keyboard Lock:** temporarily lock your keyboard (including media, volume, and brightness keys) and mouse/trackpad input for `10s`–`3m` with a center-screen countdown and `Hold ⌃ ⌥ ⌘ Esc (3s)` emergency unlock.
+- **Keep Awake (`⌘ ⌥ K`):** reads your Mac's `pmset` display sleep timeout and nudges the cursor just before sleep and/or holds an IOKit power assertion for quick timers (`15m`, `30m`, `1h`, `2h`, `4h`) or indefinitely.
+- **Keyboard Lock:** temporarily lock your keyboard (including media, volume, and brightness keys) and mouse/trackpad input for `10s`–`5m` with a center-screen countdown and `Hold ⌃ ⌥ ⌘ Esc (3s)` emergency unlock.
 - **Custom Commands:** bind global hotkeys to shell commands, applications, URLs, or text snippets with optional toast feedback.
 - **Scroll Direction:** invert classic notched mouse wheels while leaving Apple trackpads and smooth-scroll mice on your system setting.
 - **Call Controls (`⌃ ⌥ ⌘ M` / `⌃ ⌥ ⌘ V`):** unified global Mic and Video shortcuts that mute your system microphone and control FaceTime, Microsoft Teams, Zoom, Slack, Google Meet, Discord, or custom call apps, paired with a draggable floating Mic/Camera status pill, output device cycling, and auto-mute while typing.
-- **Menu-bar item & dropdown:** pause or resume all modules at once, toggle and reorder which features or quick actions appear in the menu bar, check Clipboard count or Ports, toggle Keep Awake, and open Dashboard or Settings in one click.
+- **Menu-bar item & dropdown:** frosted high-contrast popover with hover highlights, quick apply/preview for **Workspace Profiles**, smooth section expand/collapse, pause/resume toggle, customizable & reorderable modules/quick actions, and automatic background Sparkle update checks.
+- **Responsive Window, Navigation & Text Size:** shrinks smoothly down to `340×300 pt` with an auto-collapsing sidebar, **Compact / Detailed** Dashboard cards, back/forward history navigation (`⌘ [` / `⌘ ]`, toolbar arrows, mouse buttons, trackpad swipes), and live **Small / Standard / Large / Extra Large** text scaling in Settings.
 - **Configuration as code:** all settings live in `~/.config/toolbox/config.json` with automatic hot-reload and an in-app JSON editor. Pinned clipboard entries persist in `~/.config/toolbox/pinned_clipboard.json`.
 
+### Screenshots
+
 <p align="center">
-  <img src="docs/screenshots/menubar.png" width="320" alt="Toolbox status bar menu" />
+  <img src="docs/screenshots/menubar.png" width="300" alt="Toolbox status bar menu" />
+  &nbsp;&nbsp;&nbsp;
+  <img src="docs/screenshots/clipboard.png" width="380" alt="Toolbox clipboard history popover" />
 </p>
+
+| Top Edge Panel | Frosted Glass Panes | 1:1 Divider Editor |
+| :---: | :---: | :---: |
+| ![Top Edge Panel](docs/screenshots/window-snapper-top-panel.png) | ![Frosted Glass Panes](docs/screenshots/window-snapper-glass-panes.png) | ![1:1 Divider Editor](docs/screenshots/window-snapper-editor.png) |
 
 ## Requirements
 
@@ -85,7 +95,7 @@ See [EXTENDING.md](EXTENDING.md) to add a new module, [docs/testing.md](docs/tes
 Sources/Toolbox/
 ├── ToolboxApp.swift          app entry point, CLI flags, single-instance guard
 ├── Core/                     module registry, config watcher, hotkeys, permissions, Sparkle, self-tests
-├── Modules/                  DockMinimize, Clipboard, PortKiller, ScreenOCR, KeepAwake, CleanLock, CustomCommands, ScrollDirection, CallControls
+├── Modules/                  DockMinimize, Clipboard, PortKiller, ScreenOCR, KeepAwake, CleanLock, CustomCommands, ScrollDirection, CallControls, WindowSnapper
 └── UI/                       dashboard, sidebar shell, menu bar popover, settings, JSON editor
 scripts/build-app.sh          builds, signs, and notarizes build/Toolbox.app
 scripts/make-dmg-bg.mjs       generates the Retina DMG installer background
