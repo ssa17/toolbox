@@ -245,7 +245,7 @@ struct ShortcutConflictStatusView: View {
         ) {
             HStack(alignment: .center, spacing: 8) {
                 Label(issue.message, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
+                    .toolboxFont(.caption)
                     .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -326,7 +326,7 @@ struct ShortcutRecorderView: View {
                                 .frame(width: 6, height: 6)
                             if coordinator.heldModifiers.isEmpty {
                                 Text("Press shortcut…")
-                                    .font(.caption.weight(.medium))
+                                    .toolboxFont(.caption.weight(.medium))
                                     .lineLimit(1)
                             } else {
                                 ShortcutPill(tokens: coordinator.heldModifiers.map(\.symbol) + ["…"])
@@ -335,10 +335,10 @@ struct ShortcutRecorderView: View {
                             ShortcutPill(shortcut: shortcut)
                         } else {
                             Image(systemName: "plus.circle")
-                                .font(.caption.weight(.medium))
+                                .toolboxFont(.caption.weight(.medium))
                                 .foregroundStyle(.secondary)
                             Text("Record Shortcut")
-                                .font(.caption.weight(.medium))
+                                .toolboxFont(.caption.weight(.medium))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
@@ -378,7 +378,7 @@ struct ShortcutRecorderView: View {
                         onChange(defaultShortcut)
                     } label: {
                         Image(systemName: "arrow.counterclockwise")
-                            .font(.system(size: 11, weight: .semibold))
+                            .toolboxFont(.system(size: 11, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .frame(width: 28, height: 28)
                             .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
@@ -401,7 +401,7 @@ struct ShortcutRecorderView: View {
                         onChange(.none)
                     } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 10, weight: .bold))
+                            .toolboxFont(.system(size: 10, weight: .bold))
                             .foregroundStyle(.secondary)
                             .frame(width: 28, height: 28)
                             .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
@@ -421,7 +421,7 @@ struct ShortcutRecorderView: View {
 
             if isRecording {
                 Text(coordinator.bareKeyHint ?? "⌫ clear · Esc cancel")
-                    .font(.caption2)
+                    .toolboxFont(.caption2)
                     .foregroundStyle(coordinator.bareKeyHint != nil ? ToolboxTheme.readableAccentText(for: .orange) : .secondary)
             }
 

@@ -51,19 +51,227 @@ private struct ToolboxInsideModalKey: EnvironmentKey {
     static let defaultValue = false
 }
 
+private struct ToolboxTextSizeKey: EnvironmentKey {
+    static let defaultValue: AppTextSize = .standard
+}
+
 extension EnvironmentValues {
     var toolboxInsideModal: Bool {
         get { self[ToolboxInsideModalKey.self] }
         set { self[ToolboxInsideModalKey.self] = newValue }
     }
+
+    var toolboxTextSize: AppTextSize {
+        get { self[ToolboxTextSizeKey.self] }
+        set { self[ToolboxTextSizeKey.self] = newValue }
+    }
+}
+
+/// Scalable typography descriptor matching SwiftUI's `Font` convenience API while
+/// actually scaling on macOS via `EnvironmentValues.toolboxTextSize` (since macOS
+/// leaves `\.dynamicTypeSize` and `relativeTo:` unscaled).
+struct ToolboxFont: Sendable, Equatable {
+    enum Style: Sendable, Equatable {
+        case largeTitle
+        case title
+        case title2
+        case title3
+        case headline
+        case subheadline
+        case body
+        case callout
+        case footnote
+        case caption
+        case caption2
+        case fixed(CGFloat)
+
+        init(_ textStyle: Font.TextStyle) {
+            switch textStyle {
+            case .largeTitle: self = .largeTitle
+            case .title: self = .title
+            case .title2: self = .title2
+            case .title3: self = .title3
+            case .headline: self = .headline
+            case .subheadline: self = .subheadline
+            case .body: self = .body
+            case .callout: self = .callout
+            case .footnote: self = .footnote
+            case .caption: self = .caption
+            case .caption2: self = .caption2
+            @unknown default: self = .body
+            }
+        }
+
+        var textStyle: Font.TextStyle? {
+            switch self {
+            case .largeTitle: return .largeTitle
+            case .title: return .title
+            case .title2: return .title2
+            case .title3: return .title3
+            case .headline: return .headline
+            case .subheadline: return .subheadline
+            case .body: return .body
+            case .callout: return .callout
+            case .footnote: return .footnote
+            case .caption: return .caption
+            case .caption2: return .caption2
+            case .fixed: return nil
+            }
+        }
+
+        var basePointSize: CGFloat {
+            switch self {
+            case .largeTitle: return 26
+            case .title: return 22
+            case .title2: return 17
+            case .title3: return 15
+            case .headline: return 13
+            case .subheadline: return 11
+            case .body: return 13
+            case .callout: return 12
+            case .footnote: return 10
+            case .caption: return 10
+            case .caption2: return 10
+            case .fixed(let size): return size
+            }
+        }
+
+        var defaultWeight: Font.Weight? {
+            switch self {
+            case .headline: return .bold
+            case .caption2: return .medium
+            default: return nil
+            }
+        }
+    }
+
+    var style: Style
+    var weight: Font.Weight? = nil
+    var design: Font.Design? = nil
+    var isMonospaced: Bool = false
+    var isMonospacedDigit: Bool = false
+    var isBold: Bool = false
+    var isItalic: Bool = false
+
+    static let largeTitle = ToolboxFont(style: .largeTitle)
+    static let title = ToolboxFont(style: .title)
+    static let title2 = ToolboxFont(style: .title2)
+    static let title3 = ToolboxFont(style: .title3)
+    static let headline = ToolboxFont(style: .headline)
+    static let subheadline = ToolboxFont(style: .subheadline)
+    static let body = ToolboxFont(style: .body)
+    static let callout = ToolboxFont(style: .callout)
+    static let footnote = ToolboxFont(style: .footnote)
+    static let caption = ToolboxFont(style: .caption)
+    static let caption2 = ToolboxFont(style: .caption2)
+
+    static func system(
+        size: CGFloat,
+        weight: Font.Weight? = nil,
+        design: Font.Design? = nil
+    ) -> ToolboxFont {
+        ToolboxFont(style: .fixed(size), weight: weight, design: design)
+    }
+
+    static func system(
+        _ style: Font.TextStyle,
+        design: Font.Design? = nil,
+        weight: Font.Weight? = nil
+    ) -> ToolboxFont {
+        ToolboxFont(style: Style(style), weight: weight, design: design)
+    }
+
+    func weight(_ weight: Font.Weight) -> ToolboxFont {
+        var copy = self
+        copy.weight = weight
+        return copy
+    }
+
+    func bold() -> ToolboxFont {
+        var copy = self
+        copy.isBold = true
+        return copy
+    }
+
+    func italic() -> ToolboxFont {
+        var copy = self
+        copy.isItalic = true
+        return copy
+    }
+
+    func monospaced() -> ToolboxFont {
+        var copy = self
+        copy.isMonospaced = true
+        return copy
+    }
+
+    func monospacedDigit() -> ToolboxFont {
+        var copy = self
+        copy.isMonospacedDigit = true
+        return copy
+    }
+
+    func resolved(for textSize: AppTextSize) -> Font {
+        var font: Font
+        if textSize == .standard {
+            switch style {
+            case .fixed(let size):
+                font = .system(size: size, weight: weight ?? .regular, design: design ?? .default)
+            default:
+                let ts = style.textStyle ?? .body
+                if let design {
+                    font = .system(ts, design: design, weight: weight)
+                } else if let weight {
+                    font = .system(ts, weight: weight)
+                } else {
+                    font = .system(ts)
+                }
+            }
+        } else {
+            let scaled = textSize.scaledPointSize(style.basePointSize)
+            let effectiveWeight = weight ?? style.defaultWeight ?? .regular
+            font = .system(size: scaled, weight: effectiveWeight, design: design ?? .default)
+        }
+        if isBold { font = font.bold() }
+        if isItalic { font = font.italic() }
+        if isMonospaced { font = font.monospaced() }
+        if isMonospacedDigit { font = font.monospacedDigit() }
+        return font
+    }
+}
+
+private struct ToolboxFontModifier: ViewModifier {
+    @Environment(\.toolboxTextSize) private var textSize
+    let descriptor: ToolboxFont
+
+    func body(content: Content) -> some View {
+        content.font(descriptor.resolved(for: textSize))
+    }
+}
+
+private struct ToolboxRootAppearanceModifier: ViewModifier {
+    @ObservedObject private var configManager = ConfigManager.shared
+
+    func body(content: Content) -> some View {
+        let textSize = configManager.config.general.textSize
+        content
+            .preferredColorScheme(.dark)
+            .environment(\.colorScheme, .dark)
+            .environment(\.toolboxTextSize, textSize)
+            .font(textSize == .standard ? nil : .system(size: textSize.scaledPointSize(13)))
+    }
 }
 
 extension View {
-    /// Forces Toolbox's consistent dark theme on root SwiftUI surfaces (windows, popovers, sheets, HUDs).
+    /// Forces Toolbox's consistent dark theme and reactive text-size environment on root SwiftUI surfaces (windows, popovers, sheets, HUDs).
     func toolboxDarkAppearance() -> some View {
-        self
-            .preferredColorScheme(.dark)
-            .environment(\.colorScheme, .dark)
+        modifier(ToolboxRootAppearanceModifier())
+    }
+
+    /// Applies a `ToolboxFont` that renders identically to native SwiftUI at `.standard`
+    /// and scales smoothly across `.small`, `.large`, and `.extraLarge`.
+    func toolboxFont(_ font: ToolboxFont) -> some View {
+        modifier(ToolboxFontModifier(descriptor: font))
     }
 
     /// Shows the system pointing-hand cursor on hover for clickable controls and interactive surfaces,
@@ -604,9 +812,9 @@ struct BackToDashboardBar: View {
             Button(action: onBackToDashboard) {
                 HStack(spacing: 6) {
                     Image(systemName: "chevron.left")
-                        .font(.caption.weight(.semibold))
+                        .toolboxFont(.caption.weight(.semibold))
                     Text("Back to Dashboard")
-                        .font(.callout.weight(.medium))
+                        .toolboxFont(.callout.weight(.medium))
                 }
                 .padding(.horizontal, 11)
                 .padding(.vertical, 6)
@@ -636,7 +844,7 @@ struct StatusBadge: View {
                 .fill(color)
                 .frame(width: 6, height: 6)
             Text(text)
-                .font(.caption.weight(.medium))
+                .toolboxFont(.system(size: 11, weight: .medium))
                 .foregroundStyle(ToolboxTheme.readableAccentText(for: color))
                 .lineLimit(1)
         }
@@ -672,7 +880,7 @@ struct ShortcutPill: View {
         HStack(spacing: 3) {
             ForEach(Array(tokens.enumerated()), id: \.offset) { _, token in
                 Text(token)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .toolboxFont(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundStyle(Color.primary.opacity(0.84))
                     .lineLimit(1)
                     .frame(minWidth: 16, minHeight: 18)
@@ -695,12 +903,12 @@ struct FeatureSectionHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title.uppercased())
-                .font(.caption.weight(.semibold))
+                .toolboxFont(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .tracking(0.55)
             if let subtitle, !subtitle.isEmpty {
                 Text(subtitle)
-                    .font(.system(size: 11.5))
+                    .toolboxFont(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -851,7 +1059,7 @@ struct SelectableOptionCard: View {
                                     .strokeBorder(accentColor.opacity(isSelected ? 0.32 : 0.18), lineWidth: 0.75)
                             )
                         Image(systemName: symbolName)
-                            .font(.system(size: isCompact ? 12.5 : 14.5, weight: .semibold))
+                            .toolboxFont(.system(size: isCompact ? 12.5 : 14.5, weight: .semibold))
                             .foregroundStyle(isSelected || isHighlighted ? readableAccent : readableAccent.opacity(0.88))
                     }
 
@@ -859,7 +1067,7 @@ struct SelectableOptionCard: View {
 
                     if let badge {
                         Text(badge)
-                            .font(.system(size: isCompact ? 10 : 10.5, weight: .semibold))
+                            .toolboxFont(.system(size: isCompact ? 10.5 : 11, weight: .semibold))
                             .foregroundStyle(isSelected ? readableAccent : .secondary)
                             .padding(.horizontal, isCompact ? 6 : 8)
                             .padding(.vertical, 2.5)
@@ -872,7 +1080,7 @@ struct SelectableOptionCard: View {
 
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: isCompact ? 13 : 15, weight: .semibold))
+                            .toolboxFont(.system(size: isCompact ? 13 : 15, weight: .semibold))
                             .foregroundStyle(readableAccent)
                     } else if !isCompact {
                         Circle()
@@ -886,13 +1094,13 @@ struct SelectableOptionCard: View {
 
                 VStack(alignment: .leading, spacing: isCompact ? 2 : 4) {
                     Text(title)
-                        .font(.system(size: isCompact ? 12.5 : 13.5, weight: .semibold))
+                        .toolboxFont(.system(size: isCompact ? 12.5 : 13.5, weight: .semibold))
                         .foregroundStyle(.primary)
                         .multilineTextAlignment(.leading)
                         .lineLimit(isCompact ? 1 : nil)
 
                     Text(subtitle)
-                        .font(.system(size: isCompact ? 11 : 12))
+                        .toolboxFont(.system(size: isCompact ? 11 : 12))
                         .foregroundStyle(Color.primary.opacity(isSelected ? 0.80 : 0.66))
                         .lineSpacing(1.5)
                         .multilineTextAlignment(.leading)
@@ -971,18 +1179,18 @@ struct InfoFeatureCard<Footer: View>: View {
                     .fill(accentColor.opacity(0.14))
                     .frame(width: 34, height: 34)
                 Image(systemName: symbolName)
-                    .font(.system(size: 14.5, weight: .semibold))
+                    .toolboxFont(.system(size: 14.5, weight: .semibold))
                     .foregroundStyle(accentColor)
             }
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .font(.system(size: 13.5, weight: .semibold))
+                    .toolboxFont(.system(size: 13.5, weight: .semibold))
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Text(subtitle)
-                    .font(.system(size: 12))
+                    .toolboxFont(.system(size: 12))
                     .foregroundStyle(Color.primary.opacity(0.70))
                     .lineSpacing(1.5)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1065,11 +1273,11 @@ struct ToolboxSegmentedControl<Option: Hashable>: View {
                     HStack(spacing: 5) {
                         if let iconName {
                             Image(systemName: iconName)
-                                .font(.system(size: 11, weight: .semibold))
+                                .toolboxFont(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(isSelected ? readableAccent : (isHovered ? Color.primary.opacity(0.85) : .secondary))
                         }
                         Text(label(option))
-                            .font(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
+                            .toolboxFont(.system(size: 12, weight: isSelected ? .semibold : .medium))
                             .lineLimit(1)
                     }
                     .foregroundStyle(isSelected ? Color.primary : (isHovered ? Color.primary.opacity(0.88) : Color.secondary))
@@ -1144,7 +1352,7 @@ struct ToolboxPresetChip: View {
 
         Button(action: action) {
             Text(label)
-                .font(.caption.monospacedDigit().weight(isSelected ? .semibold : .medium))
+                .toolboxFont(.caption.monospacedDigit().weight(isSelected ? .semibold : .medium))
                 .foregroundStyle(isSelected ? Color.primary : Color.primary.opacity(0.86))
                 .lineLimit(1)
                 .padding(.horizontal, 10)
@@ -1206,10 +1414,10 @@ struct SettingRow<Trailing: View>: View {
     private var labelBlock: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(title)
-                .font(.callout.weight(.semibold))
+                .toolboxFont(.callout.weight(.semibold))
             if let subtitle, !subtitle.isEmpty {
                 Text(subtitle)
-                    .font(.system(size: 11.5))
+                    .toolboxFont(.system(size: 12))
                     .foregroundStyle(Color.primary.opacity(0.68))
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -1435,7 +1643,7 @@ private struct ToolboxDestructiveButtonBody: View {
     @Environment(\.controlSize) private var controlSize
     @StateObject private var hoverState = ProminentButtonHoverState()
 
-    private var metrics: (font: Font, hPad: CGFloat, vPad: CGFloat, radius: CGFloat) {
+    private var metrics: (font: ToolboxFont, hPad: CGFloat, vPad: CGFloat, radius: CGFloat) {
         switch controlSize {
         case .mini:
             return (.system(size: 11, weight: .semibold), 8, 2, 5)
@@ -1460,7 +1668,7 @@ private struct ToolboxDestructiveButtonBody: View {
         let redText = ToolboxTheme.readableAccentText(for: .red)
 
         configuration.label
-            .font(m.font)
+            .toolboxFont(m.font)
             .foregroundStyle(isEnabled ? redText : redText.opacity(0.45))
             .tint(redText)
             .padding(.horizontal, m.hPad)
@@ -1510,7 +1718,7 @@ private struct ToolboxProminentButtonBody: View {
     @Environment(\.controlSize) private var controlSize
     @StateObject private var hoverState = ProminentButtonHoverState()
 
-    private var metrics: (font: Font, hPad: CGFloat, vPad: CGFloat, radius: CGFloat) {
+    private var metrics: (font: ToolboxFont, hPad: CGFloat, vPad: CGFloat, radius: CGFloat) {
         switch controlSize {
         case .mini:
             return (.system(size: 11, weight: .semibold), 8, 2, 5)
@@ -1534,7 +1742,7 @@ private struct ToolboxProminentButtonBody: View {
         let isPressed = isEnabled && configuration.isPressed
 
         configuration.label
-            .font(m.font)
+            .toolboxFont(m.font)
             .foregroundStyle(isEnabled ? Color.white : Color.white.opacity(0.45))
             .tint(.white)
             .padding(.horizontal, m.hPad)

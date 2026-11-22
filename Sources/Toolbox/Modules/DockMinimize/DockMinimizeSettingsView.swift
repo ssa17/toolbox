@@ -33,7 +33,7 @@ struct DockMinimizeSettingsView: View {
             if permissions.isAccessibilityGranted, let err = module.lastError {
                 SectionCard(accentTint: .orange) {
                     Label(err, systemImage: "exclamationmark.triangle.fill")
-                        .font(.callout)
+                        .toolboxFont(.callout)
                         .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
                 }
             }
@@ -146,7 +146,7 @@ struct DockMinimizeSettingsView: View {
                             }
                         }
                         .buttonStyle(.borderless)
-                        .font(.callout)
+                        .toolboxFont(.callout)
                         .foregroundStyle(.secondary)
                         .pointerCursor()
 
@@ -178,7 +178,7 @@ struct DockMinimizeSettingsView: View {
 
                             if let entryError = inputState.entryError {
                                 Label(entryError, systemImage: "exclamationmark.circle.fill")
-                                    .font(.caption)
+                                    .toolboxFont(.caption)
                                     .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
                             }
                         }
@@ -190,10 +190,10 @@ struct DockMinimizeSettingsView: View {
                 if configManager.config.dockMinimize.excludedBundleIDs.isEmpty {
                     HStack(spacing: 8) {
                         Image(systemName: "checkmark.circle")
-                            .font(.callout)
+                            .toolboxFont(.callout)
                             .foregroundStyle(.secondary)
                         Text("No excluded apps. Works for all apps including Finder.")
-                            .font(.caption)
+                            .toolboxFont(.caption)
                             .foregroundStyle(.secondary)
                     }
                     .padding(.vertical, 2)
@@ -244,7 +244,7 @@ struct DockMinimizeSettingsView: View {
                         .fill(Color.primary.opacity(0.08))
                         .frame(width: 24, height: 24)
                     Image(systemName: "app.dashed")
-                        .font(.caption2)
+                        .toolboxFont(.caption2)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -252,17 +252,17 @@ struct DockMinimizeSettingsView: View {
             if let appName {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(appName)
-                        .font(.callout.weight(.medium))
+                        .toolboxFont(.callout.weight(.medium))
                         .lineLimit(1)
                     Text(bundleID)
-                        .font(.system(.caption, design: .monospaced))
+                        .toolboxFont(.system(.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
             } else {
                 Text(bundleID)
-                    .font(.system(.callout, design: .monospaced))
+                    .toolboxFont(.system(.callout, design: .monospaced))
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -275,7 +275,7 @@ struct DockMinimizeSettingsView: View {
                 }
             } label: {
                 Image(systemName: "minus.circle.fill")
-                    .font(.callout)
+                    .toolboxFont(.callout)
                     .foregroundStyle(ToolboxTheme.readableAccentText(for: .red).opacity(0.9))
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())

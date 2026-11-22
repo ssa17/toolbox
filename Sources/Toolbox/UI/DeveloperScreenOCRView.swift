@@ -31,7 +31,7 @@ struct DeveloperScreenOCRView: View {
                 if let path = module.lastFailedCapturePath {
                     HStack(spacing: 8) {
                         Text(path)
-                            .font(.caption2.monospaced())
+                            .toolboxFont(.caption2.monospaced())
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -54,14 +54,14 @@ struct DeveloperScreenOCRView: View {
 
                     if let note = module.lastFailedCaptureNote {
                         Text(note)
-                            .font(.caption.monospaced())
+                            .toolboxFont(.caption.monospaced())
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 } else {
                     Text("No failed capture retained yet. When the hotkey flow fails, its file appears here.")
-                        .font(.caption)
+                        .toolboxFont(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -107,7 +107,7 @@ struct DeveloperScreenOCRView: View {
                     subtitle: "Where capture files land. The child screencapture process must be able to write it."
                 ) {
                     Text(tempDir.path)
-                        .font(.caption.monospaced())
+                        .toolboxFont(.caption.monospaced())
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -121,7 +121,7 @@ struct DeveloperScreenOCRView: View {
                     subtitle: "Apple's signed screencapture; macOS attributes its Screen Recording permission to Toolbox."
                 ) {
                     Text("/usr/sbin/screencapture · \(FileManager.default.fileExists(atPath: "/usr/sbin/screencapture") ? "present" : "MISSING")")
-                        .font(.caption.monospaced())
+                        .toolboxFont(.caption.monospaced())
                         .foregroundStyle(FileManager.default.fileExists(atPath: "/usr/sbin/screencapture") ? Color.secondary : Color.red)
                         .textSelection(.enabled)
                 }
@@ -133,7 +133,7 @@ struct DeveloperScreenOCRView: View {
                     subtitle: "What the pipeline will use (live from your Screen OCR settings)."
                 ) {
                     Text("Accurate · QR \(module.config.detectQRCodes ? "on" : "off") · line breaks \(module.config.preserveLineBreaks ? "on" : "off") · toast \(module.config.showToast ? "on" : "off") · shortcut \(module.config.shortcut.isEmpty ? "unbound" : module.config.shortcut.displayString)")
-                        .font(.caption.monospaced())
+                        .toolboxFont(.caption.monospaced())
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
@@ -196,7 +196,7 @@ struct DeveloperScreenOCRView: View {
                 }
 
                 Text("Interactive = the exact hotkey flow (drag a box; Esc cancels). Full-Screen = non-interactive control run. If the control passes but interactive fails, the difference is in the region file itself.")
-                    .font(.caption)
+                    .toolboxFont(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -206,7 +206,7 @@ struct DeveloperScreenOCRView: View {
                             ? "Wait for the crosshair, then drag a region over text you expect to be recognized."
                             : "Capturing full main screen…"
                     )
-                    .font(.caption.weight(.medium))
+                    .toolboxFont(.caption.weight(.medium))
                     .foregroundStyle(.blue)
                 }
 
@@ -223,17 +223,17 @@ struct DeveloperScreenOCRView: View {
                 if index > 0 { Divider() }
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: stageSymbol(stage.status))
-                        .font(.callout)
+                        .toolboxFont(.callout)
                         .foregroundStyle(stageColor(stage.status))
                         .frame(width: 18)
                         .padding(.top, 1)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(index + 1). \(stage.name)")
-                            .font(.callout.weight(.medium))
+                            .toolboxFont(.callout.weight(.medium))
                         if let detail = stage.detail, !detail.isEmpty {
                             Text(detail)
-                                .font(.caption2.monospaced())
+                                .toolboxFont(.caption2.monospaced())
                                 .foregroundStyle(.secondary)
                                 .textSelection(.enabled)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -250,10 +250,10 @@ struct DeveloperScreenOCRView: View {
                 Divider()
                 HStack(spacing: 8) {
                     Text("Artifact (kept for inspection):")
-                        .font(.caption)
+                        .toolboxFont(.caption)
                         .foregroundStyle(.secondary)
                     Text(path)
-                        .font(.caption2.monospaced())
+                        .toolboxFont(.caption2.monospaced())
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -275,7 +275,7 @@ struct DeveloperScreenOCRView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 8) {
                         Text("Output")
-                            .font(.caption.weight(.medium))
+                            .toolboxFont(.caption.weight(.medium))
                         Spacer()
                         Button("Copy") {
                             let pb = NSPasteboard.general
@@ -288,7 +288,7 @@ struct DeveloperScreenOCRView: View {
                         .pointerCursor()
                     }
                     Text(preview)
-                        .font(.caption.monospaced())
+                        .toolboxFont(.caption.monospaced())
                         .lineLimit(5)
                         .truncationMode(.tail)
                         .textSelection(.enabled)
@@ -367,7 +367,7 @@ struct DeveloperScreenOCRView: View {
                                 color: check.isEmpty ? .orange : .green
                             )
                             Text("\(check.lineCount) line(s) · \(check.qrPayloads.count) QR payload(s) · \(check.recognitionDurationMs) ms")
-                                .font(.caption)
+                                .toolboxFont(.caption)
                                 .foregroundStyle(.secondary)
                             Spacer()
                             Button("Clear") {
@@ -379,7 +379,7 @@ struct DeveloperScreenOCRView: View {
                         }
 
                         Text(check.recognizedText.isEmpty ? "(no text recognized)" : check.recognizedText)
-                            .font(.caption.monospaced())
+                            .toolboxFont(.caption.monospaced())
                             .foregroundStyle(check.recognizedText.isEmpty ? Color.secondary : Color.primary)
                             .lineLimit(3)
                             .truncationMode(.tail)
@@ -387,7 +387,7 @@ struct DeveloperScreenOCRView: View {
 
                         if !check.qrPayloads.isEmpty {
                             Text("QR: " + check.qrPayloads.joined(separator: ", "))
-                                .font(.caption.monospaced())
+                                .toolboxFont(.caption.monospaced())
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
                                 .truncationMode(.tail)

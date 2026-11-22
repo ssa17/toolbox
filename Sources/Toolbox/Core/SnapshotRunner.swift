@@ -351,23 +351,11 @@ enum SnapshotRunner {
             ScrollView {
                 WindowSnapperSettingsView(
                     module: ModuleRegistry.shared.windowSnapper,
-                    initialTab: .generalAndDrag,
-                    initialShowAdvancedOptions: true
-                )
-                .padding(22)
-            },
-            size: NSSize(width: 940, height: 1500),
-            to: outURL.appendingPathComponent("module_window_snapper_advanced.png")
-        )
-        saveViewSnapshot(
-            ScrollView {
-                WindowSnapperSettingsView(
-                    module: ModuleRegistry.shared.windowSnapper,
                     initialTab: .zonesAndDisplays
                 )
                 .padding(22)
             },
-            size: NSSize(width: 940, height: 1520),
+            size: NSSize(width: 940, height: 1960),
             to: outURL.appendingPathComponent("module_window_snapper_zones.png")
         )
         saveViewSnapshot(
@@ -735,6 +723,65 @@ enum SnapshotRunner {
             to: outURL.appendingPathComponent("window_snapper_edge_pull_flash.png")
         )
 
+        let styleFlashZones = SnapGeometry.stylePreviewZonesAX(
+            usableAXRect: previewUsableAX,
+            primaryScreenHeight: 760,
+            gaps: GapConfig(outerMarginPoints: 12, innerGapPoints: 12)
+        )
+        saveViewSnapshot(
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color(nsColor: NSColor(calibratedRed: 0.08, green: 0.10, blue: 0.16, alpha: 1.0)),
+                        Color(nsColor: NSColor(calibratedRed: 0.13, green: 0.11, blue: 0.22, alpha: 1.0))
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                ZoneOverlayPreviewCanvasView(
+                    mode: .zoneStyleFlash(
+                        zones: styleFlashZones,
+                        bannerText: "Tile Spacing · Relaxed (12 pt)",
+                        style: OverlayStyleConfig(borderWidthPoints: 4.0)
+                    ),
+                    displayFrameAX: previewDisplayFrame,
+                    usableAXRect: previewUsableAX
+                )
+            }
+            .frame(width: 1280, height: 760),
+            size: NSSize(width: 1280, height: 760),
+            to: outURL.appendingPathComponent("window_snapper_style_flash.png")
+        )
+
+        let editorInitialLayout = DisplayLayoutConfig(
+            display: topPanelConnected.signature,
+            presetID: DisplayPresetKind.leftMainRightStack.rawValue,
+            division: DisplayDivision(columnWeights: [1.3, 0.7], rowWeights: [0.8, 1.2])
+        )
+        saveViewSnapshot(
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color(nsColor: NSColor(calibratedRed: 0.08, green: 0.10, blue: 0.16, alpha: 1.0)),
+                        Color(nsColor: NSColor(calibratedRed: 0.13, green: 0.11, blue: 0.22, alpha: 1.0))
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                ZoneOnScreenEditorView(
+                    display: topPanelConnected,
+                    initialLayout: editorInitialLayout,
+                    gaps: GapConfig(outerMarginPoints: 8, innerGapPoints: 8),
+                    style: OverlayStyleConfig(),
+                    onSave: { _ in },
+                    onCancel: {}
+                )
+            }
+            .frame(width: 1280, height: 760),
+            size: NSSize(width: 1280, height: 760),
+            to: outURL.appendingPathComponent("window_snapper_onscreen_editor.png")
+        )
+
         let navJSON = NavigationState()
         navJSON.selection = .jsonConfig
         navJSON.isSidebarVisible = true
@@ -990,6 +1037,47 @@ enum SnapshotRunner {
 
         renderStatusBarPreview(to: outURL.appendingPathComponent("statusbar_icons.png"))
 
+        // Text Size snapshot pass (.large & .extraLarge)
+        let prevTextSize = configManager.config.general.textSize
+        let navScaledSettings = NavigationState()
+        navScaledSettings.selection = .settings
+        navScaledSettings.isSidebarVisible = true
+
+        configManager.config.general.textSize = .large
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navDashboard),
+            size: NSSize(width: 940, height: 700),
+            to: outURL.appendingPathComponent("text_size_large_dashboard.png")
+        )
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navScaledSettings),
+            size: NSSize(width: 940, height: 760),
+            to: outURL.appendingPathComponent("text_size_large_settings.png")
+        )
+        saveViewSnapshot(
+            MenuBarPopoverView(onOpenDashboard: { _ in }, onClosePopover: { _ in }),
+            size: NSSize(width: 340, height: 540),
+            to: outURL.appendingPathComponent("text_size_large_menubar.png")
+        )
+        saveViewSnapshot(
+            HUDToast.makeToastView(title: "Copied to clipboard", symbol: "doc.on.clipboard", tint: .green),
+            size: NSSize(width: 340, height: 88),
+            to: outURL.appendingPathComponent("text_size_large_hud_toast.png")
+        )
+
+        configManager.config.general.textSize = .extraLarge
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navScaledSettings),
+            size: NSSize(width: 940, height: 760),
+            to: outURL.appendingPathComponent("text_size_xlarge_settings.png")
+        )
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navDashboard),
+            size: NSSize(width: 940, height: 700),
+            to: outURL.appendingPathComponent("text_size_xlarge_dashboard.png")
+        )
+        configManager.config.general.textSize = prevTextSize
+
         // Clean up temp config dir created by ConfigManager isolated mode
         let tempDir = configManager.configURL.deletingLastPathComponent()
         if tempDir.path.contains("toolbox-isolated-") {
@@ -1005,8 +1093,7 @@ enum SnapshotRunner {
             Color(red: 0.145, green: 0.149, blue: 0.165)
             view
         }
-        .preferredColorScheme(.dark)
-        .environment(\.colorScheme, .dark)
+        .toolboxDarkAppearance()
 
         let hosting = NSHostingView(rootView: darkWrapped)
         hosting.appearance = NSAppearance(named: .darkAqua)

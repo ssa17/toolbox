@@ -31,20 +31,34 @@ struct SettingsView: View {
                                         .strokeBorder(ToolboxTheme.accentBlue.opacity(0.28), lineWidth: 1)
                                 )
                             Image(systemName: "gearshape.fill")
-                                .font(.title3.weight(.semibold))
+                                .toolboxFont(.title3.weight(.semibold))
                                 .foregroundStyle(ToolboxTheme.accentBlue)
                         }
 
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Settings & About")
-                                .font(.title3.bold())
-                            Text("Manage app presence, menu bar layout, permissions, and updates.")
-                                .font(.callout)
+                                .toolboxFont(.title3.bold())
+                            Text("Manage appearance, app presence, menu bar layout, permissions, and updates.")
+                                .toolboxFont(.callout)
                                 .foregroundStyle(Color.primary.opacity(0.74))
                         }
                         .textSelection(.enabled)
 
                         Spacer()
+                    }
+                }
+
+                FeatureSection("Appearance", subtitle: "Adjust text size across windows, popovers, and floating HUDs.") {
+                    SettingRow(
+                        "Text size",
+                        subtitle: configManager.config.general.textSize.summary
+                    ) {
+                        ToolboxSegmentedControl(
+                            options: AppTextSize.allCases,
+                            selection: $configManager.config.general.textSize,
+                            accentColor: ToolboxTheme.accentBlue,
+                            label: { $0.label }
+                        )
                     }
                 }
 
@@ -203,7 +217,7 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 3) {
                             HStack(spacing: 8) {
                                 Text("Toolbox \(versionString)")
-                                    .font(.headline)
+                                    .toolboxFont(.headline)
                                     .onTapGesture {
                                         developerMode.registerAboutHeaderTap()
                                     }
@@ -214,7 +228,7 @@ struct SettingsView: View {
 
                                 if let hint = developerMode.unlockProgressHint {
                                     Text(hint)
-                                        .font(.caption2.weight(.medium))
+                                        .toolboxFont(.caption2.weight(.medium))
                                         .foregroundStyle(ToolboxTheme.readableAccentText(for: .purple))
                                         .padding(.horizontal, 7)
                                         .padding(.vertical, 2)
@@ -222,12 +236,12 @@ struct SettingsView: View {
                                 }
                             }
                             Text("Extensible, lightweight macOS quality-of-life toolkit.")
-                                .font(.caption)
+                                .toolboxFont(.caption)
                                 .foregroundStyle(.secondary)
                                 .textSelection(.enabled)
                             HStack(spacing: 6) {
                                 Text("Config file: \(configManager.configURL.path)")
-                                    .font(.system(.caption2, design: .monospaced))
+                                    .toolboxFont(.system(.caption2, design: .monospaced))
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                                     .truncationMode(.middle)
@@ -297,13 +311,13 @@ struct SettingsView: View {
                         .fill(tint.opacity(0.15))
                         .frame(width: 38, height: 38)
                     Image(systemName: "hand.raised.fill")
-                        .font(.body.weight(.semibold))
+                        .toolboxFont(.body.weight(.semibold))
                         .foregroundStyle(ToolboxTheme.readableAccentText(for: tint))
                 }
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Accessibility")
-                        .font(.callout.weight(.semibold))
+                        .toolboxFont(.callout.weight(.semibold))
                     StatusBadge(
                         text: granted
                             ? "Granted"
@@ -320,7 +334,7 @@ struct SettingsView: View {
                     ? "All Accessibility-powered modules (Dock Minimize, Auto-Paste, Call Keybinds, Keyboard Lock, and Scroll Direction) are authorized."
                     : "Used locally for Dock Click to Minimize, auto-pasting (⌘ V), Unified Call Keybinds, Keyboard Lock, and Scroll Direction inversion."
             )
-            .font(.caption)
+            .toolboxFont(.caption)
             .foregroundStyle(Color.primary.opacity(0.72))
             .lineSpacing(1.5)
             .fixedSize(horizontal: false, vertical: true)
@@ -380,13 +394,13 @@ struct SettingsView: View {
                         .fill(tint.opacity(0.15))
                         .frame(width: 38, height: 38)
                     Image(systemName: "text.viewfinder")
-                        .font(.body.weight(.semibold))
+                        .toolboxFont(.body.weight(.semibold))
                         .foregroundStyle(ToolboxTheme.readableAccentText(for: tint))
                 }
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Screen Recording")
-                        .font(.callout.weight(.semibold))
+                        .toolboxFont(.callout.weight(.semibold))
                     StatusBadge(
                         text: granted
                             ? "Granted"
@@ -403,7 +417,7 @@ struct SettingsView: View {
                     ? "Screen OCR is authorized to capture selected regions for on-device text and QR recognition."
                     : "Used locally by Screen OCR (⇧ ⌘ 0) to capture the region you drag-select for offline Vision recognition."
             )
-            .font(.caption)
+            .toolboxFont(.caption)
             .foregroundStyle(Color.primary.opacity(0.72))
             .lineSpacing(1.5)
             .fixedSize(horizontal: false, vertical: true)
@@ -463,14 +477,14 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
                         Text("Displayed Features")
-                            .font(.callout.weight(.semibold))
+                            .toolboxFont(.callout.weight(.semibold))
                         StatusBadge(
                             text: "\(visibleModules.count) of \(orderedModules.count) shown",
                             color: visibleModules.isEmpty ? .orange : .blue
                         )
                     }
                     Text("Hiding a feature here only removes its row from the status bar menu. Enabled features keep running in the background.")
-                        .font(.caption)
+                        .toolboxFont(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -562,7 +576,7 @@ struct SettingsView: View {
         return HStack(spacing: 12) {
             HStack(spacing: 12) {
                 Image(systemName: "line.3.horizontal")
-                    .font(.caption.weight(.semibold))
+                    .toolboxFont(.caption.weight(.semibold))
                     .foregroundStyle(isDragged ? Color.blue : Color.secondary)
                     .frame(width: 14, height: 28)
 
@@ -571,13 +585,13 @@ struct SettingsView: View {
                         .fill(module.accentColor.opacity(isVisible ? 0.16 : 0.08))
                         .frame(width: 28, height: 28)
                     Image(systemName: module.symbolName)
-                        .font(.caption.weight(.semibold))
+                        .toolboxFont(.caption.weight(.semibold))
                         .foregroundStyle(isVisible ? module.accentColor : Color.secondary)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(module.name)
-                        .font(.callout.weight(.medium))
+                        .toolboxFont(.callout.weight(.medium))
                         .foregroundStyle(isVisible ? .primary : .secondary)
 
                     HStack(spacing: 5) {
@@ -585,13 +599,13 @@ struct SettingsView: View {
                             .fill(isModuleEnabled ? Color.green : Color.secondary.opacity(0.45))
                             .frame(width: 5, height: 5)
                         Text(isModuleEnabled ? "Module enabled" : "Module disabled")
-                            .font(.caption2)
+                            .toolboxFont(.caption2)
                             .foregroundStyle(.secondary)
                         Text("·")
-                            .font(.caption2)
+                            .toolboxFont(.caption2)
                             .foregroundStyle(.tertiary)
                         Text(isVisible ? "Shown in menu" : "Hidden from menu")
-                            .font(.caption2.weight(.medium))
+                            .toolboxFont(.caption2.weight(.medium))
                             .foregroundStyle(isVisible ? ToolboxTheme.readableAccentText(for: .blue) : Color.secondary)
                     }
                 }
@@ -651,7 +665,7 @@ struct SettingsView: View {
                         }
                     } label: {
                         Image(systemName: "chevron.up")
-                            .font(.system(size: 10, weight: .bold))
+                            .toolboxFont(.system(size: 10, weight: .bold))
                             .foregroundStyle(canMoveUp ? Color.primary : Color.secondary.opacity(0.35))
                             .frame(width: 28, height: 26)
                             .contentShape(Rectangle())
@@ -677,7 +691,7 @@ struct SettingsView: View {
                         }
                     } label: {
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 10, weight: .bold))
+                            .toolboxFont(.system(size: 10, weight: .bold))
                             .foregroundStyle(canMoveDown ? Color.primary : Color.secondary.opacity(0.35))
                             .frame(width: 28, height: 26)
                             .contentShape(Rectangle())

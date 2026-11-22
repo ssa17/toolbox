@@ -107,14 +107,14 @@ struct CallControlsSettingsView: View {
                     .fill(statusColor.opacity(0.15))
                     .frame(width: 34, height: 34)
                 Image(systemName: module.isTypingMuted ? "keyboard" : (module.isInputMuted ? "mic.slash.fill" : "mic.fill"))
-                    .font(.system(size: 14, weight: .semibold))
+                    .toolboxFont(.system(size: 14, weight: .semibold))
                     .foregroundStyle(ToolboxTheme.readableAccentText(for: statusColor))
             }
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text("Microphone")
-                        .font(.caption2.weight(.semibold))
+                        .toolboxFont(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
                     StatusBadge(
                         text: module.isTypingMuted ? "Typing Mute" : (module.isInputMuted ? "Muted" : "Live"),
@@ -122,7 +122,7 @@ struct CallControlsSettingsView: View {
                     )
                 }
                 Text(input?.name ?? "No input device")
-                    .font(.callout.weight(.medium))
+                    .toolboxFont(.callout.weight(.medium))
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -136,7 +136,7 @@ struct CallControlsSettingsView: View {
                     module.isInputMuted ? "Unmute" : "Mute",
                     systemImage: module.isInputMuted ? "mic.fill" : "mic.slash.fill"
                 )
-                .font(.caption.weight(.semibold))
+                .toolboxFont(.caption.weight(.semibold))
             }
             .buttonStyle(.toolboxProminent(module.isInputMuted ? .green : .red))
             .controlSize(.small)
@@ -163,23 +163,23 @@ struct CallControlsSettingsView: View {
                     .fill(Color.blue.opacity(0.15))
                     .frame(width: 34, height: 34)
                 Image(systemName: output?.transport.symbolName(isInput: false) ?? "speaker.wave.2.fill")
-                    .font(.system(size: 14, weight: .semibold))
+                    .toolboxFont(.system(size: 14, weight: .semibold))
                     .foregroundStyle(ToolboxTheme.readableAccentText(for: .blue))
             }
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text("Output")
-                        .font(.caption2.weight(.semibold))
+                        .toolboxFont(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
                     if let transport = output?.transport {
                         Text(transport.label)
-                            .font(.caption2.weight(.medium))
+                            .toolboxFont(.caption2.weight(.medium))
                             .foregroundStyle(.secondary)
                     }
                 }
                 Text(output?.name ?? "No output device")
-                    .font(.callout.weight(.medium))
+                    .toolboxFont(.callout.weight(.medium))
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -190,7 +190,7 @@ struct CallControlsSettingsView: View {
                 module.cycleOutputDevice()
             } label: {
                 Label("Cycle", systemImage: "arrow.triangle.2.circlepath")
-                    .font(.caption.weight(.semibold))
+                    .toolboxFont(.caption.weight(.semibold))
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -213,7 +213,7 @@ struct CallControlsSettingsView: View {
         let tint: Color = module.hasCameraDevice ? (module.isCameraActive ? .green : .red) : .secondary
         return HStack(spacing: 6) {
             Image(systemName: module.isCameraActive ? "video.fill" : "video.slash.fill")
-                .font(.caption)
+                .toolboxFont(.caption)
                 .foregroundStyle(ToolboxTheme.readableAccentText(for: tint))
             Text(
                 !module.hasCameraDevice
@@ -222,7 +222,7 @@ struct CallControlsSettingsView: View {
                         ? "Camera Live: \(module.activeCameraName ?? "Active")"
                         : "Camera Off")
             )
-            .font(.caption.weight(.medium))
+            .toolboxFont(.caption.weight(.medium))
             .foregroundStyle(.secondary)
             .lineLimit(1)
         }
@@ -234,10 +234,10 @@ struct CallControlsSettingsView: View {
     private func lastRelayedPill(_ lastAction: String) -> some View {
         HStack(spacing: 5) {
             Image(systemName: "bolt.horizontal.circle.fill")
-                .font(.caption)
+                .toolboxFont(.caption)
                 .foregroundStyle(ToolboxTheme.readableAccentText(for: .green))
             Text("Last relayed: \(lastAction)")
-                .font(.caption)
+                .toolboxFont(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -251,14 +251,14 @@ struct CallControlsSettingsView: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: "lock.shield")
-                        .font(.title2)
+                        .toolboxFont(.title2)
                         .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Accessibility Required for Keybind Override & Typing Guard")
-                            .font(.headline)
+                            .toolboxFont(.headline)
                         Text(module.accessibilityReason)
-                            .font(.caption)
+                            .toolboxFont(.caption)
                             .foregroundStyle(.secondary)
                     }
                     .textSelection(.enabled)
@@ -453,10 +453,10 @@ struct CallControlsSettingsView: View {
                 } else if !permissions.isAccessibilityGranted {
                     HStack(spacing: 6) {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.caption)
+                            .toolboxFont(.caption)
                             .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
                         Text("Waiting for Accessibility permission before your keybinds can intercept.")
-                            .font(.caption.weight(.medium))
+                            .toolboxFont(.caption.weight(.medium))
                             .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
                     }
                 } else {
@@ -470,17 +470,17 @@ struct CallControlsSettingsView: View {
 
                 if cfg.enabled && configManager.config.general.appEnabled && !matchingMicApps.isEmpty {
                     Text("Same shortcut as \(matchingMicApps.joined(separator: ", "))'s native binding: passes cleanly through.")
-                        .font(.caption2)
+                        .toolboxFont(.caption2)
                         .foregroundStyle(.secondary)
                 }
 
                 if !cfg.micShortcut.isEmpty && cfg.micShortcut == cfg.osMuteShortcut {
                     HStack(spacing: 6) {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.caption)
+                            .toolboxFont(.caption)
                             .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
                         Text("Warning: My Mic Keybind and Hardware-Only Mic Shortcut both use \(cfg.micShortcut.displayString). Clear one so they don't collide.")
-                            .font(.caption2)
+                            .toolboxFont(.caption2)
                             .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
                     }
                     .padding(.top, 2)
@@ -548,7 +548,7 @@ struct CallControlsSettingsView: View {
                 .fill(color)
                 .frame(width: 6, height: 6)
             Text(text)
-                .font(.caption.weight(.medium))
+                .toolboxFont(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -594,7 +594,7 @@ struct CallControlsSettingsView: View {
                             uiState.isAddingCustomApp ? "Cancel" : "Add Call App…",
                             systemImage: uiState.isAddingCustomApp ? "xmark" : "plus"
                         )
-                        .font(.caption.weight(.medium))
+                        .toolboxFont(.caption.weight(.medium))
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -669,18 +669,18 @@ struct CallControlsSettingsView: View {
                                 .frame(width: 18, height: 18)
                         } else {
                             Image(systemName: "app.dashed")
-                                .font(.system(size: 13))
+                                .toolboxFont(.system(size: 13))
                                 .foregroundStyle(.secondary)
                         }
 
                         Text(hasSelection ? uiState.selectedAppName : "Select a Call Application…")
-                            .font(.callout.weight(hasSelection ? .medium : .regular))
+                            .toolboxFont(.callout.weight(hasSelection ? .medium : .regular))
                             .foregroundStyle(hasSelection ? .primary : .secondary)
 
                         Spacer()
 
                         Image(systemName: "chevron.up.chevron.down")
-                            .font(.caption2.weight(.semibold))
+                            .toolboxFont(.caption2.weight(.semibold))
                             .foregroundStyle(.secondary)
                     }
                     .padding(.horizontal, 10)
@@ -699,7 +699,7 @@ struct CallControlsSettingsView: View {
                         scanSelectedAppControls()
                     } label: {
                         Label("Rescan", systemImage: "arrow.clockwise")
-                            .font(.caption.weight(.medium))
+                            .toolboxFont(.caption.weight(.medium))
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -713,7 +713,7 @@ struct CallControlsSettingsView: View {
                     Image(systemName: "lock.shield")
                         .foregroundStyle(.orange)
                     Text("Accessibility access is required to inspect another app's menu bar controls.")
-                        .font(.caption)
+                        .toolboxFont(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
                     Button("Grant Access") {
@@ -733,7 +733,7 @@ struct CallControlsSettingsView: View {
                         Image(systemName: "play.circle")
                             .foregroundStyle(.secondary)
                         Text("Open \(uiState.selectedAppName) so Toolbox can read its menu bar mic and camera controls.")
-                            .font(.caption)
+                            .toolboxFont(.caption)
                             .foregroundStyle(.secondary)
                         Spacer()
                         Button(uiState.isLaunchingAndScanning ? "Scanning…" : "Launch & Scan") {
@@ -768,7 +768,7 @@ struct CallControlsSettingsView: View {
                     }
                     .padding(.top, 6)
                 }
-                .font(.caption.weight(.medium))
+                .toolboxFont(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
                 .pointerCursor()
             }
@@ -781,7 +781,7 @@ struct CallControlsSettingsView: View {
                             .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
                             .pointerCursor()
                         Text("Brief focus switch in background")
-                            .font(.caption)
+                            .toolboxFont(.caption)
                     }
                     .help("Recommended for Electron/browser apps so shortcuts still land when another window is focused.")
 
@@ -823,7 +823,7 @@ struct CallControlsSettingsView: View {
                             ? "Select a call application above to continue."
                             : "Choose or record at least one Mic or Video shortcut above to enable Add App."
                     )
-                    .font(.caption)
+                    .toolboxFont(.caption)
                     .foregroundStyle(.secondary)
                 }
             }
@@ -839,7 +839,7 @@ struct CallControlsSettingsView: View {
     private var manualMicShortcutField: some View {
         HStack(spacing: 6) {
             Text("Mic")
-                .font(.caption)
+                .toolboxFont(.caption)
                 .foregroundStyle(.secondary)
             ShortcutRecorderView(
                 shortcut: uiState.customMicShortcut,
@@ -853,7 +853,7 @@ struct CallControlsSettingsView: View {
     private var manualVideoShortcutField: some View {
         HStack(spacing: 6) {
             Text("Video")
-                .font(.caption)
+                .toolboxFont(.caption)
                 .foregroundStyle(.secondary)
             ShortcutRecorderView(
                 shortcut: uiState.customVideoShortcut,
@@ -892,12 +892,12 @@ struct CallControlsSettingsView: View {
                     Image(systemName: "info.circle")
                         .foregroundStyle(.secondary)
                     Text("No menu bar keyboard shortcuts detected for \(uiState.selectedAppName). Expand Manual Shortcut Fallback below if this app uses in-window hotkeys.")
-                        .font(.caption)
+                        .toolboxFont(.caption)
                         .foregroundStyle(.secondary)
                 }
             } else {
                 Text("Detected \(inspected.allShortcutControls.count) menu bar shortcut\(inspected.allShortcutControls.count == 1 ? "" : "s") in \(uiState.selectedAppName):")
-                    .font(.caption)
+                    .toolboxFont(.caption)
                     .foregroundStyle(.secondary)
 
                 HStack(spacing: 12) {
@@ -943,7 +943,7 @@ struct CallControlsSettingsView: View {
 
         HStack(spacing: 6) {
             Text(label)
-                .font(.caption)
+                .toolboxFont(.caption)
                 .foregroundStyle(.secondary)
 
             Menu {
@@ -977,10 +977,10 @@ struct CallControlsSettingsView: View {
             } label: {
                 HStack(spacing: 4) {
                     Text(summaryText)
-                        .font(.caption.weight(.medium))
+                        .toolboxFont(.caption.weight(.medium))
                         .lineLimit(1)
                     Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 8.5, weight: .semibold))
+                        .toolboxFont(.system(size: 8.5, weight: .semibold))
                         .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 8)
@@ -1016,7 +1016,7 @@ struct CallControlsSettingsView: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 5) {
                     Text(displayAppName)
-                        .font(.callout.weight(.medium))
+                        .toolboxFont(.callout.weight(.medium))
                         .opacity(mapping.enabled ? 1.0 : 0.60)
                         .lineLimit(1)
 
@@ -1026,7 +1026,7 @@ struct CallControlsSettingsView: View {
                                 .fill(Color.green)
                                 .frame(width: 5, height: 5)
                             Text("Running")
-                                .font(.caption2.weight(.semibold))
+                                .toolboxFont(.caption2.weight(.semibold))
                                 .foregroundStyle(ToolboxTheme.readableAccentText(for: .green))
                         }
                         .padding(.horizontal, 5)
@@ -1038,7 +1038,7 @@ struct CallControlsSettingsView: View {
 
                 HStack(spacing: 5) {
                     Text(isBrowserMeet ? "Web · \(capabilityText)" : capabilityText)
-                        .font(.caption2.weight(.medium))
+                        .toolboxFont(.caption2.weight(.medium))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1.5)
@@ -1047,7 +1047,7 @@ struct CallControlsSettingsView: View {
 
                     if !isBrowserMeet, let titleGate = mapping.requiredWindowTitleSubstring, !titleGate.isEmpty {
                         Text("Title: \"\(titleGate)\"")
-                            .font(.caption2.weight(.medium))
+                            .toolboxFont(.caption2.weight(.medium))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -1062,7 +1062,7 @@ struct CallControlsSettingsView: View {
                     configManager.config.callControls.appShortcutMappings.removeAll { $0.id == idToRemove }
                 } label: {
                     Image(systemName: "trash")
-                        .font(.system(size: 11, weight: .medium))
+                        .toolboxFont(.system(size: 11, weight: .medium))
                         .foregroundStyle(ToolboxTheme.readableAccentText(for: .red))
                         .frame(width: 28, height: 28)
                         .contentShape(Rectangle())
@@ -1116,7 +1116,7 @@ struct CallControlsSettingsView: View {
                     .fill(Color.primary.opacity(mapping.enabled ? 0.08 : 0.04))
                     .frame(width: 26, height: 26)
                 Image(systemName: fallbackSymbol)
-                    .font(.system(size: 11, weight: .semibold))
+                    .toolboxFont(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
         }
@@ -1184,7 +1184,7 @@ struct CallControlsSettingsView: View {
                                         ? "Call or media stream active now: pill is visible."
                                         : "No mic or camera stream active right now: pill stays hidden until a call starts."
                                 )
-                                .font(.caption2.weight(.medium))
+                                .toolboxFont(.caption2.weight(.medium))
                                 .foregroundStyle(.secondary)
                             }
                         }
@@ -1252,14 +1252,14 @@ struct CallControlsSettingsView: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Typing Restore Delay")
-                                    .font(.callout.weight(.medium))
+                                    .toolboxFont(.callout.weight(.medium))
                                 Text("How long after your last keystroke Toolbox waits before unmuting the microphone.")
-                                    .font(.caption)
+                                    .toolboxFont(.caption)
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
                             Text("\(configManager.config.callControls.typingUnmuteDelayMs) ms")
-                                .font(.caption.monospacedDigit().weight(.semibold))
+                                .toolboxFont(.caption.monospacedDigit().weight(.semibold))
                                 .foregroundStyle(.secondary)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 3)
@@ -1281,7 +1281,7 @@ struct CallControlsSettingsView: View {
                             Spacer()
                             Text("1000 ms")
                         }
-                        .font(.caption2.monospacedDigit())
+                        .toolboxFont(.caption2.monospacedDigit())
                         .foregroundStyle(.tertiary)
                     }
                 }
@@ -1335,7 +1335,7 @@ struct CallControlsSettingsView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text("OUTPUT DEVICES (\(outputs.count))")
-                            .font(.caption2.weight(.semibold))
+                            .toolboxFont(.caption2.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .tracking(0.4)
                         Spacer()
@@ -1352,7 +1352,7 @@ struct CallControlsSettingsView: View {
 
                     if outputs.isEmpty {
                         Text("No output devices detected.")
-                            .font(.caption)
+                            .toolboxFont(.caption)
                             .foregroundStyle(.secondary)
                             .padding(.vertical, 6)
                     } else {
@@ -1383,13 +1383,13 @@ struct CallControlsSettingsView: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text("INPUT DEVICES (\(inputs.count))")
-                        .font(.caption2.weight(.semibold))
+                        .toolboxFont(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .tracking(0.4)
 
                     if inputs.isEmpty {
                         Text("No input devices detected.")
-                            .font(.caption)
+                            .toolboxFont(.caption)
                             .foregroundStyle(.secondary)
                             .padding(.vertical, 6)
                     } else {
@@ -1440,14 +1440,14 @@ struct CallControlsSettingsView: View {
             Button(action: onSelect) {
                 HStack(spacing: 10) {
                     Image(systemName: device.transport.symbolName(isInput: isInput))
-                        .font(.system(size: 13, weight: .semibold))
+                        .toolboxFont(.system(size: 13, weight: .semibold))
                         .foregroundStyle(isDefault ? ToolboxTheme.readableAccentText(for: tint) : .secondary)
                         .frame(width: 22)
 
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
                             Text(device.name)
-                                .font(.callout.weight(isDefault ? .semibold : .regular))
+                                .toolboxFont(.callout.weight(isDefault ? .semibold : .regular))
                                 .foregroundStyle(.primary)
                                 .lineLimit(1)
 
@@ -1458,30 +1458,30 @@ struct CallControlsSettingsView: View {
 
                         HStack(spacing: 6) {
                             Text(device.transport.label)
-                                .font(.caption2)
+                                .toolboxFont(.caption2)
                                 .foregroundStyle(.secondary)
 
                             Text("·")
-                                .font(.caption2)
+                                .toolboxFont(.caption2)
                                 .foregroundStyle(.tertiary)
 
                             Text("\(isInput ? device.inputChannelCount : device.outputChannelCount) ch")
-                                .font(.caption2)
+                                .toolboxFont(.caption2)
                                 .foregroundStyle(.secondary)
 
                             if isMuted {
                                 Text("·")
-                                    .font(.caption2)
+                                    .toolboxFont(.caption2)
                                     .foregroundStyle(.tertiary)
                                 Text("Muted")
-                                    .font(.caption2.weight(.semibold))
+                                    .toolboxFont(.caption2.weight(.semibold))
                                     .foregroundStyle(ToolboxTheme.readableAccentText(for: .red))
                             } else if let volumePct {
                                 Text("·")
-                                    .font(.caption2)
+                                    .toolboxFont(.caption2)
                                     .foregroundStyle(.tertiary)
                                 Text("\(volumePct)%")
-                                    .font(.caption2.monospacedDigit())
+                                    .toolboxFont(.caption2.monospacedDigit())
                                     .foregroundStyle(.secondary)
                             }
                         }
@@ -1499,7 +1499,7 @@ struct CallControlsSettingsView: View {
             if let onToggleFavorite {
                 Button(action: onToggleFavorite) {
                     Image(systemName: isFavorite ? "star.fill" : "star")
-                        .font(.caption)
+                        .toolboxFont(.caption)
                         .foregroundStyle(isFavorite ? Color.orange : Color.secondary.opacity(0.55))
                         .frame(width: 28, height: 28)
                         .contentShape(Rectangle())

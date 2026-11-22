@@ -690,7 +690,7 @@ struct FloatingMicIndicatorView: View {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color.primary.opacity(hoverState.isHandleHovered ? 0.10 : 0.0))
                 Image(systemName: "line.3.horizontal")
-                    .font(.system(size: 11, weight: .semibold))
+                    .toolboxFont(.system(size: 11, weight: .semibold))
                     .foregroundStyle(hoverState.isHandleHovered ? .primary : .secondary)
             }
             .frame(width: 24, height: 28)
@@ -774,7 +774,7 @@ struct FloatingMicIndicatorView: View {
                     RoundedRectangle(cornerRadius: 12)
                         .fill(Color.primary.opacity(hoverState.isHideHovered ? 0.10 : 0.0))
                     Image(systemName: "xmark")
-                        .font(.system(size: 10.5, weight: .semibold))
+                        .toolboxFont(.system(size: 10.5, weight: .semibold))
                         .foregroundStyle(hoverState.isHideHovered ? .primary : .secondary)
                 }
                 .frame(width: 24, height: 28)
@@ -844,7 +844,7 @@ struct FloatingMicIndicatorView: View {
                     .fill(accent.opacity(0.18))
                     .frame(width: 24, height: 24)
                 Image(systemName: symbol)
-                    .font(.system(size: 11, weight: .bold))
+                    .toolboxFont(.system(size: 11, weight: .bold))
                     .frame(width: 14, height: 14)
                     .foregroundStyle(accent)
             }
@@ -855,13 +855,13 @@ struct FloatingMicIndicatorView: View {
                         .fill(accent)
                         .frame(width: 6, height: 6)
                     Text(title)
-                        .font(.caption.weight(.semibold))
+                        .toolboxFont(.caption.weight(.semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                 }
 
                 Text(subtitle)
-                    .font(.caption2)
+                    .toolboxFont(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)

@@ -534,9 +534,9 @@ struct MainSplitView: View {
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "heart.fill")
-                                .font(.caption2.weight(.bold))
+                                .toolboxFont(.caption2.weight(.bold))
                             Text("Supporter")
-                                .font(.caption.weight(.semibold))
+                                .toolboxFont(.caption.weight(.semibold))
                         }
                         .foregroundStyle(.pink)
                         .padding(.horizontal, 9)
@@ -600,6 +600,11 @@ struct MainSplitView: View {
 
     @ViewBuilder
     private func mainSplitContent(isCompactWidth: Bool, availableWidth: CGFloat) -> some View {
+        let sidebarWidth: CGFloat = switch configManager.config.general.textSize {
+        case .small, .standard: 228
+        case .large: 250
+        case .extraLarge: 270
+        }
         if isCompactWidth {
             ZStack(alignment: .leading) {
                 detailColumnView
@@ -616,7 +621,7 @@ struct MainSplitView: View {
                         }
 
                     sidebarView
-                        .frame(width: min(228, max(190, availableWidth * 0.78)))
+                        .frame(width: min(sidebarWidth, max(190, availableWidth * 0.78)))
                         .background(Color(nsColor: .windowBackgroundColor))
                         .overlay(alignment: .trailing) {
                             Divider()
@@ -630,7 +635,7 @@ struct MainSplitView: View {
             HStack(spacing: 0) {
                 if navState.isSidebarVisible {
                     sidebarView
-                        .frame(width: 228)
+                        .frame(width: sidebarWidth)
                         .transition(.move(edge: .leading).combined(with: .opacity))
 
                     Divider()
@@ -691,7 +696,7 @@ struct MainSplitView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("OVERVIEW")
-                            .font(.system(size: 10.5, weight: .semibold))
+                            .toolboxFont(.system(size: 11, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .tracking(0.6)
                             .padding(.horizontal, 8)
@@ -704,7 +709,7 @@ struct MainSplitView: View {
                                 Image(systemName: "square.grid.2x2")
                                     .foregroundStyle(isDashboardSelected ? Color.white : ToolboxTheme.accentBlue)
                                 Text("Dashboard")
-                                    .font(.callout.weight(.medium))
+                                    .toolboxFont(.callout.weight(.medium))
                                 Spacer()
                             }
                             .padding(.horizontal, 8)
@@ -741,7 +746,7 @@ struct MainSplitView: View {
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("MODULES")
-                            .font(.system(size: 10.5, weight: .semibold))
+                            .toolboxFont(.system(size: 11, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .tracking(0.6)
                             .padding(.horizontal, 8)
@@ -776,7 +781,7 @@ struct MainSplitView: View {
                                         .foregroundStyle(isSelected ? .white : ToolboxTheme.readableAccentText(for: module.accentColor))
                                         .frame(width: 16)
                                     Text(module.name)
-                                        .font(.callout)
+                                        .toolboxFont(.callout)
                                         .lineLimit(1)
                                     Spacer()
                                     Circle()
@@ -825,7 +830,7 @@ struct MainSplitView: View {
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("CONFIGURATION")
-                            .font(.system(size: 10.5, weight: .semibold))
+                            .toolboxFont(.system(size: 11, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .tracking(0.6)
                             .padding(.horizontal, 8)
@@ -854,7 +859,7 @@ struct MainSplitView: View {
                     if developerMode.isUnlocked {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("DEVELOPER")
-                                .font(.system(size: 10.5, weight: .semibold))
+                                .toolboxFont(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(.secondary)
                                 .tracking(0.6)
                                 .padding(.horizontal, 8)
@@ -899,12 +904,12 @@ struct MainSplitView: View {
                     .foregroundStyle(isSelected ? .white : symbolColor)
                     .frame(width: 16)
                 Text(title)
-                    .font(.callout)
+                    .toolboxFont(.callout)
                     .lineLimit(1)
                 Spacer()
                 if let badge {
                     Text(badge)
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .toolboxFont(.system(size: 10.5, weight: .bold, design: .rounded))
                         .foregroundStyle(isSelected ? ToolboxTheme.accentBlue : .white)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
@@ -977,14 +982,14 @@ struct MainSplitView: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "arrow.down.circle.fill")
-                    .font(.caption.weight(.bold))
+                    .toolboxFont(.caption.weight(.bold))
                 Text("Toolbox v\(version) is available\(sizeNote) — click to review and update")
-                    .font(.caption.weight(.semibold))
+                    .toolboxFont(.caption.weight(.semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 8)
                 Text("Update…")
-                    .font(.caption2.weight(.bold))
+                    .toolboxFont(.caption2.weight(.bold))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 2)
                     .background(Color.white.opacity(0.22), in: Capsule())

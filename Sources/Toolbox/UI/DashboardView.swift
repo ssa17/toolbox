@@ -75,7 +75,7 @@ struct DashboardView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 8) {
                             Text("Modules")
-                                .font(.title3.weight(.semibold))
+                                .toolboxFont(.title3.weight(.semibold))
                                 .foregroundStyle(.primary)
                             Spacer()
                             DashboardDensityPicker(showDetails: showDetails) { newVal in
@@ -188,14 +188,14 @@ struct DashboardView: View {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 8) {
                     Text("Toolbox")
-                        .font(.title2.bold())
+                        .toolboxFont(.title2.bold())
                     headerBannerVersionPill
                     headerBannerStatusBadge(isAppEnabled: isAppEnabled)
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
                         Text("Toolbox")
-                            .font(.title2.bold())
+                            .toolboxFont(.title2.bold())
                         headerBannerVersionPill
                     }
                     headerBannerStatusBadge(isAppEnabled: isAppEnabled)
@@ -206,7 +206,7 @@ struct DashboardView: View {
                     ? "Lightweight, config-driven utilities tailored to how you use your Mac."
                     : "Toolbox is paused. Resume to reactivate your enabled modules."
             )
-            .font(.callout)
+            .toolboxFont(.callout)
             .foregroundStyle(Color.primary.opacity(0.76))
             .fixedSize(horizontal: false, vertical: true)
         }
@@ -215,7 +215,7 @@ struct DashboardView: View {
 
     private var headerBannerVersionPill: some View {
         Text(versionText)
-            .font(.caption.monospaced())
+            .toolboxFont(.caption.monospaced())
             .padding(.horizontal, 7)
             .padding(.vertical, 2)
             .background(Color.primary.opacity(0.08), in: Capsule())
@@ -250,7 +250,7 @@ struct DashboardView: View {
                             .fill(Color.orange.opacity(0.16))
                             .frame(width: 40, height: 40)
                         Image(systemName: "hand.raised.fill")
-                            .font(.title3.weight(.semibold))
+                            .toolboxFont(.title3.weight(.semibold))
                             .foregroundStyle(.orange)
                     }
 
@@ -258,24 +258,24 @@ struct DashboardView: View {
                         ViewThatFits(in: .horizontal) {
                             HStack(spacing: 8) {
                                 Text("Enable Accessibility for Input & Window Shortcuts")
-                                    .font(.headline)
+                                    .toolboxFont(.headline)
                                 accessibilityBannerBadges
                             }
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("Enable Accessibility for Input & Window Shortcuts")
-                                    .font(.headline)
+                                    .toolboxFont(.headline)
                                 accessibilityBannerBadges
                             }
                         }
 
                         Text("Turn on Toolbox.app in Privacy & Security → Accessibility for Dock Minimize, Scroll Direction, Call Keybinds, Keyboard Lock, and Auto-Paste. Runs 100% locally.")
-                            .font(.system(size: 12.5))
+                            .toolboxFont(.system(size: 12.5))
                             .foregroundStyle(Color.primary.opacity(0.78))
                             .fixedSize(horizontal: false, vertical: true)
 
                         if permissions.isAdHocSigned || permissions.hasAttemptedGrantWithoutSuccess {
                             Text("Already enabled in System Settings? Click Reset Permission to clear any stale entry and re-authorize.")
-                                .font(.system(size: 12))
+                                .toolboxFont(.system(size: 12))
                                 .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
                                 .fixedSize(horizontal: false, vertical: true)
                                 .padding(.top, 2)
@@ -295,7 +295,7 @@ struct DashboardView: View {
                                 permissions.isResettingAccessibility ? "Resetting…" : "Reset Permission",
                                 systemImage: "arrow.counterclockwise"
                             )
-                            .font(.callout.weight(.medium))
+                            .toolboxFont(.callout.weight(.medium))
                         }
                         .buttonStyle(.bordered)
                         .disabled(permissions.isResettingAccessibility)
@@ -307,7 +307,7 @@ struct DashboardView: View {
                         permissions.presentOnboardingModal()
                     } label: {
                         Label("Why This Is Needed", systemImage: "questionmark.circle")
-                            .font(.callout.weight(.medium))
+                            .toolboxFont(.callout.weight(.medium))
                     }
                     .buttonStyle(.bordered)
                     .pointerCursor()
@@ -319,7 +319,7 @@ struct DashboardView: View {
                             permissions.isAwaitingAccessibilityGrant ? "Open Settings…" : "Grant Access…",
                             systemImage: "hand.raised.fill"
                         )
-                        .font(.callout.weight(.semibold))
+                        .toolboxFont(.callout.weight(.semibold))
                     }
                     .buttonStyle(.toolboxProminent(.orange))
                     .pointerCursor()
@@ -349,21 +349,21 @@ struct DashboardView: View {
                             .fill(Color.orange.opacity(0.16))
                             .frame(width: 42, height: 42)
                         Image(systemName: "text.viewfinder")
-                            .font(.title3.weight(.semibold))
+                            .toolboxFont(.title3.weight(.semibold))
                             .foregroundStyle(.orange)
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 8) {
                             Text("Enable Screen Recording for Screen OCR")
-                                .font(.headline)
+                                .toolboxFont(.headline)
                             StatusBadge(
                                 text: screenOCR.isAwaitingScreenPermission ? "Waiting for permission…" : "Step 2 of 2",
                                 color: .orange
                             )
                         }
                         Text("Accessibility is active. Next, in System Settings → Privacy & Security → Screen & System Audio Recording, turn on Toolbox.app so Screen OCR can capture screen regions offline.")
-                            .font(.system(size: 13))
+                            .toolboxFont(.system(size: 13))
                             .foregroundStyle(Color.primary.opacity(0.78))
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -377,7 +377,7 @@ struct DashboardView: View {
                         onSelectModule("screen_ocr")
                     } label: {
                         Label("Screen OCR Settings", systemImage: "slider.horizontal.3")
-                            .font(.callout.weight(.medium))
+                            .toolboxFont(.callout.weight(.medium))
                             .padding(.horizontal, 4)
                     }
                     .buttonStyle(.bordered)
@@ -395,7 +395,7 @@ struct DashboardView: View {
                             screenOCR.isAwaitingScreenPermission ? "Open Settings…" : "Grant Screen Access…",
                             systemImage: "text.viewfinder"
                         )
-                        .font(.callout.weight(.semibold))
+                        .toolboxFont(.callout.weight(.semibold))
                         .padding(.horizontal, 6)
                     }
                     .buttonStyle(.toolboxProminent(.orange))
@@ -412,14 +412,14 @@ struct DashboardView: View {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 12) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.title3)
+                        .toolboxFont(.title3)
                         .foregroundStyle(.orange)
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text("macOS Native Window Tiling Is Enabled")
-                            .font(.headline)
+                            .toolboxFont(.headline)
                         Text("\(count) macOS Desktop & Dock tiling option\(count == 1 ? " is" : "s are") enabled. Turn \(count == 1 ? "it" : "them") off so Window Snapper handles every drag cleanly.")
-                            .font(.caption)
+                            .toolboxFont(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -439,13 +439,13 @@ struct DashboardView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(alignment: .top, spacing: 10) {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.title3)
+                            .toolboxFont(.title3)
                             .foregroundStyle(.orange)
                         VStack(alignment: .leading, spacing: 3) {
                             Text("macOS Native Window Tiling Is Enabled")
-                                .font(.headline)
+                                .toolboxFont(.headline)
                             Text("\(count) macOS Desktop & Dock tiling option\(count == 1 ? " is" : "s are") enabled. Turn \(count == 1 ? "it" : "them") off so Window Snapper handles every drag cleanly.")
-                                .font(.caption)
+                                .toolboxFont(.caption)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -591,7 +591,7 @@ private struct CleanLockDashboardButton: View {
                 cleanLock.isLocked ? "\(cleanLock.remainingSeconds)s" : "Lock (\(durationLabel))",
                 systemImage: cleanLock.isLocked ? "lock.fill" : "lock"
             )
-            .font(.caption.weight(.semibold))
+            .toolboxFont(.caption.weight(.semibold))
             .lineLimit(1)
         }
         .buttonStyle(.toolboxProminent(.red))
@@ -650,7 +650,7 @@ private struct DashboardModuleCard: View {
                             .fill(module.accentColor.opacity(isTinted ? (isHighlighted ? 0.22 : 0.17) : (isHighlighted ? 0.16 : 0.12)))
                             .frame(width: 30, height: 30)
                         Image(systemName: module.symbolName)
-                            .font(.system(size: 13.5, weight: .semibold))
+                            .toolboxFont(.system(size: 13.5, weight: .semibold))
                             .foregroundStyle(
                                 isTinted || isHighlighted
                                     ? ToolboxTheme.readableAccentText(for: module.accentColor)
@@ -659,7 +659,7 @@ private struct DashboardModuleCard: View {
                     }
 
                     Text(module.name)
-                        .font(.system(size: 13, weight: .semibold))
+                        .toolboxFont(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
@@ -673,7 +673,7 @@ private struct DashboardModuleCard: View {
 
                 CollapsibleContainer(progress: showDetails ? 1 : 0, reduceMotion: reduceMotion) {
                     Text(module.tagline)
-                        .font(.system(size: 12))
+                        .toolboxFont(.system(size: 12))
                         .foregroundStyle(Color.primary.opacity(0.74))
                         .lineSpacing(2)
                         .multilineTextAlignment(.leading)
@@ -696,7 +696,7 @@ private struct DashboardModuleCard: View {
                     }
 
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
+                        .toolboxFont(.system(size: 11, weight: .semibold))
                         .foregroundStyle(
                             isHighlighted
                                 ? ToolboxTheme.readableAccentText(for: module.accentColor)
@@ -794,20 +794,20 @@ struct AccessibilityOnboardingModalView: View {
                             )
                             .frame(width: 48, height: 48)
                         Image(systemName: "hand.raised.fill")
-                            .font(.title2.weight(.semibold))
+                            .toolboxFont(.title2.weight(.semibold))
                             .foregroundStyle(.orange)
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Enable Accessibility Access")
-                            .font(.title3.bold())
+                            .toolboxFont(.title3.bold())
                             .fixedSize(horizontal: false, vertical: true)
                         HStack(spacing: 6) {
                             Image(systemName: "checkmark.shield.fill")
-                                .font(.caption.weight(.semibold))
+                                .toolboxFont(.caption.weight(.semibold))
                                 .foregroundStyle(.green)
                             Text("100% Local · Zero Keystroke Logging · Zero Network Access")
-                                .font(.caption.weight(.semibold))
+                                .toolboxFont(.caption.weight(.semibold))
                                 .foregroundStyle(ToolboxTheme.readableAccentText(for: .green))
                         }
                         .padding(.horizontal, 8)
@@ -821,7 +821,7 @@ struct AccessibilityOnboardingModalView: View {
                         permissions.dismissOnboardingModal(markSeen: true)
                     } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 11, weight: .semibold))
+                            .toolboxFont(.system(size: 11, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .frame(width: 28, height: 28)
                             .background(Color.primary.opacity(0.08), in: Circle())
@@ -835,7 +835,7 @@ struct AccessibilityOnboardingModalView: View {
                 }
 
                 Text("In System Settings → Privacy & Security → Device Control and Data Access (Accessibility), toggle on Toolbox.app to enable features that react to Dock clicks, scroll events, or global shortcuts:")
-                    .font(.callout)
+                    .toolboxFont(.callout)
                     .foregroundStyle(Color.primary.opacity(0.84))
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -869,7 +869,7 @@ struct AccessibilityOnboardingModalView: View {
                 )
 
                 Text("One toggle covers all Accessibility & Input Monitoring shortcuts. If Screen OCR is enabled, Toolbox will guide you to Screen Recording next.")
-                    .font(.system(size: 12))
+                    .toolboxFont(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -912,15 +912,15 @@ struct AccessibilityOnboardingModalView: View {
                     .fill(tint.opacity(0.15))
                     .frame(width: 28, height: 28)
                 Image(systemName: symbol)
-                    .font(.system(size: 13, weight: .semibold))
+                    .toolboxFont(.system(size: 13, weight: .semibold))
                     .foregroundStyle(tint)
             }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.callout.weight(.semibold))
+                    .toolboxFont(.callout.weight(.semibold))
                 Text(detail)
-                    .font(.system(size: 12))
+                    .toolboxFont(.system(size: 12))
                     .foregroundStyle(Color.primary.opacity(0.75))
                     .fixedSize(horizontal: false, vertical: true)
             }

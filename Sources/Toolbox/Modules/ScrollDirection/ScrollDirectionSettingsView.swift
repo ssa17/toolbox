@@ -103,7 +103,7 @@ struct ScrollDirectionSettingsView: View {
 
                 HStack(spacing: 10) {
                     Text(statsSubtitle)
-                        .font(.caption)
+                        .toolboxFont(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
 
@@ -119,7 +119,7 @@ struct ScrollDirectionSettingsView: View {
 
                     if isEnabled {
                         Text("Inverted: \(module.eventsInverted)")
-                            .font(.caption.monospacedDigit().weight(.semibold))
+                            .toolboxFont(.caption.monospacedDigit().weight(.semibold))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
@@ -181,11 +181,11 @@ struct ScrollDirectionSettingsView: View {
                                     .fill(rowNumber % 2 == 0 ? Color.pink.opacity(0.55) : Color.accentColor.opacity(0.45))
                                     .frame(width: 4, height: 14)
                                 Text("Sample Line \(rowNumber)")
-                                    .font(.caption.monospaced())
+                                    .toolboxFont(.caption.monospaced())
                                     .foregroundStyle(.primary.opacity(0.82))
                                 Spacer()
                                 Text(rowNumber == 1 ? "Top of list" : (rowNumber == 6 ? "End of section" : "Scroll to test direction"))
-                                    .font(.caption2)
+                                    .toolboxFont(.caption2)
                                     .foregroundStyle(.tertiary)
                             }
                             .padding(.horizontal, 12)
@@ -218,7 +218,7 @@ struct ScrollDirectionSettingsView: View {
 
     private var padTitleLabel: some View {
         Label("Interactive Scroll Test Pad", systemImage: "hand.draw")
-            .font(.caption.weight(.semibold))
+            .toolboxFont(.caption.weight(.semibold))
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: true, vertical: false)
     }
@@ -241,15 +241,15 @@ struct ScrollDirectionSettingsView: View {
             HStack(spacing: 4) {
                 Text("Detected: \(last.label) (\(last == .mouse ? "Line" : "Pixel")) ·")
                 Image(systemName: movingUp ? "arrow.up" : "arrow.down")
-                    .font(.caption2.weight(.semibold))
+                    .toolboxFont(.caption2.weight(.semibold))
                 Text(movingUp ? "Moving Up" : "Moving Down")
             }
-            .font(.caption2)
+            .toolboxFont(.caption2)
             .foregroundStyle(matchingTarget ? ToolboxTheme.readableAccentText(for: .pink) : .secondary)
             .lineLimit(1)
         } else {
             Text("Hover here and scroll with mouse or trackpad")
-                .font(.caption2)
+                .toolboxFont(.caption2)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }

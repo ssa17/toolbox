@@ -42,7 +42,7 @@ struct CustomCommandsSettingsView: View {
                     HStack(spacing: 10) {
                         if commands.isEmpty {
                             Text("Add your first command below or pick from Templates.")
-                                .font(.caption)
+                                .toolboxFont(.caption)
                                 .foregroundStyle(.secondary)
                         } else {
                             StatusBadge(
@@ -50,7 +50,7 @@ struct CustomCommandsSettingsView: View {
                                 color: enabledCount > 0 ? module.accentColor : .secondary
                             )
                             Text("Click a command to edit")
-                                .font(.caption)
+                                .toolboxFont(.caption)
                                 .foregroundStyle(.secondary)
                         }
 
@@ -69,7 +69,7 @@ struct CustomCommandsSettingsView: View {
                                     draft.isAddingNew ? "Cancel" : "Add Command",
                                     systemImage: draft.isAddingNew ? "xmark" : "plus"
                                 )
-                                .font(.caption.weight(.medium))
+                                .toolboxFont(.caption.weight(.medium))
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
@@ -126,7 +126,7 @@ struct CustomCommandsSettingsView: View {
 
                         ScrollView(.vertical) {
                             Text(output)
-                                .font(.system(.caption, design: .monospaced))
+                                .toolboxFont(.system(.caption, design: .monospaced))
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
@@ -160,7 +160,7 @@ struct CustomCommandsSettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Text("New Command")
-                    .font(.callout.weight(.semibold))
+                    .toolboxFont(.callout.weight(.semibold))
 
                 Spacer()
 
@@ -203,7 +203,7 @@ struct CustomCommandsSettingsView: View {
                 TextField(draft.kind.placeholder, text: $draft.payload, axis: .vertical)
                     .lineLimit(1...4)
                     .textFieldStyle(.roundedBorder)
-                    .font(.system(.callout, design: .monospaced))
+                    .toolboxFont(.system(.callout, design: .monospaced))
                     .onSubmit {
                         if canAdd {
                             addDraftCommand()
@@ -225,7 +225,7 @@ struct CustomCommandsSettingsView: View {
 
             HStack(spacing: 10) {
                 Text("Shortcut")
-                    .font(.callout)
+                    .toolboxFont(.callout)
                     .foregroundStyle(.secondary)
 
                 ShortcutRecorderView(
@@ -247,7 +247,7 @@ struct CustomCommandsSettingsView: View {
                         .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
                         .pointerCursor()
                     Text("Show toast")
-                        .font(.caption.weight(.medium))
+                        .toolboxFont(.caption.weight(.medium))
                         .foregroundStyle(.secondary)
                 }
 
@@ -287,7 +287,7 @@ struct CustomCommandsSettingsView: View {
                             ? "Enter a command name to enable Add Command."
                             : "Enter a command, app path, URL, or text snippet to enable Add Command.")
                 )
-                .font(.caption)
+                .toolboxFont(.caption)
                 .foregroundStyle(.secondary)
             }
 
@@ -330,20 +330,20 @@ struct CustomCommandsSettingsView: View {
                                 .fill(kindTint.opacity(cmd.enabled ? 0.16 : 0.08))
                                 .frame(width: 30, height: 30)
                             Image(systemName: iconName(for: cmd.kind))
-                                .font(.system(size: 12.5, weight: .semibold))
+                                .toolboxFont(.system(size: 12.5, weight: .semibold))
                                 .foregroundStyle(cmd.enabled ? readableKindTint : .secondary)
                         }
 
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 6) {
                                 Text(displayTitle)
-                                    .font(.callout.weight(.semibold))
+                                    .toolboxFont(.callout.weight(.semibold))
                                     .opacity(cmd.enabled ? 1.0 : 0.65)
                                     .lineLimit(1)
 
                                 if cmd.showNotification {
                                     Image(systemName: "bell.fill")
-                                        .font(.system(size: 9))
+                                        .toolboxFont(.system(size: 9))
                                         .foregroundStyle(.tertiary)
                                         .help("Shows notification toast")
                                 }
@@ -351,7 +351,7 @@ struct CustomCommandsSettingsView: View {
 
                             HStack(spacing: 5) {
                                 Text(shortLabel(for: cmd.kind))
-                                    .font(.caption2.weight(.semibold))
+                                    .toolboxFont(.caption2.weight(.semibold))
                                     .foregroundStyle(cmd.enabled ? readableKindTint : .secondary)
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 1)
@@ -360,7 +360,7 @@ struct CustomCommandsSettingsView: View {
                                         in: Capsule()
                                     )
                                 Text(payloadPreview(for: cmd))
-                                    .font(.system(.caption, design: .monospaced))
+                                    .toolboxFont(.system(.caption, design: .monospaced))
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                                     .truncationMode(.middle)
@@ -390,7 +390,7 @@ struct CustomCommandsSettingsView: View {
                         module.runCommand(cmd)
                     } label: {
                         Image(systemName: "play.fill")
-                            .font(.system(size: 11, weight: .semibold))
+                            .toolboxFont(.system(size: 11, weight: .semibold))
                             .foregroundStyle(canRun ? .primary : .secondary)
                             .frame(width: 28, height: 28)
                             .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
@@ -406,7 +406,7 @@ struct CustomCommandsSettingsView: View {
                         draft.expandedCommandID = isExpanded ? nil : cmd.id
                     } label: {
                         Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 11, weight: .semibold))
+                            .toolboxFont(.system(size: 11, weight: .semibold))
                             .frame(width: 28, height: 28)
                             .foregroundStyle(isExpanded ? ToolboxTheme.readableAccentText(for: module.accentColor) : Color.secondary)
                             .background(
@@ -454,7 +454,7 @@ struct CustomCommandsSettingsView: View {
                         TextField(cmd.kind.placeholder, text: cmdBinding.payload, axis: .vertical)
                             .lineLimit(1...4)
                             .textFieldStyle(.roundedBorder)
-                            .font(.system(.callout, design: .monospaced))
+                            .toolboxFont(.system(.callout, design: .monospaced))
 
                         if cmd.kind == .openApp {
                             Button("Choose App…") {
@@ -474,7 +474,7 @@ struct CustomCommandsSettingsView: View {
                                 .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
                                 .pointerCursor()
                             Text("Show toast")
-                                .font(.caption.weight(.medium))
+                                .toolboxFont(.caption.weight(.medium))
                                 .foregroundStyle(.secondary)
                         }
 

@@ -3,7 +3,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 enum WindowSnapperSettingsTab: String, CaseIterable, Identifiable {
-    case generalAndDrag = "general_drag"
+    case general = "general"
     case topEdgePanel = "top_edge_panel"
     case zonesAndDisplays = "zones_displays"
     case profiles = "profiles"
@@ -13,7 +13,7 @@ enum WindowSnapperSettingsTab: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .generalAndDrag: return "General & Drag"
+        case .general: return "General"
         case .topEdgePanel: return "Top Edge Panel"
         case .zonesAndDisplays: return "Display Zones"
         case .profiles: return "Profiles"
@@ -23,7 +23,7 @@ enum WindowSnapperSettingsTab: String, CaseIterable, Identifiable {
 
     var symbolName: String {
         switch self {
-        case .generalAndDrag: return "cursorarrow.click.2"
+        case .general: return "gearshape"
         case .topEdgePanel: return "dock.arrow.down.rectangle"
         case .zonesAndDisplays: return "rectangle.3.group"
         case .profiles: return "sparkles.rectangle.stack"
@@ -137,20 +137,14 @@ private final class WindowSnapperSettingsUIState: ObservableObject {
     @Published var isCreatingNewProfile: Bool = false
     @Published var profileBuilderDisplayID: CGDirectDisplayID? = nil
     @Published var profileTemplateFilter: ProfileTemplateFilterCount = .all
-    @Published var newZoneProfileName: String = ""
     @Published var showProfileTemplatePicker: Bool = false
-    @Published var showAdvancedOptions: Bool
     @Published var shortcutCategory: WindowSnapperShortcutCategory = .halvesAndCore
     @Published var selectedTopEdgeSlotIndex: Int = 0
     @Published var installedApps: [InstalledAppCandidate] = []
     let animationPreview = WindowAnimationPreviewState()
 
-    init(
-        selectedTab: WindowSnapperSettingsTab = .generalAndDrag,
-        showAdvancedOptions: Bool = false
-    ) {
+    init(selectedTab: WindowSnapperSettingsTab = .general) {
         self.selectedTab = selectedTab
-        self.showAdvancedOptions = showAdvancedOptions
     }
 }
 
@@ -165,15 +159,11 @@ struct WindowSnapperSettingsView: View {
 
     init(
         module: WindowSnapperModule,
-        initialTab: WindowSnapperSettingsTab = .generalAndDrag,
-        initialShowAdvancedOptions: Bool = false
+        initialTab: WindowSnapperSettingsTab = .general
     ) {
         self.module = module
         _uiState = StateObject(
-            wrappedValue: WindowSnapperSettingsUIState(
-                selectedTab: initialTab,
-                showAdvancedOptions: initialShowAdvancedOptions
-            )
+            wrappedValue: WindowSnapperSettingsUIState(selectedTab: initialTab)
         )
     }
 
@@ -192,6 +182,7 @@ struct WindowSnapperSettingsView: View {
                     label: { $0.label },
                     symbol: { $0.symbolName }
                 )
+                .frame(minWidth: 640)
 
                 ToolboxSegmentedControl(
                     options: Array(WindowSnapperSettingsTab.allCases),
@@ -200,7 +191,7 @@ struct WindowSnapperSettingsView: View {
                     isFullWidth: true,
                     label: { tab in
                         switch tab {
-                        case .generalAndDrag: return "Drag"
+                        case .general: return "General"
                         case .topEdgePanel: return "Top"
                         case .zonesAndDisplays: return "Zones"
                         case .profiles: return "Profiles"
@@ -216,7 +207,7 @@ struct WindowSnapperSettingsView: View {
                     isFullWidth: true,
                     label: { tab in
                         switch tab {
-                        case .generalAndDrag: return "Drag"
+                        case .general: return "Gen"
                         case .topEdgePanel: return "Top"
                         case .zonesAndDisplays: return "Zone"
                         case .profiles: return "Prof"
@@ -227,8 +218,8 @@ struct WindowSnapperSettingsView: View {
             }
 
             switch uiState.selectedTab {
-            case .generalAndDrag:
-                generalAndDragTab
+            case .general:
+                generalTab
             case .topEdgePanel:
                 topEdgePanelTab
             case .zonesAndDisplays:
@@ -268,14 +259,14 @@ struct WindowSnapperSettingsView: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.title3)
+                        .toolboxFont(.title3)
                         .foregroundStyle(.orange)
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("macOS Native Window Tiling Is Enabled")
-                            .font(.headline)
+                            .toolboxFont(.headline)
                         Text("Turn off macOS's built-in tiling options in System Settings → Desktop & Dock → Windows so Toolbox Window Snapper handles every drag cleanly without competing overlays.")
-                            .font(.caption)
+                            .toolboxFont(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -284,7 +275,7 @@ struct WindowSnapperSettingsView: View {
                 if !activeLabels.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Currently enabled in Desktop & Dock:")
-                            .font(.caption.weight(.semibold))
+                            .toolboxFont(.caption.weight(.semibold))
                             .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
                         ForEach(activeLabels, id: \.self) { label in
                             HStack(spacing: 6) {
@@ -292,7 +283,7 @@ struct WindowSnapperSettingsView: View {
                                     .font(.system(size: 5))
                                     .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
                                 Text(label)
-                                    .font(.caption)
+                                    .toolboxFont(.caption)
                                     .foregroundStyle(.primary.opacity(0.88))
                                     .fixedSize(horizontal: false, vertical: true)
                             }
@@ -345,10 +336,10 @@ struct WindowSnapperSettingsView: View {
         }
     }
 
-    // MARK: - Tab 1: General & Drag
+    // MARK: - Tab 1: General
 
     @ViewBuilder
-    private var generalAndDragTab: some View {
+    private var generalTab: some View {
         let cfg = configManager.config.windowSnapper
 
         FeatureCardGridSection(
@@ -381,249 +372,192 @@ struct WindowSnapperSettingsView: View {
         }
 
         FeatureSection(
-            "Drag Controls",
-            subtitle: "Choose which modifier key reveals the full zone grid while dragging."
+            "Edge & Corner Magnetic Pull",
+            subtitle: "Fine-tune how close the pointer must get to edges and corners to trigger a snap."
         ) {
             SettingRow(
-                "Full-grid overlay key",
-                subtitle: "Hold this key while dragging a window to reveal all display zones and pick any square directly."
+                "Edge magnetic pull distance",
+                subtitle: "How close the pointer must get to Left, Right, or Top edges to preview a snap (Bottom stays free for the Dock)."
             ) {
-                Picker("", selection: $configManager.config.windowSnapper.drag.gridModifier) {
-                    ForEach(DragModifierChoice.allCases) { choice in
-                        Text(choice.label).tag(choice)
+                HStack(spacing: 6) {
+                    ForEach([0, 8, 12, 20], id: \.self) { pts in
+                        ToolboxPresetChip(
+                            label: DragSnapConfig.edgeProximityLabel(for: Double(pts)),
+                            isSelected: Int(round(cfg.drag.edgeProximityPoints)) == pts,
+                            accentColor: module.accentColor
+                        ) {
+                            configManager.config.windowSnapper.drag.edgeProximityPoints = Double(pts)
+                            module.flashEdgePullTriggerZone(distancePoints: Double(pts))
+                        }
+                        .help(pts == 0 ? "0 pt (Requires touching edge)" : "\(pts) pt from edge")
                     }
                 }
-                .labelsHidden()
-                .frame(width: 152)
-                .pointerCursor()
+            }
+
+            Divider()
+
+            SettingRow(
+                "Corner quadrant band",
+                subtitle: "Corner target size used to trigger Top-Left, Top-Right, Bottom-Left, and Bottom-Right quarters."
+            ) {
+                HStack(spacing: 6) {
+                    ForEach([32, 48, 64, 80], id: \.self) { pts in
+                        ToolboxPresetChip(
+                            label: DragSnapConfig.cornerBandLabel(for: Double(pts)),
+                            isSelected: Int(round(cfg.drag.cornerBandPoints)) == pts,
+                            accentColor: module.accentColor
+                        ) {
+                            configManager.config.windowSnapper.drag.cornerBandPoints = Double(pts)
+                            module.flashCornerBandTriggerZone(bandPoints: Double(pts))
+                        }
+                        .help("\(pts) × \(pts) pt corner region")
+                    }
+                }
             }
         }
 
         FeatureSection(
-            "Tile Spacing",
-            subtitle: "Set outer desktop margins and gaps between snapped windows."
+            "Overlay Appearance & Animation",
+            subtitle: "Customize zone outline styling, labels, and window glide animation."
         ) {
-            spacingAndOutlinePreviewBanner(cfg: cfg)
-        }
-
-        FeatureSection(
-            "Advanced & Appearance",
-            subtitle: "Fine-tune edge pull thresholds, multi-zone spanning, outline styling, and animation speed."
-        ) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.16)) {
-                    uiState.showAdvancedOptions.toggle()
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: uiState.showAdvancedOptions ? "chevron.down" : "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 12)
-                    Text("Show Edge Pull, Multi-Zone Span & Overlay Options")
-                        .font(.callout.weight(.medium))
-                    Spacer()
-                    StatusBadge(
-                        text: "Edge \(DragSnapConfig.edgeProximityLabel(for: cfg.drag.edgeProximityPoints)) · \(cfg.overlayStyle.tintColor.label) · \(Int(round(cfg.overlayStyle.fillOpacity * 100)))%",
-                        color: .secondary
-                    )
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .focusEffectDisabled()
-            .pointerCursor()
-
-            if uiState.showAdvancedOptions {
-                Divider()
-
-                SettingRow(
-                    "Multi-zone span modifier",
-                    subtitle: "Hold while hovering near a seam inside the full-grid overlay to span adjacent cells."
-                ) {
-                    Picker("", selection: $configManager.config.windowSnapper.drag.spanModifier) {
-                        ForEach(DragModifierChoice.allCases) { choice in
-                            Text(choice.label).tag(choice)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 152)
-                    .pointerCursor()
-                }
-
-                Divider()
-
-                SettingRow(
-                    "Edge magnetic pull distance",
-                    subtitle: "How close the pointer must get to Left, Right, or Top edges to preview a snap (Bottom stays free for the Dock)."
-                ) {
-                    HStack(spacing: 6) {
-                        ForEach([0, 8, 12, 20], id: \.self) { pts in
-                            ToolboxPresetChip(
-                                label: DragSnapConfig.edgeProximityLabel(for: Double(pts)),
-                                isSelected: Int(round(cfg.drag.edgeProximityPoints)) == pts,
-                                accentColor: module.accentColor
-                            ) {
-                                configManager.config.windowSnapper.drag.edgeProximityPoints = Double(pts)
-                                module.flashEdgePullTriggerZone(distancePoints: Double(pts))
-                            }
-                            .help(pts == 0 ? "0 pt (Requires touching edge)" : "\(pts) pt from edge")
-                        }
-                    }
-                }
-
-                Divider()
-
-                SettingRow(
-                    "Corner quadrant band",
-                    subtitle: "Corner target size used to trigger Top-Left, Top-Right, Bottom-Left, and Bottom-Right quarters."
-                ) {
-                    HStack(spacing: 6) {
-                        ForEach([32, 48, 64, 80], id: \.self) { pts in
-                            ToolboxPresetChip(
-                                label: DragSnapConfig.cornerBandLabel(for: Double(pts)),
-                                isSelected: Int(round(cfg.drag.cornerBandPoints)) == pts,
-                                accentColor: module.accentColor
-                            ) {
-                                configManager.config.windowSnapper.drag.cornerBandPoints = Double(pts)
-                                module.flashCornerBandTriggerZone(bandPoints: Double(pts))
-                            }
-                            .help("\(pts) × \(pts) pt corner region")
-                        }
-                    }
-                }
-
-                Divider()
-
-                SettingRow(
-                    "Outline color & fill opacity",
-                    subtitle: "Tint color and interior translucency of highlighted zone rectangles."
-                ) {
-                    let swatches = HStack(spacing: 7) {
-                        ForEach(OverlayTintColor.allCases) { tint in
-                            let isSelected = cfg.overlayStyle.tintColor == tint
-                            Button {
-                                configManager.config.windowSnapper.overlayStyle.tintColor = tint
-                            } label: {
-                                ZStack {
-                                    Circle()
-                                        .fill(tint.swatchColor.gradient)
-                                        .frame(width: 20, height: 20)
-                                        .overlay(
-                                            Circle()
-                                                .strokeBorder(
-                                                    Color.white.opacity(tint == .neutral ? 0.55 : 0.25),
-                                                    lineWidth: 1
-                                                )
-                                        )
-                                    if isSelected {
-                                        Image(systemName: "checkmark")
-                                            .font(.system(size: 10, weight: .bold))
-                                            .foregroundStyle(tint == .neutral ? .black : .white)
-                                    }
+            SettingRow(
+                "Outline color & fill opacity",
+                subtitle: "Tint color and interior translucency of highlighted zone rectangles."
+            ) {
+                let swatches = HStack(spacing: 7) {
+                    ForEach(OverlayTintColor.allCases) { tint in
+                        let isSelected = cfg.overlayStyle.tintColor == tint
+                        Button {
+                            configManager.config.windowSnapper.overlayStyle.tintColor = tint
+                            module.flashOutlineStylePreview(tintColor: tint)
+                        } label: {
+                            ZStack {
+                                Circle()
+                                    .fill(tint.swatchColor.gradient)
+                                    .frame(width: 20, height: 20)
+                                    .overlay(
+                                        Circle()
+                                            .strokeBorder(
+                                                Color.white.opacity(tint == .neutral ? 0.55 : 0.25),
+                                                lineWidth: 1
+                                            )
+                                    )
+                                if isSelected {
+                                    Image(systemName: "checkmark")
+                                        .toolboxFont(.system(size: 10, weight: .bold))
+                                        .foregroundStyle(tint == .neutral ? .black : .white)
                                 }
-                                .padding(2)
-                                .overlay(
-                                    Circle()
-                                        .strokeBorder(
-                                            isSelected ? Color.white.opacity(0.9) : Color.clear,
-                                            lineWidth: 1.5
-                                        )
-                                )
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(tint.label)
-                            .help(tint.label)
-                            .pointerCursor()
+                            .padding(2)
+                            .overlay(
+                                Circle()
+                                    .strokeBorder(
+                                        isSelected ? Color.white.opacity(0.9) : Color.clear,
+                                        lineWidth: 1.5
+                                    )
+                            )
                         }
-                    }
-
-                    let opacityChips = HStack(spacing: 5) {
-                        ForEach([0.0, 0.10, 0.16, 0.24, 0.32], id: \.self) { val in
-                            ToolboxPresetChip(
-                                label: "\(Int(round(val * 100)))%",
-                                isSelected: abs(cfg.overlayStyle.fillOpacity - val) < 0.02,
-                                accentColor: module.accentColor
-                            ) {
-                                configManager.config.windowSnapper.overlayStyle.fillOpacity = val
-                            }
-                        }
-                    }
-
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 12) {
-                            swatches
-                            opacityChips
-                        }
-                        VStack(alignment: .leading, spacing: 8) {
-                            swatches
-                            opacityChips
-                        }
-                    }
-                }
-
-                Divider()
-
-                SettingRow(
-                    "Outline thickness",
-                    subtitle: "Line weight of highlighted zone borders on screen."
-                ) {
-                    HStack(spacing: 6) {
-                        ForEach([("Thin", 1.0), ("Medium", 2.0), ("Thick", 4.0), ("Bold", 7.0)], id: \.0) { label, pts in
-                            ToolboxPresetChip(
-                                label: label,
-                                isSelected: abs(cfg.overlayStyle.borderWidthPoints - pts) < 0.45,
-                                accentColor: module.accentColor
-                            ) {
-                                configManager.config.windowSnapper.overlayStyle.borderWidthPoints = pts
-                            }
-                        }
-                    }
-                }
-
-                Divider()
-
-                VStack(alignment: .leading, spacing: 10) {
-                    SettingRow(
-                        "Window animation",
-                        subtitle: "Control how fast windows expand or glide when snapping into zones or pulling out of snapped positions."
-                    ) {
-                        HStack(spacing: 6) {
-                            ForEach(WindowAnimationSpeed.allCases) { speed in
-                                ToolboxPresetChip(
-                                    label: speed.label,
-                                    isSelected: cfg.windowAnimationSpeed == speed,
-                                    accentColor: module.accentColor
-                                ) {
-                                    configManager.config.windowSnapper.windowAnimationSpeed = speed
-                                    uiState.animationPreview.play(speed: speed)
-                                }
-                                .help(speed.isAnimated ? String(format: "%.2f s snap glide", speed.snapDuration) : "Instant snap with no glide")
-                            }
-                        }
-                    }
-
-                    WindowAnimationPreviewStrip(
-                        speed: cfg.windowAnimationSpeed,
-                        tintColor: cfg.overlayStyle.tintColor,
-                        accentColor: module.accentColor,
-                        previewState: uiState.animationPreview
-                    ) {
-                        uiState.animationPreview.play(speed: cfg.windowAnimationSpeed)
-                    }
-                }
-
-                Divider()
-
-                SettingRow(
-                    "Zone labels",
-                    subtitle: "Show zone dimensions inside previews."
-                ) {
-                    Toggle("", isOn: $configManager.config.windowSnapper.overlayStyle.showZoneLabelsAndDimensions)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(tint.label)
+                        .help(tint.label)
                         .pointerCursor()
+                    }
                 }
+
+                let opacityChips = HStack(spacing: 5) {
+                    ForEach([0.0, 0.10, 0.16, 0.24, 0.32], id: \.self) { val in
+                        ToolboxPresetChip(
+                            label: "\(Int(round(val * 100)))%",
+                            isSelected: abs(cfg.overlayStyle.fillOpacity - val) < 0.02,
+                            accentColor: module.accentColor
+                        ) {
+                            configManager.config.windowSnapper.overlayStyle.fillOpacity = val
+                            module.flashOutlineStylePreview(fillOpacity: val)
+                        }
+                    }
+                }
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        swatches
+                        opacityChips
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        swatches
+                        opacityChips
+                    }
+                }
+            }
+
+            Divider()
+
+            SettingRow(
+                "Outline thickness",
+                subtitle: "Line weight of highlighted zone borders on screen."
+            ) {
+                HStack(spacing: 6) {
+                    ForEach([1.0, 2.0, 4.0, 7.0], id: \.self) { pts in
+                        ToolboxPresetChip(
+                            label: OverlayStyleConfig.borderThicknessLabel(for: pts),
+                            isSelected: abs(cfg.overlayStyle.borderWidthPoints - pts) < 0.45,
+                            accentColor: module.accentColor
+                        ) {
+                            configManager.config.windowSnapper.overlayStyle.borderWidthPoints = pts
+                            module.flashOutlineThicknessPreview(borderWidthPoints: pts)
+                        }
+                        .help("\(Int(round(pts))) pt highlighted zone border")
+                    }
+                }
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 10) {
+                SettingRow(
+                    "Window animation",
+                    subtitle: "Control how fast windows expand or glide when snapping into zones or pulling out of snapped positions."
+                ) {
+                    HStack(spacing: 6) {
+                        ForEach(WindowAnimationSpeed.allCases) { speed in
+                            ToolboxPresetChip(
+                                label: speed.label,
+                                isSelected: cfg.windowAnimationSpeed == speed,
+                                accentColor: module.accentColor
+                            ) {
+                                configManager.config.windowSnapper.windowAnimationSpeed = speed
+                                uiState.animationPreview.play(speed: speed)
+                            }
+                            .help(speed.isAnimated ? String(format: "%.2f s snap glide", speed.snapDuration) : "Instant snap with no glide")
+                        }
+                    }
+                }
+
+                WindowAnimationPreviewStrip(
+                    speed: cfg.windowAnimationSpeed,
+                    tintColor: cfg.overlayStyle.tintColor,
+                    accentColor: module.accentColor,
+                    previewState: uiState.animationPreview
+                ) {
+                    uiState.animationPreview.play(speed: cfg.windowAnimationSpeed)
+                }
+            }
+
+            Divider()
+
+            SettingRow(
+                "Zone labels",
+                subtitle: "Show zone dimensions inside previews."
+            ) {
+                Toggle("", isOn: Binding(
+                    get: { configManager.config.windowSnapper.overlayStyle.showZoneLabelsAndDimensions },
+                    set: { next in
+                        configManager.config.windowSnapper.overlayStyle.showZoneLabelsAndDimensions = next
+                        module.flashZoneLabelsPreview(showLabels: next)
+                    }
+                ))
+                .labelsHidden()
+                .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
+                .pointerCursor()
             }
         }
     }
@@ -695,7 +629,7 @@ struct WindowSnapperSettingsView: View {
                             .strokeBorder(stroke.opacity(0.88), lineWidth: borderWidth)
                         if showLabels {
                             Text(label)
-                                .font(.system(size: 10, weight: .semibold))
+                                .toolboxFont(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(.white.opacity(0.92))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 3)
@@ -719,8 +653,11 @@ struct WindowSnapperSettingsView: View {
                 isSelected: matches,
                 accentColor: module.accentColor
             ) {
-                configManager.config.windowSnapper.gaps.outerMarginPoints = Double(pts)
-                configManager.config.windowSnapper.gaps.innerGapPoints = Double(pts)
+                var nextGaps = configManager.config.windowSnapper.gaps
+                nextGaps.outerMarginPoints = Double(pts)
+                nextGaps.innerGapPoints = Double(pts)
+                configManager.config.windowSnapper.gaps = nextGaps
+                module.flashTileSpacingPreview(spacingPoints: Double(pts))
             }
             .help(pts == 0 ? "0 pt (Flush against screen edges)" : "\(pts) pt outer margin & inner gap")
         }
@@ -729,7 +666,7 @@ struct WindowSnapperSettingsView: View {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 6) {
                     Text("Spacing presets:")
-                        .font(.caption.weight(.medium))
+                        .toolboxFont(.caption.weight(.medium))
                         .foregroundStyle(.secondary)
                     ForEach([0, 4, 8, 12, 16], id: \.self) { pts in
                         chipForPoints(pts)
@@ -738,7 +675,7 @@ struct WindowSnapperSettingsView: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Spacing presets:")
-                        .font(.caption.weight(.medium))
+                        .toolboxFont(.caption.weight(.medium))
                         .foregroundStyle(.secondary)
                     HStack(spacing: 6) {
                         ForEach([0, 4, 8], id: \.self) { pts in
@@ -754,7 +691,7 @@ struct WindowSnapperSettingsView: View {
             }
 
             Text("Sets uniform outer desktop margins and inner gaps between tiled windows. Maximize always fills edge-to-edge.")
-                .font(.caption2)
+                .toolboxFont(.caption2)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -866,7 +803,7 @@ struct WindowSnapperSettingsView: View {
                         }
                     } label: {
                         Image(systemName: "chevron.left")
-                            .font(.caption.weight(.semibold))
+                            .toolboxFont(.caption.weight(.semibold))
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -881,7 +818,7 @@ struct WindowSnapperSettingsView: View {
                         }
                     } label: {
                         Image(systemName: "chevron.right")
-                            .font(.caption.weight(.semibold))
+                            .toolboxFont(.caption.weight(.semibold))
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -925,7 +862,7 @@ struct WindowSnapperSettingsView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Choose a layout for \(selectedSlotName) — clicking a template already in another slot swaps them")
-                    .font(.caption)
+                    .toolboxFont(.caption)
                     .foregroundStyle(.secondary)
 
                 ToolboxAdaptiveCardGrid(wideColumns: 4, narrowColumns: 2, wideMinWidth: 500, spacing: 8) {
@@ -1052,7 +989,7 @@ struct WindowSnapperSettingsView: View {
                 .help("Maximize (Fixed Center)")
 
                 Text("Max")
-                    .font(.system(size: 10, weight: .semibold))
+                    .toolboxFont(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Color.white.opacity(0.70))
             }
 
@@ -1122,7 +1059,7 @@ struct WindowSnapperSettingsView: View {
         return "Right \(index - 2)"
     }
 
-    // MARK: - Tab 3: Display Zones (Pre-Made Templates by Window Count)
+    // MARK: - Tab 3: Display Zones (Drag-to-Snap Grid per Display)
 
     private var selectedDisplay: ConnectedDisplay? {
         displayRegistry.connectedDisplays.first { $0.displayID == uiState.selectedDisplayID }
@@ -1132,10 +1069,12 @@ struct WindowSnapperSettingsView: View {
 
     @ViewBuilder
     private var zonesAndDisplaysTab: some View {
+        let cfg = configManager.config.windowSnapper
+
         if displayRegistry.connectedDisplays.count > 1 {
             FeatureSection(
                 "Connected Displays",
-                subtitle: "Choose a physical monitor to pick its window template."
+                subtitle: "Choose a physical monitor to configure its drag-to-snap zone grid."
             ) {
                 ToolboxAdaptiveCardGrid(
                     wideColumns: 2,
@@ -1153,34 +1092,55 @@ struct WindowSnapperSettingsView: View {
         if let display = selectedDisplay {
             let currentLayout = DisplayRegistry.layout(
                 for: display.signature,
-                in: configManager.config.windowSnapper.displayLayouts
+                in: cfg.displayLayouts
             ) ?? DisplayLayoutConfig(display: display.signature)
             let resolvedZones = SnapGeometry.resolveZones(
                 layout: currentLayout,
                 usableAXRect: display.usableAX,
                 primaryScreenHeight: display.primaryScreenHeight,
-                gaps: configManager.config.windowSnapper.gaps
+                gaps: cfg.gaps
             )
+            let gridSectionSubtitle: String = {
+                if cfg.drag.gridModifier == .none {
+                    return "Full-grid overlay is currently Off. Choose a reveal key below to show these zones while dragging a window."
+                }
+                return "Hold \(cfg.drag.gridModifier.label) while dragging any window to show this grid on \(display.signature.localizedName). Hover near a divider seam to span adjacent zones."
+            }()
+            let activeLayoutBadgeText = currentLayout.hasCustomDividerProportions
+                ? "\(currentLayout.presetKind.label) · Adjusted"
+                : currentLayout.presetKind.label
 
             FeatureSection(
-                "Active Screen Layout",
-                subtitle: "Live 1:1 preview of zones on \(display.signature.localizedName)."
+                "Drag-to-Snap Grid",
+                subtitle: gridSectionSubtitle
             ) {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 6) {
                                 Text(display.signature.localizedName)
-                                    .font(.callout.weight(.semibold))
-                                StatusBadge(text: currentLayout.presetKind.label, color: module.accentColor)
+                                    .toolboxFont(.callout.weight(.semibold))
+                                StatusBadge(text: activeLayoutBadgeText, color: module.accentColor)
                                 StatusBadge(text: "\(resolvedZones.count) zones", color: .secondary)
                             }
                             Text("Usable \(Int(display.usableAX.width)) × \(Int(display.usableAX.height)) pt")
-                                .font(.caption.monospacedDigit())
+                                .toolboxFont(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
                         }
 
                         Spacer(minLength: 8)
+
+                        if currentLayout.hasCustomDividerProportions {
+                            Button("Reset") {
+                                var updated = currentLayout
+                                updated.division = currentLayout.presetKind.defaultDivision
+                                module.saveDisplayLayout(updated)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.regular)
+                            .help("Reset dividers to \(currentLayout.presetKind.label) defaults")
+                            .pointerCursor()
+                        }
 
                         Button("Preview (3s)") {
                             module.previewDisplayZones(duration: 3.0)
@@ -1200,17 +1160,29 @@ struct WindowSnapperSettingsView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(display.signature.localizedName)
-                                .font(.callout.weight(.semibold))
+                                .toolboxFont(.callout.weight(.semibold))
                             HStack(spacing: 6) {
-                                StatusBadge(text: currentLayout.presetKind.label, color: module.accentColor)
+                                StatusBadge(text: activeLayoutBadgeText, color: module.accentColor)
                                 StatusBadge(text: "\(resolvedZones.count) zones", color: .secondary)
                             }
                             Text("Usable \(Int(display.usableAX.width)) × \(Int(display.usableAX.height)) pt")
-                                .font(.caption.monospacedDigit())
+                                .toolboxFont(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
                         }
 
                         HStack(spacing: 8) {
+                            if currentLayout.hasCustomDividerProportions {
+                                Button("Reset") {
+                                    var updated = currentLayout
+                                    updated.division = currentLayout.presetKind.defaultDivision
+                                    module.saveDisplayLayout(updated)
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.regular)
+                                .help("Reset dividers to \(currentLayout.presetKind.label) defaults")
+                                .pointerCursor()
+                            }
+
                             Button("Preview (3s)") {
                                 module.previewDisplayZones(duration: 3.0)
                             }
@@ -1231,18 +1203,28 @@ struct WindowSnapperSettingsView: View {
                 Divider()
 
                 displayLayoutPreviewCanvas(display: display, resolvedZones: resolvedZones)
-
-                Divider()
-
-                saveZonesAsProfileRow(focusedDisplay: display)
             }
 
             FeatureSection(
-                "Pre-Made Layout Templates",
-                subtitle: "Choose how many windows appear on \(display.signature.localizedName) using a ready-made template."
+                "Drag Controls",
+                subtitle: "Choose which modifier key reveals your Display Zones grid while dragging."
+            ) {
+                displayZonesTriggerRow(cfg: cfg)
+            }
+
+            FeatureSection(
+                "Tile Spacing",
+                subtitle: "Set outer desktop margins and gaps between snapped windows across all snapping modes and profiles."
+            ) {
+                spacingAndOutlinePreviewBanner(cfg: cfg)
+            }
+
+            FeatureSection(
+                "Grid Templates",
+                subtitle: "Choose the snap grid for \(display.signature.localizedName). Single-row column layouts also shape Left and Right edge pulls."
             ) {
                 templateGroupBlock(
-                    title: "1 & 2 Windows on Screen",
+                    title: "1 & 2 Zones",
                     presets: [.maximized, .halves, .asymmetric, .asymmetricRight, .verticalStack2],
                     selectedPresetID: currentLayout.presetID
                 ) { preset in
@@ -1255,7 +1237,7 @@ struct WindowSnapperSettingsView: View {
                 Divider()
 
                 templateGroupBlock(
-                    title: "3 Windows on Screen",
+                    title: "3 Zones",
                     presets: [.leftMainRightStack, .leftStackRightMain, .thirds, .ultrawideFocus, .verticalStack3],
                     selectedPresetID: currentLayout.presetID
                 ) { preset in
@@ -1268,7 +1250,7 @@ struct WindowSnapperSettingsView: View {
                 Divider()
 
                 templateGroupBlock(
-                    title: "4 & 6 Windows on Screen",
+                    title: "4 & 6 Zones",
                     presets: [.quarters, .fourColumns, .sixths],
                     selectedPresetID: currentLayout.presetID
                 ) { preset in
@@ -1282,7 +1264,7 @@ struct WindowSnapperSettingsView: View {
             if !currentLayout.customZones.isEmpty {
                 FeatureSection(
                     "Drawn Custom Zones",
-                    subtitle: "Extra zones drawn in the 1:1 on-screen editor for \(display.signature.localizedName)."
+                    subtitle: "Extra zones drawn in the 1:1 on-screen editor for \(display.signature.localizedName). Available in the drag grid and via optional direct shortcuts."
                 ) {
                     ForEach(currentLayout.customZones.indices, id: \.self) { idx in
                         if idx > 0 {
@@ -1303,7 +1285,7 @@ struct WindowSnapperSettingsView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.caption.weight(.semibold))
+                .toolboxFont(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
 
             ToolboxAdaptiveCardGrid(wideColumns: 4, narrowColumns: 2, wideMinWidth: 520, spacing: 10) {
@@ -1339,14 +1321,14 @@ struct WindowSnapperSettingsView: View {
                             .fill((isSelected ? module.accentColor : Color.primary).opacity(isSelected ? 0.22 : 0.08))
                             .frame(width: 34, height: 34)
                         Image(systemName: display.isMain ? "laptopcomputer" : "display")
-                            .font(.callout.weight(.semibold))
+                            .toolboxFont(.callout.weight(.semibold))
                             .foregroundStyle(isSelected ? readableAccent : .secondary)
                     }
 
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
                             Text(display.signature.localizedName)
-                                .font(.callout.weight(.semibold))
+                                .toolboxFont(.callout.weight(.semibold))
                                 .foregroundStyle(.primary)
                                 .lineLimit(1)
                             if display.isMain {
@@ -1354,7 +1336,7 @@ struct WindowSnapperSettingsView: View {
                             }
                         }
                         Text("\(presetName) · \(Int(display.frameAX.width)) × \(Int(display.frameAX.height))")
-                            .font(.caption.monospacedDigit())
+                            .toolboxFont(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -1363,7 +1345,7 @@ struct WindowSnapperSettingsView: View {
 
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 15, weight: .semibold))
+                            .toolboxFont(.system(size: 15, weight: .semibold))
                             .foregroundStyle(readableAccent)
                     } else {
                         Circle()
@@ -1420,28 +1402,34 @@ struct WindowSnapperSettingsView: View {
                         let nw = zone.frameInAX.width / max(1, display.usableAX.width)
                         let nh = zone.frameInAX.height / max(1, display.usableAX.height)
                         let isCustom = zone.gridCoord == nil
-                        let tint: Color = isCustom ? .teal : module.accentColor
+                        let style = configManager.config.windowSnapper.overlayStyle
+                        let tint: Color = isCustom ? .teal : style.tintColor.swatchColor
+                        let strokeColor: Color = isCustom
+                            ? ToolboxTheme.readableAccentText(for: .teal)
+                            : style.tintColor.readableStrokeColor
+                        let fillOpacity = isCustom ? 0.20 : max(0.10, style.fillOpacity)
+                        let badgeForeground: Color = (!isCustom && style.tintColor == .neutral) ? .black : .white
 
                         ZStack {
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(tint.opacity(0.20))
+                                .fill(tint.opacity(fillOpacity))
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .strokeBorder(ToolboxTheme.readableAccentText(for: tint).opacity(0.84), lineWidth: 1.25)
+                                .strokeBorder(strokeColor.opacity(0.84), lineWidth: 1.25)
 
                             VStack(spacing: 3) {
                                 HStack(spacing: 5) {
                                     Text("\(zone.badgeNumber)")
-                                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                                        .foregroundStyle(.white)
+                                        .toolboxFont(.system(size: 10, weight: .bold, design: .rounded))
+                                        .foregroundStyle(badgeForeground)
                                         .frame(width: 17, height: 17)
                                         .background(tint.opacity(0.85), in: Circle())
                                     Text(zone.name)
-                                        .font(.caption.weight(.semibold))
+                                        .toolboxFont(.caption.weight(.semibold))
                                         .foregroundStyle(.white)
                                         .lineLimit(1)
                                 }
                                 Text("\(Int(round(zone.frameInAX.width))) × \(Int(round(zone.frameInAX.height)))")
-                                    .font(.caption2.monospacedDigit())
+                                    .toolboxFont(.caption2.monospacedDigit())
                                     .foregroundStyle(Color.white.opacity(0.75))
                                 if !zone.shortcut.isEmpty {
                                     ShortcutPill(shortcut: zone.shortcut)
@@ -1463,108 +1451,36 @@ struct WindowSnapperSettingsView: View {
         )
     }
 
-    private func saveZonesAsProfileRow(focusedDisplay: ConnectedDisplay) -> some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Save Layout as Profile")
-                        .font(.callout.weight(.semibold))
-                    Text("Save your display zones as a named profile, then assign apps in Profiles if desired.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+    private func displayZonesTriggerRow(cfg: WindowSnapperConfig) -> some View {
+        let gridMod = cfg.drag.gridModifier
+        let subtitle: String = {
+            if gridMod == .none {
+                return "Currently turned off. Pick a key to reveal this grid while dragging a window."
+            }
+            return "Hold \(gridMod.label) while dragging a window to reveal these zones. Left & Right edge pulls also snap to outer columns on single-row grids."
+        }()
+        return SettingRow("Reveal grid while dragging", subtitle: subtitle) {
+            HStack(spacing: 8) {
+                if gridMod == .none {
+                    StatusBadge(text: "Off", color: .orange)
                 }
-
-                Spacer(minLength: 8)
-
-                TextField("Profile name (e.g. Focus)", text: $uiState.newZoneProfileName)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 190)
-                    .onSubmit {
-                        saveCurrentZonesAsProfile(focusedDisplay: focusedDisplay)
+                Picker("", selection: $configManager.config.windowSnapper.drag.gridModifier) {
+                    ForEach(DragModifierChoice.allCases) { choice in
+                        Text(choice.label).tag(choice)
                     }
-
-                Button {
-                    saveCurrentZonesAsProfile(focusedDisplay: focusedDisplay)
-                } label: {
-                    Label("Save as Profile", systemImage: "sparkles.rectangle.stack")
                 }
-                .buttonStyle(.toolboxProminent)
-                .controlSize(.regular)
+                .labelsHidden()
+                .frame(width: 152)
                 .pointerCursor()
             }
-
-            VStack(alignment: .leading, spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Save Layout as Profile")
-                        .font(.callout.weight(.semibold))
-                    Text("Save your display zones as a named profile, then assign apps in Profiles if desired.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-
-                HStack(spacing: 8) {
-                    TextField("Profile name (e.g. Focus)", text: $uiState.newZoneProfileName)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 220)
-                        .onSubmit {
-                            saveCurrentZonesAsProfile(focusedDisplay: focusedDisplay)
-                        }
-
-                    Button {
-                        saveCurrentZonesAsProfile(focusedDisplay: focusedDisplay)
-                    } label: {
-                        Label("Save as Profile", systemImage: "sparkles.rectangle.stack")
-                    }
-                    .buttonStyle(.toolboxProminent)
-                    .controlSize(.regular)
-                    .pointerCursor()
-                }
-            }
         }
-    }
-
-    private func saveCurrentZonesAsProfile(focusedDisplay: ConnectedDisplay) {
-        let cfg = configManager.config.windowSnapper
-        let trimmed = uiState.newZoneProfileName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedName = trimmed.isEmpty ? "Workspace \(cfg.profiles.count + 1)" : trimmed
-
-        let displays = displayRegistry.connectedDisplays.isEmpty ? [focusedDisplay] : displayRegistry.connectedDisplays
-        let overrides: [DisplayLayoutConfig] = displays.map { disp in
-            var layout = DisplayRegistry.layout(for: disp.signature, in: cfg.displayLayouts)
-                ?? DisplayLayoutConfig(display: disp.signature)
-            layout.display = disp.signature
-            layout.id = UUID().uuidString
-            return layout
-        }
-
-        let newProfile = WorkspaceProfile(
-            name: resolvedName,
-            symbolName: "sparkles.rectangle.stack",
-            displayLayoutOverrides: overrides,
-            appRules: [],
-            boundDisplaySignatures: displays.map(\.signature)
-        )
-        configManager.config.windowSnapper.profiles.append(newProfile)
-        uiState.newZoneProfileName = ""
-        uiState.profileBuilderDisplayID = focusedDisplay.displayID
-        uiState.editingProfileDraft = newProfile
-        uiState.isCreatingNewProfile = false
-        uiState.showProfileTemplatePicker = false
-        withAnimation(.easeInOut(duration: 0.16)) {
-            uiState.selectedTab = .profiles
-        }
-        HUDToast.shared.show(
-            title: "Saved '\(resolvedName)' · assign apps if desired",
-            symbol: "sparkles.rectangle.stack",
-            tint: .indigo
-        )
     }
 
     private func customZoneCardRow(currentLayout: DisplayLayoutConfig, index idx: Int) -> some View {
         let zone = currentLayout.customZones[idx]
         return HStack(spacing: 10) {
             Text("C\(idx + 1)")
-                .font(.caption.weight(.bold).monospacedDigit())
+                .toolboxFont(.caption.weight(.bold).monospacedDigit())
                 .foregroundStyle(.white)
                 .frame(width: 24, height: 24)
                 .background(Color.teal.opacity(0.85), in: RoundedRectangle(cornerRadius: 6))
@@ -1582,7 +1498,7 @@ struct WindowSnapperSettingsView: View {
                 .frame(width: 150)
 
                 Text("\(Int(round(zone.normalizedRect.x * 100)))%, \(Int(round(zone.normalizedRect.y * 100)))% · \(Int(round(zone.normalizedRect.width * 100)))% × \(Int(round(zone.normalizedRect.height * 100)))%")
-                    .font(.caption2.monospacedDigit())
+                    .toolboxFont(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
 
@@ -1633,7 +1549,7 @@ struct WindowSnapperSettingsView: View {
     private var profilesListSection: some View {
         FeatureSection(
             "Workspace Profiles",
-            subtitle: "Save reusable setups. Create or edit one profile at a time, then apply in one click."
+            subtitle: "Launch and arrange assigned apps into a saved multi-window layout in one click, via hotkey, or when connecting a display."
         ) {
             HStack(spacing: 10) {
                 Button {
@@ -1664,9 +1580,9 @@ struct WindowSnapperSettingsView: View {
                 Divider()
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Start with a Template Profile")
-                        .font(.callout.weight(.semibold))
-                    Text("Click a starter profile below or press New Profile to choose a layout template and assign apps to squares.")
-                        .font(.caption)
+                        .toolboxFont(.callout.weight(.semibold))
+                    Text("Click a starter profile below or press New Profile to pick a layout and assign apps to each position.")
+                        .toolboxFont(.caption)
                         .foregroundStyle(.secondary)
 
                     ToolboxAdaptiveCardGrid(wideColumns: 3, narrowColumns: 1, wideMinWidth: 520, spacing: 10) {
@@ -1754,6 +1670,9 @@ struct WindowSnapperSettingsView: View {
     }
 
     private func cancelEditingProfileDraft() {
+        if overlayController.isEditingOnScreen {
+            overlayController.endOnScreenEditor()
+        }
         uiState.editingProfileDraft = nil
         uiState.isCreatingNewProfile = false
         uiState.showProfileTemplatePicker = false
@@ -1817,18 +1736,23 @@ struct WindowSnapperSettingsView: View {
                         .fill(module.accentColor.opacity(isActive ? 0.24 : 0.12))
                         .frame(width: 34, height: 34)
                     Image(systemName: profile.symbolName)
-                        .font(.callout.weight(.semibold))
+                        .toolboxFont(.callout.weight(.semibold))
                         .foregroundStyle(readableAccent)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(profile.name)
-                            .font(.callout.weight(.semibold))
+                            .toolboxFont(.callout.weight(.semibold))
                             .foregroundStyle(.primary)
                             .lineLimit(1)
-                        if let presetLabel = profile.displayLayoutOverrides.first?.presetKind.label {
-                            StatusBadge(text: presetLabel, color: module.accentColor)
+                        if let firstOverride = profile.displayLayoutOverrides.first {
+                            StatusBadge(
+                                text: firstOverride.hasCustomDividerProportions
+                                    ? "\(firstOverride.presetKind.label) · Adjusted"
+                                    : firstOverride.presetKind.label,
+                                color: module.accentColor
+                            )
                         }
                         if isActive {
                             StatusBadge(text: "Active", color: .green)
@@ -1842,7 +1766,7 @@ struct WindowSnapperSettingsView: View {
                             ? "Layout only · click Edit to assign applications"
                             : "\(profile.appRules.count) app\(profile.appRules.count == 1 ? "" : "s") assigned"
                     )
-                    .font(.caption)
+                    .toolboxFont(.caption)
                     .foregroundStyle(.secondary)
                 }
             }
@@ -1897,7 +1821,7 @@ struct WindowSnapperSettingsView: View {
     private func profileCardAppsSummary(profile: WorkspaceProfile) -> some View {
         if profile.appRules.isEmpty {
             Text("No apps assigned · click Edit")
-                .font(.caption)
+                .toolboxFont(.caption)
                 .foregroundStyle(.secondary)
         } else {
             HStack(spacing: 6) {
@@ -1905,7 +1829,7 @@ struct WindowSnapperSettingsView: View {
                     HStack(spacing: 5) {
                         appIconView(bundleIdentifier: rule.bundleIdentifier, size: 14)
                         Text(rule.appName)
-                            .font(.caption2.weight(.medium))
+                            .toolboxFont(.caption2.weight(.medium))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -1915,7 +1839,7 @@ struct WindowSnapperSettingsView: View {
                 }
                 if profile.appRules.count > 4 {
                     Text("+\(profile.appRules.count - 4)")
-                        .font(.caption2.weight(.semibold))
+                        .toolboxFont(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
@@ -1928,7 +1852,7 @@ struct WindowSnapperSettingsView: View {
     private func profileCardShortcutControl(profile: WorkspaceProfile) -> some View {
         HStack(spacing: 8) {
             Text("Shortcut")
-                .font(.caption.weight(.medium))
+                .toolboxFont(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
             ShortcutRecorderView(
                 shortcut: profile.shortcut,
@@ -1990,7 +1914,7 @@ struct WindowSnapperSettingsView: View {
 
         FeatureSection(
             editorTitle,
-            subtitle: "Save or cancel this profile before creating or editing another one."
+            subtitle: "Pick a layout and assign apps to screen positions. Applying this profile arranges those apps and activates its display grid."
         ) {
             HStack(spacing: 10) {
                 StatusBadge(
@@ -1998,6 +1922,13 @@ struct WindowSnapperSettingsView: View {
                     color: .orange
                 )
                 Spacer()
+                Button("Preview (3s)") {
+                    module.previewProfile(draft, duration: 3.0)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+                .pointerCursor()
+
                 Button("Cancel") {
                     cancelEditingProfileDraft()
                 }
@@ -2020,7 +1951,7 @@ struct WindowSnapperSettingsView: View {
             if displayRegistry.connectedDisplays.count > 1 {
                 HStack(spacing: 8) {
                     Text("Configure display:")
-                        .font(.caption.weight(.semibold))
+                        .toolboxFont(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                     ToolboxSegmentedControl(
                         options: displayRegistry.connectedDisplays.map(\.displayID),
@@ -2047,7 +1978,7 @@ struct WindowSnapperSettingsView: View {
 
                 HStack(spacing: 8) {
                     Text("Assign Apps to Screen Positions (Optional)")
-                        .font(.callout.weight(.semibold))
+                        .toolboxFont(.callout.weight(.semibold))
                     StatusBadge(
                         text: "\(assignedCount) of \(resolvedZones.count) filled",
                         color: assignedCount > 0 ? module.accentColor : .secondary
@@ -2081,13 +2012,18 @@ struct WindowSnapperSettingsView: View {
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: uiState.showProfileTemplatePicker ? "chevron.down" : "chevron.right")
-                            .font(.caption.weight(.semibold))
+                            .toolboxFont(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .frame(width: 12)
                         Text("Change Layout Template")
-                            .font(.callout.weight(.medium))
+                            .toolboxFont(.callout.weight(.medium))
                         Spacer()
-                        StatusBadge(text: activeLayout.presetKind.label, color: module.accentColor)
+                        StatusBadge(
+                            text: activeLayout.hasCustomDividerProportions
+                                ? "\(activeLayout.presetKind.label) · Adjusted"
+                                : activeLayout.presetKind.label,
+                            color: module.accentColor
+                        )
                     }
                     .contentShape(Rectangle())
                 }
@@ -2099,7 +2035,7 @@ struct WindowSnapperSettingsView: View {
                     ViewThatFits(in: .horizontal) {
                         HStack(spacing: 10) {
                             Text("Template Size")
-                                .font(.caption.weight(.semibold))
+                                .toolboxFont(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
                             Spacer()
                             ToolboxSegmentedControl(
@@ -2116,6 +2052,51 @@ struct WindowSnapperSettingsView: View {
                                 accentColor: module.accentColor,
                                 label: { $0.label }
                             )
+                        }
+                    }
+
+                    let copyZonesButton = Button {
+                        let copied = DisplayRegistry.layout(
+                            for: builderDisplay.signature,
+                            in: configManager.config.windowSnapper.displayLayouts
+                        ) ?? DisplayLayoutConfig(display: builderDisplay.signature)
+                        applyLayoutToDraft(copied, on: builderDisplay)
+                        HUDToast.shared.show(
+                            title: "Copied '\(copied.presetKind.label)' from Display Zones",
+                            symbol: "rectangle.3.group",
+                            tint: .indigo
+                        )
+                    } label: {
+                        Label("Copy from Display Zones", systemImage: "rectangle.3.group")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .pointerCursor()
+
+                    let adjustDividersButton = Button {
+                        module.beginOnScreenLayoutEditor(
+                            for: builderDisplay,
+                            initialLayout: activeLayout
+                        ) { updated in
+                            applyLayoutToDraft(updated, on: builderDisplay)
+                        }
+                    } label: {
+                        Label("Adjust Dividers on Screen", systemImage: "slider.horizontal.3")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .pointerCursor()
+
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            copyZonesButton
+                            adjustDividersButton
+                            Spacer(minLength: 0)
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            copyZonesButton
+                            adjustDividersButton
                         }
                     }
 
@@ -2183,8 +2164,9 @@ struct WindowSnapperSettingsView: View {
                             uiState.editingProfileDraft = current
                         }
                     ))
-                    .font(.caption.weight(.medium))
-                    .pointerCursor()
+                    .toolboxFont(.caption.weight(.medium))
+                    .disabled(draft.appRules.isEmpty)
+                    .pointerCursor(!draft.appRules.isEmpty)
 
                     Toggle(
                         "Hide other apps",
@@ -2193,7 +2175,7 @@ struct WindowSnapperSettingsView: View {
                             set: { uiState.editingProfileDraft?.hideUnlistedApps = $0 }
                         )
                     )
-                    .font(.caption.weight(.medium))
+                    .toolboxFont(.caption.weight(.medium))
                     .pointerCursor()
                 }
             }
@@ -2263,7 +2245,7 @@ struct WindowSnapperSettingsView: View {
                 RoundedRectangle(cornerRadius: 2).fill(Color.white.opacity(0.14)).frame(width: 18, height: 4)
                 Spacer()
                 Text(display.signature.localizedName)
-                    .font(.system(size: 10, weight: .medium))
+                    .toolboxFont(.system(size: 10, weight: .medium))
                     .foregroundStyle(Color.white.opacity(0.55))
             }
             .padding(.horizontal, 10)
@@ -2394,21 +2376,32 @@ struct WindowSnapperSettingsView: View {
         _ preset: DisplayPresetKind,
         on display: ConnectedDisplay
     ) {
+        let layout = DisplayLayoutConfig(
+            display: display.signature,
+            presetID: preset.rawValue,
+            division: preset.defaultDivision
+        )
+        applyLayoutToDraft(layout, on: display)
+    }
+
+    private func applyLayoutToDraft(
+        _ sourceLayout: DisplayLayoutConfig,
+        on display: ConnectedDisplay
+    ) {
         guard var draft = uiState.editingProfileDraft else { return }
         if let existingIdx = draft.displayLayoutOverrides.firstIndex(where: {
             DisplayRegistry.matchDisplay(for: $0.display, among: [display.signature]) != nil
         }) {
-            draft.displayLayoutOverrides[existingIdx].presetID = preset.rawValue
-            draft.displayLayoutOverrides[existingIdx].division = preset.defaultDivision
-            draft.displayLayoutOverrides[existingIdx].customZones.removeAll()
+            draft.displayLayoutOverrides[existingIdx].presetID = sourceLayout.presetID
+            draft.displayLayoutOverrides[existingIdx].division = sourceLayout.division
+            draft.displayLayoutOverrides[existingIdx].customZones = sourceLayout.customZones
+            draft.displayLayoutOverrides[existingIdx].outerMarginPoints = sourceLayout.outerMarginPoints
+            draft.displayLayoutOverrides[existingIdx].innerGapPoints = sourceLayout.innerGapPoints
         } else {
-            draft.displayLayoutOverrides.append(
-                DisplayLayoutConfig(
-                    display: display.signature,
-                    presetID: preset.rawValue,
-                    division: preset.defaultDivision
-                )
-            )
+            var copied = sourceLayout
+            copied.id = UUID().uuidString
+            copied.display = display.signature
+            draft.displayLayoutOverrides.append(copied)
         }
 
         let newLayout = DisplayRegistry.layout(
@@ -2521,7 +2514,7 @@ struct WindowSnapperSettingsView: View {
 
         FeatureCardGridSection(
             "Shortcut Preset",
-            subtitle: "Apply conflict-free Control+Option+Command chords or switch to classic Rectangle-style bindings."
+            subtitle: "Apply conflict-free Control + Option + Command chords or switch to classic Rectangle-style bindings."
         ) {
             ToolboxAdaptiveCardGrid(wideColumns: 3, narrowColumns: 1, wideMinWidth: 520, spacing: 10) {
                 SelectableOptionCard(
@@ -2576,7 +2569,7 @@ struct WindowSnapperSettingsView: View {
             Divider()
 
             SettingRow(
-                "Cycle 1/2 -> 2/3 -> 1/3 on repeat press",
+                "Cycle 1/2 → 2/3 → 1/3 on repeat press",
                 subtitle: "Pressing Left, Right, Top, or Bottom repeatedly cycles sizes cleanly."
             ) {
                 Toggle("", isOn: $configManager.config.windowSnapper.cycleRepeatedDirectionShortcuts)
@@ -2613,7 +2606,9 @@ struct WindowSnapperSettingsView: View {
                         ) {
                             configManager.config.windowSnapper.centerWidthFraction = w
                             configManager.config.windowSnapper.centerHeightFraction = h
+                            module.flashCenterSizePreview(widthFraction: w, heightFraction: h, label: label)
                         }
+                        .help("Preview \(Int(round(w * 100)))% × \(Int(round(h * 100)))% centered window on screen")
                     }
                 }
             }
@@ -2623,6 +2618,17 @@ struct WindowSnapperSettingsView: View {
             "Window Placement Shortcuts",
             subtitle: "Customize individual shortcuts by category. Collisions with other Toolbox modules or macOS are flagged inline."
         ) {
+            if !cfg.keyboardSnappingEnabled {
+                HStack(spacing: 8) {
+                    StatusBadge(text: "Shortcuts Off", color: .orange)
+                    Text("Turn on Enable keyboard shortcuts above to activate these bindings.")
+                        .toolboxFont(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+                .padding(.bottom, 2)
+            }
+
             ToolboxSegmentedControl(
                 options: Array(WindowSnapperShortcutCategory.allCases),
                 selection: $uiState.shortcutCategory,
@@ -2639,15 +2645,15 @@ struct WindowSnapperSettingsView: View {
                             .fill(module.accentColor.opacity(0.14))
                             .frame(width: 28, height: 28)
                         Image(systemName: action.symbolName)
-                            .font(.caption.weight(.semibold))
+                            .toolboxFont(.caption.weight(.semibold))
                             .foregroundStyle(ToolboxTheme.readableAccentText(for: module.accentColor))
                     }
 
                     VStack(alignment: .leading, spacing: 1) {
                         Text(action.label)
-                            .font(.callout.weight(.medium))
+                            .toolboxFont(.callout.weight(.medium))
                         Text(actionSubtitle(for: action))
-                            .font(.caption2)
+                            .toolboxFont(.caption2)
                             .foregroundStyle(.secondary)
                     }
 
@@ -2662,6 +2668,7 @@ struct WindowSnapperSettingsView: View {
                         configManager.config.windowSnapper.hotKeys.setShortcut(newShortcut, for: action)
                     }
                 }
+                .opacity(cfg.keyboardSnappingEnabled ? 1.0 : 0.62)
             }
         }
 
@@ -2675,7 +2682,7 @@ struct WindowSnapperSettingsView: View {
 
             if cfg.profiles.isEmpty {
                 Text("No workspace profiles saved yet. Create a profile in the Profiles tab to assign a shortcut.")
-                    .font(.caption)
+                    .toolboxFont(.caption)
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(Array(cfg.profiles.enumerated()), id: \.element.id) { idx, profile in
@@ -2688,17 +2695,22 @@ struct WindowSnapperSettingsView: View {
                                 .fill(module.accentColor.opacity(0.14))
                                 .frame(width: 28, height: 28)
                             Image(systemName: profile.symbolName)
-                                .font(.caption.weight(.semibold))
+                                .toolboxFont(.caption.weight(.semibold))
                                 .foregroundStyle(ToolboxTheme.readableAccentText(for: module.accentColor))
                         }
 
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 6) {
                                 Text(profile.name)
-                                    .font(.callout.weight(.medium))
+                                    .toolboxFont(.callout.weight(.medium))
                                     .lineLimit(1)
-                                if let presetLabel = profile.displayLayoutOverrides.first?.presetKind.label {
-                                    StatusBadge(text: presetLabel, color: module.accentColor)
+                                if let firstOverride = profile.displayLayoutOverrides.first {
+                                    StatusBadge(
+                                        text: firstOverride.hasCustomDividerProportions
+                                            ? "\(firstOverride.presetKind.label) · Adjusted"
+                                            : firstOverride.presetKind.label,
+                                        color: module.accentColor
+                                    )
                                 }
                             }
                             Text(
@@ -2706,7 +2718,7 @@ struct WindowSnapperSettingsView: View {
                                     ? "Layout only"
                                     : "\(profile.appRules.count) app\(profile.appRules.count == 1 ? "" : "s") assigned"
                             )
-                            .font(.caption2)
+                            .toolboxFont(.caption2)
                             .foregroundStyle(.secondary)
                         }
 
@@ -2772,11 +2784,11 @@ struct WindowSnapperSettingsView: View {
     private func actionSubtitle(for action: WindowSnapperHotKeyAction) -> String {
         switch action {
         case .leftHalf, .rightHalf, .topHalf, .bottomHalf:
-            return "Cycles 1/2 -> 2/3 -> 1/3 on repeated presses"
+            return "Cycles 1/2 → 2/3 → 1/3 on repeated presses"
         case .topLeft, .topRight, .bottomLeft, .bottomRight:
             return "Snaps window into display quadrant"
         case .maximize:
-            return "Fills the usable display area respecting gaps"
+            return "Fills the usable display area edge-to-edge"
         case .center:
             return "Centers window using your configured size fraction"
         case .previousDisplay, .nextDisplay:
@@ -2854,11 +2866,11 @@ private struct TemplateDiagramCard: View {
                 HStack(alignment: .center, spacing: 6) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(preset.label)
-                            .font(.system(size: 12, weight: .semibold))
+                            .toolboxFont(.system(size: 12, weight: .semibold))
                             .foregroundStyle(.primary)
                             .lineLimit(1)
                         Text(preset.shortBadge)
-                            .font(.system(size: 10.5))
+                            .toolboxFont(.system(size: 10.5))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -2867,11 +2879,11 @@ private struct TemplateDiagramCard: View {
 
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 13, weight: .semibold))
+                            .toolboxFont(.system(size: 13, weight: .semibold))
                             .foregroundStyle(readableAccent)
                     } else {
                         Text("\(preset.zoneCount)")
-                            .font(.system(size: 10, weight: .bold).monospacedDigit())
+                            .toolboxFont(.system(size: 10, weight: .bold).monospacedDigit())
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
@@ -2961,7 +2973,7 @@ private struct TopEdgeStripEditableTile: View {
                                         )
                                 )
                             Image(systemName: "plus")
-                                .font(.system(size: 12, weight: .semibold))
+                                .toolboxFont(.system(size: 12, weight: .semibold))
                                 .foregroundStyle(isSelected ? readableAccent : Color.white.opacity(0.55))
                         }
                     }
@@ -2976,7 +2988,7 @@ private struct TopEdgeStripEditableTile: View {
                 if preset != nil && (isSelected || isHovered) {
                     Button(action: onClear) {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 13, weight: .semibold))
+                            .toolboxFont(.system(size: 13, weight: .semibold))
                             .foregroundStyle(Color.white.opacity(0.92))
                             .background(Color.black.opacity(0.70), in: Circle())
                     }
@@ -2991,7 +3003,7 @@ private struct TopEdgeStripEditableTile: View {
             .animation(.easeOut(duration: 0.12), value: isHovered)
 
             Text(slotTitle)
-                .font(.system(size: 10, weight: isSelected ? .bold : .medium))
+                .toolboxFont(.system(size: 10, weight: isSelected ? .bold : .medium))
                 .foregroundStyle(isSelected ? readableAccent : Color.white.opacity(0.62))
                 .lineLimit(1)
         }
@@ -3038,11 +3050,11 @@ private struct TopEdgeSlotTemplateCard: View {
                 HStack(alignment: .center, spacing: 4) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(preset.label)
-                            .font(.system(size: 11.5, weight: .semibold))
+                            .toolboxFont(.system(size: 11.5, weight: .semibold))
                             .foregroundStyle(.primary)
                             .lineLimit(1)
                         Text(preset.shortBadge)
-                            .font(.system(size: 10))
+                            .toolboxFont(.system(size: 10))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -3051,11 +3063,11 @@ private struct TopEdgeSlotTemplateCard: View {
 
                     if isAssignedToSelectedSlot {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 13, weight: .semibold))
+                            .toolboxFont(.system(size: 13, weight: .semibold))
                             .foregroundStyle(readableAccent)
                     } else if let otherSlotLabel {
                         Text(otherSlotLabel)
-                            .font(.system(size: 9.5, weight: .semibold))
+                            .toolboxFont(.system(size: 9.5, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 2)
@@ -3063,7 +3075,7 @@ private struct TopEdgeSlotTemplateCard: View {
                             .lineLimit(1)
                     } else {
                         Text("\(preset.zoneCount)")
-                            .font(.system(size: 10, weight: .bold).monospacedDigit())
+                            .toolboxFont(.system(size: 10, weight: .bold).monospacedDigit())
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 5.5)
                             .padding(.vertical, 2)
@@ -3183,12 +3195,12 @@ private struct InteractiveTemplateSquareButton: View {
 
                         HStack(spacing: 4) {
                             Text("\(zone.badgeNumber)")
-                                .font(.system(size: 10, weight: .bold, design: .rounded))
+                                .toolboxFont(.system(size: 10, weight: .bold, design: .rounded))
                                 .foregroundStyle(.white)
                                 .frame(width: 16, height: 16)
                                 .background(accentColor.opacity(0.92), in: Circle())
                             Text(zone.name)
-                                .font(.system(size: 10.5, weight: .medium))
+                                .toolboxFont(.system(size: 10.5, weight: .medium))
                                 .foregroundStyle(Color.white.opacity(0.84))
                                 .lineLimit(1)
                         }
@@ -3199,12 +3211,12 @@ private struct InteractiveTemplateSquareButton: View {
                         VStack(spacing: isShortSquare ? 3 : 5) {
                             WindowSnapperAppIconView(bundleIdentifier: rule.bundleIdentifier, size: isShortSquare ? 28 : 36)
                             Text(rule.appName)
-                                .font(.system(size: compact ? 11.5 : 13, weight: .semibold))
+                                .toolboxFont(.system(size: compact ? 11.5 : 13, weight: .semibold))
                                 .foregroundStyle(.white)
                                 .lineLimit(1)
                             if !isShortSquare {
                                 Text("Click to change")
-                                    .font(.system(size: 10))
+                                    .toolboxFont(.system(size: 10))
                                     .foregroundStyle(Color.white.opacity(0.62))
                             }
                         }
@@ -3222,12 +3234,12 @@ private struct InteractiveTemplateSquareButton: View {
 
                         HStack(spacing: 4) {
                             Text("\(zone.badgeNumber)")
-                                .font(.system(size: 10, weight: .bold, design: .rounded))
+                                .toolboxFont(.system(size: 10, weight: .bold, design: .rounded))
                                 .foregroundStyle(Color.white.opacity(0.75))
                                 .frame(width: 16, height: 16)
                                 .background(Color.white.opacity(0.14), in: Circle())
                             Text(zone.name)
-                                .font(.system(size: 10.5, weight: .medium))
+                                .toolboxFont(.system(size: 10.5, weight: .medium))
                                 .foregroundStyle(Color.white.opacity(0.65))
                                 .lineLimit(1)
                         }
@@ -3236,10 +3248,10 @@ private struct InteractiveTemplateSquareButton: View {
 
                         VStack(spacing: isShortSquare ? 4 : 6) {
                             Image(systemName: "plus.circle.fill")
-                                .font(.system(size: isShortSquare ? 18 : 22, weight: .medium))
+                                .toolboxFont(.system(size: isShortSquare ? 18 : 22, weight: .medium))
                                 .foregroundStyle(readableAccent.opacity(0.95))
                             Text("Choose App…")
-                                .font(.system(size: isShortSquare ? 11 : 12, weight: .semibold))
+                                .toolboxFont(.system(size: isShortSquare ? 11 : 12, weight: .semibold))
                                 .foregroundStyle(Color.white.opacity(0.86))
                                 .lineLimit(1)
                         }
@@ -3262,7 +3274,7 @@ private struct InteractiveTemplateSquareButton: View {
                     onClear()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14, weight: .semibold))
+                        .toolboxFont(.system(size: 14, weight: .semibold))
                         .foregroundStyle(Color.white.opacity(0.78))
                         .background(Color.black.opacity(0.45), in: Circle())
                 }
@@ -3403,14 +3415,14 @@ private struct WindowAnimationPreviewStrip: View {
         let details = VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Text(speed.isAnimated ? "\(speed.label) · \(String(format: "%.2f", speed.snapDuration))s glide" : "Off · Instant snap")
-                    .font(.caption.weight(.semibold))
+                    .toolboxFont(.caption.weight(.semibold))
                     .foregroundStyle(.primary)
 
                 StatusBadge(text: previewState.currentPoseLabel, color: accentColor)
             }
 
             Text("Click any speed preset above or press Play to compare how windows expand and glide between zones.")
-                .font(.caption2)
+                .toolboxFont(.caption2)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 

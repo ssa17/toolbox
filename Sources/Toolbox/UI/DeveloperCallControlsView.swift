@@ -61,11 +61,11 @@ struct DeveloperCallControlsView: View {
                         if let frame = callControls.floatingPillFrameSnapshot ?? callControls.floatingPillFrame,
                            callControls.isFloatingPillVisible {
                             Text("Desktop Pill: \(Int(frame.origin.x)), \(Int(frame.origin.y)) · \(Int(frame.width))×\(Int(frame.height))")
-                                .font(.caption2.monospacedDigit())
+                                .toolboxFont(.caption2.monospacedDigit())
                                 .foregroundStyle(.secondary)
                         } else {
                             Text("Desktop Pill: Hidden")
-                                .font(.caption2)
+                                .toolboxFont(.caption2)
                                 .foregroundStyle(.tertiary)
                         }
                     }
@@ -193,7 +193,7 @@ struct DeveloperCallControlsView: View {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("One-Click Scenarios")
-                        .font(.caption.weight(.semibold))
+                        .toolboxFont(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
 
                     LazyVGrid(
@@ -311,14 +311,14 @@ struct DeveloperCallControlsView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
                             Text("Simulated Hardware & Stream Flags")
-                                .font(.caption.weight(.semibold))
+                                .toolboxFont(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
                             Spacer()
                             Button {
                                 callControls.simulateTypingBurst()
                             } label: {
                                 Label("Test Typing Burst", systemImage: "keyboard")
-                                    .font(.caption.weight(.medium))
+                                    .toolboxFont(.caption.weight(.medium))
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.mini)
@@ -332,7 +332,7 @@ struct DeveloperCallControlsView: View {
                             spacing: 8
                         ) {
                             Toggle("Mic Stream Active", isOn: simulationBinding(\.isMicStreamActive, default: false))
-                                .font(.caption)
+                                .toolboxFont(.caption)
                                 .toggleStyle(.checkbox)
                                 .disabled(!sim.hasInputDevice)
                                 .pointerCursor(sim.hasInputDevice)
@@ -346,7 +346,7 @@ struct DeveloperCallControlsView: View {
                                     }
                                 }
                             ))
-                            .font(.caption)
+                            .toolboxFont(.caption)
                             .toggleStyle(.checkbox)
                             .disabled(!sim.hasInputDevice)
                             .pointerCursor(sim.hasInputDevice)
@@ -360,19 +360,19 @@ struct DeveloperCallControlsView: View {
                                     }
                                 }
                             ))
-                            .font(.caption)
+                            .toolboxFont(.caption)
                             .toggleStyle(.checkbox)
                             .disabled(!sim.hasInputDevice)
                             .pointerCursor(sim.hasInputDevice)
 
                             Toggle("Camera Live", isOn: simulationBinding(\.isCameraActive, default: false))
-                                .font(.caption)
+                                .toolboxFont(.caption)
                                 .toggleStyle(.checkbox)
                                 .disabled(!sim.hasCameraDevice)
                                 .pointerCursor(sim.hasCameraDevice)
 
                             Toggle("Simulate Accessibility", isOn: simulationBinding(\.simulateAccessibilityGranted, default: true))
-                                .font(.caption)
+                                .toolboxFont(.caption)
                                 .toggleStyle(.checkbox)
                                 .pointerCursor()
                         }
@@ -386,10 +386,10 @@ struct DeveloperCallControlsView: View {
         Button(action: action) {
             HStack(spacing: 6) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "play.circle")
-                    .font(.caption)
+                    .toolboxFont(.caption)
                     .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
                 Text(title)
-                    .font(.caption.weight(.medium))
+                    .toolboxFont(.caption.weight(.medium))
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
@@ -434,7 +434,7 @@ struct DeveloperCallControlsView: View {
                 if !isSimulating {
                     HStack(spacing: 10) {
                         Text("Start any scenario above to test Mic and Video keybind routing offline without affecting your real apps.")
-                            .font(.caption)
+                            .toolboxFont(.caption)
                             .foregroundStyle(.secondary)
                         Spacer()
                         Button("Load Zoom Scenario") {
@@ -450,19 +450,19 @@ struct DeveloperCallControlsView: View {
                             Image(systemName: "lock.shield")
                                 .foregroundStyle(.orange)
                             Text("Grant real Accessibility in System Settings to press physical keybinds during simulation (buttons & pill clicks work anytime).")
-                                .font(.caption)
+                                .toolboxFont(.caption)
                                 .foregroundStyle(.orange)
                         } else if callControls.isRemapperTapInstalled {
                             Image(systemName: "keyboard.badge.eye")
                                 .foregroundStyle(.green)
                             Text("Live keybind capture active: pressing your physical Mic / Video keybind now updates this simulation and the pill.")
-                                .font(.caption)
+                                .toolboxFont(.caption)
                                 .foregroundStyle(.secondary)
                         } else {
                             Image(systemName: "keyboard")
                                 .foregroundStyle(.secondary)
                             Text("Assign a Mic or Video shortcut in Call Controls to test physical keybind presses.")
-                                .font(.caption)
+                                .toolboxFont(.caption)
                                 .foregroundStyle(.secondary)
                         }
                         Spacer(minLength: 0)
@@ -497,10 +497,10 @@ struct DeveloperCallControlsView: View {
                             Image(systemName: "waveform.badge.magnifyingglass")
                                 .foregroundStyle(.blue)
                             Text("Last Action Result:")
-                                .font(.caption.weight(.semibold))
+                                .toolboxFont(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
                             Text(outcome)
-                                .font(.caption)
+                                .toolboxFont(.caption)
                                 .foregroundStyle(.primary)
                                 .fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 0)
@@ -526,19 +526,19 @@ struct DeveloperCallControlsView: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(label)
-                        .font(.callout.weight(.medium))
+                        .toolboxFont(.callout.weight(.medium))
                     if !configuredShortcut.isEmpty {
                         ShortcutPill(shortcut: configuredShortcut)
                     } else {
                         Text("Unbound")
-                            .font(.caption2)
+                            .toolboxFont(.caption2)
                             .foregroundStyle(.tertiary)
                     }
                     StatusBadge(text: badge.title, color: badge.color)
                 }
 
                 Text(badge.detail)
-                    .font(.caption)
+                    .toolboxFont(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -685,10 +685,10 @@ struct DeveloperCallControlsView: View {
                             Image(systemName: "app.badge.checkmark")
                                 .foregroundStyle(.secondary)
                             Text(uiState.scannedAppName.isEmpty ? "Pick Running App to Inspect…" : uiState.scannedAppName)
-                                .font(.callout)
+                                .toolboxFont(.callout)
                             Spacer()
                             Image(systemName: "chevron.up.chevron.down")
-                                .font(.caption2)
+                                .toolboxFont(.caption2)
                                 .foregroundStyle(.secondary)
                         }
                         .padding(.horizontal, 10)
@@ -720,11 +720,11 @@ struct DeveloperCallControlsView: View {
 
                     if !inspected.accessibilityGranted {
                         Text("Accessibility permission is required for live AXMenuBar scanning.")
-                            .font(.caption)
+                            .toolboxFont(.caption)
                             .foregroundStyle(.orange)
                     } else if !inspected.isRunning {
                         Text("\(uiState.scannedAppName) is not currently running.")
-                            .font(.caption)
+                            .toolboxFont(.caption)
                             .foregroundStyle(.secondary)
                     } else {
                         HStack(spacing: 12) {
@@ -732,7 +732,7 @@ struct DeveloperCallControlsView: View {
                             scanSummaryBadge(label: "Video Guess", shortcut: inspected.suggestedVideo)
                             Spacer()
                             Text("\(inspected.allShortcutControls.count) shortcut item(s)")
-                                .font(.caption2.monospacedDigit())
+                                .toolboxFont(.caption2.monospacedDigit())
                                 .foregroundStyle(.secondary)
                         }
 
@@ -746,7 +746,7 @@ struct DeveloperCallControlsView: View {
                                         ForEach(inspected.allShortcutControls) { item in
                                             HStack(spacing: 8) {
                                                 Text(item.menuPath)
-                                                    .font(.caption)
+                                                    .toolboxFont(.caption)
                                                     .lineLimit(1)
                                                 Spacer()
                                                 if let kind = item.kind {
@@ -760,7 +760,7 @@ struct DeveloperCallControlsView: View {
                                 }
                                 .frame(maxHeight: 160)
                             }
-                            .font(.caption.weight(.medium))
+                            .toolboxFont(.caption.weight(.medium))
                             .pointerCursor()
                         }
                     }
@@ -773,11 +773,11 @@ struct DeveloperCallControlsView: View {
     private func scanSummaryBadge(label: String, shortcut: ShortcutSpec) -> some View {
         HStack(spacing: 5) {
             Text("\(label):")
-                .font(.caption)
+                .toolboxFont(.caption)
                 .foregroundStyle(.secondary)
             if shortcut.isEmpty {
                 Text("None")
-                    .font(.caption.weight(.medium))
+                    .toolboxFont(.caption.weight(.medium))
                     .foregroundStyle(.tertiary)
             } else {
                 ShortcutPill(shortcut: shortcut)
@@ -818,14 +818,14 @@ struct DeveloperCallControlsView: View {
                 HStack(spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Running Configured Call Apps")
-                            .font(.caption.weight(.semibold))
+                            .toolboxFont(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                         Text(
                             runningCallApps.isEmpty
                                 ? "None running right now"
                                 : runningCallApps.map(\.appName).joined(separator: ", ")
                         )
-                        .font(.caption)
+                        .toolboxFont(.caption)
                         .foregroundStyle(.primary)
                     }
 
@@ -849,10 +849,10 @@ struct DeveloperCallControlsView: View {
     private func telemetryCell(_ label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
-                .font(.caption2)
+                .toolboxFont(.caption2)
                 .foregroundStyle(.secondary)
             Text(value)
-                .font(.caption.monospacedDigit().weight(.semibold))
+                .toolboxFont(.caption.monospacedDigit().weight(.semibold))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

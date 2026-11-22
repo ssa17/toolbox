@@ -52,7 +52,7 @@ struct DeveloperEventsAndTapsView: View {
                 HStack(spacing: 8) {
                     TextField("Filter message or category…", text: $uiState.searchQuery)
                         .textFieldStyle(.roundedBorder)
-                        .font(.callout)
+                        .toolboxFont(.callout)
 
                     Button("Copy Log") {
                         let pb = NSPasteboard.general
@@ -93,10 +93,10 @@ struct DeveloperEventsAndTapsView: View {
                 if filtered.isEmpty {
                     VStack(spacing: 6) {
                         Text(eventLog.entries.isEmpty ? "No internal events captured yet." : "No events match the current filter.")
-                            .font(.callout.weight(.medium))
+                            .toolboxFont(.callout.weight(.medium))
                             .foregroundStyle(.secondary)
                         Text("Trigger a hotkey, click a Dock icon, save config, or toggle an update simulation to see live entries here.")
-                            .font(.caption)
+                            .toolboxFont(.caption)
                             .foregroundStyle(.tertiary)
                     }
                     .frame(maxWidth: .infinity)
@@ -110,7 +110,7 @@ struct DeveloperEventsAndTapsView: View {
                                 }
                                 HStack(alignment: .top, spacing: 10) {
                                     Text(entry.timestamp.formatted(date: .omitted, time: .standard))
-                                        .font(.caption2.monospacedDigit())
+                                        .toolboxFont(.caption2.monospacedDigit())
                                         .foregroundStyle(.tertiary)
                                         .frame(width: 72, alignment: .leading)
 
@@ -118,11 +118,11 @@ struct DeveloperEventsAndTapsView: View {
 
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(entry.message)
-                                            .font(.caption.weight(.medium))
+                                            .toolboxFont(.caption.weight(.medium))
                                             .textSelection(.enabled)
                                         if let detail = entry.detail, !detail.isEmpty {
                                             Text(detail)
-                                                .font(.caption2.monospaced())
+                                                .toolboxFont(.caption2.monospaced())
                                                 .foregroundStyle(.secondary)
                                                 .textSelection(.enabled)
                                         }
@@ -151,7 +151,7 @@ struct DeveloperEventsAndTapsView: View {
             uiState.selectedCategory = category
         } label: {
             Text(title)
-                .font(.caption.weight(.semibold))
+                .toolboxFont(.caption.weight(.semibold))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
                 .foregroundStyle(selected ? Color.white : Color.primary)
@@ -174,7 +174,7 @@ struct DeveloperEventsAndTapsView: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Text("Scroll Direction Event Tap")
-                        .font(.callout.weight(.medium))
+                        .toolboxFont(.callout.weight(.medium))
                     Spacer()
                     StatusBadge(
                         text: scrollModule.isTapInstalled ? "Tap Active" : "Tap Inactive",
@@ -196,9 +196,9 @@ struct DeveloperEventsAndTapsView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Keep Awake Assertion & Idle Monitor")
-                            .font(.callout.weight(.medium))
+                            .toolboxFont(.callout.weight(.medium))
                         Text(keepAwakeModule.powerInfo.summaryText)
-                            .font(.caption)
+                            .toolboxFont(.caption)
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -233,7 +233,7 @@ struct DeveloperEventsAndTapsView: View {
 
                     if let captured = uiState.stackCapturedAt {
                         Text("Updated \(captured.formatted(date: .omitted, time: .standard))")
-                            .font(.caption2)
+                            .toolboxFont(.caption2)
                             .foregroundStyle(.secondary)
                     }
 
@@ -249,7 +249,7 @@ struct DeveloperEventsAndTapsView: View {
 
                 if uiState.windowStack.isEmpty {
                     Text("No visible regular application windows reported on this Space.")
-                        .font(.caption)
+                        .toolboxFont(.caption)
                         .foregroundStyle(.secondary)
                         .padding(.vertical, 6)
                 } else {
@@ -259,15 +259,15 @@ struct DeveloperEventsAndTapsView: View {
                         }
                         HStack(spacing: 10) {
                             Text("#\(index + 1)")
-                                .font(.caption2.monospacedDigit().weight(.semibold))
+                                .toolboxFont(.caption2.monospacedDigit().weight(.semibold))
                                 .foregroundStyle(.secondary)
                                 .frame(width: 24, alignment: .leading)
 
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(item.appName)
-                                    .font(.callout.weight(.medium))
+                                    .toolboxFont(.callout.weight(.medium))
                                 Text("\(item.bundleIdentifier ?? "(no bundle id)") · PID \(item.pid)")
-                                    .font(.caption2.monospaced())
+                                    .toolboxFont(.caption2.monospaced())
                                     .foregroundStyle(.secondary)
                             }
 
@@ -289,10 +289,10 @@ struct DeveloperEventsAndTapsView: View {
     private func metricBlock(_ label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
-                .font(.caption2)
+                .toolboxFont(.caption2)
                 .foregroundStyle(.secondary)
             Text(value)
-                .font(.caption.monospacedDigit().weight(.semibold))
+                .toolboxFont(.caption.monospacedDigit().weight(.semibold))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -354,7 +354,7 @@ struct DeveloperHotKeysAndConfigView: View {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundStyle(.orange)
                             Text("\(name): \(message)")
-                                .font(.caption)
+                                .toolboxFont(.caption)
                                 .foregroundStyle(.orange)
                         }
                     }
@@ -363,7 +363,7 @@ struct DeveloperHotKeysAndConfigView: View {
 
                 if registrations.isEmpty {
                     Text("No active global hotkeys are currently registered.")
-                        .font(.caption)
+                        .toolboxFont(.caption)
                         .foregroundStyle(.secondary)
                         .padding(.vertical, 6)
                 } else {
@@ -375,14 +375,14 @@ struct DeveloperHotKeysAndConfigView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack(spacing: 6) {
                                     Text(reg.name)
-                                        .font(.callout.weight(.medium))
+                                        .toolboxFont(.callout.weight(.medium))
                                     StatusBadge(
                                         text: reg.isArmed ? "Armed" : "Suspended",
                                         color: reg.isArmed ? .green : .orange
                                     )
                                 }
                                 Text("ID #\(reg.id) · keyCode: \(reg.shortcut.carbonKeyCode.map(String.init) ?? "n/a")")
-                                    .font(.caption2.monospaced())
+                                    .toolboxFont(.caption2.monospaced())
                                     .foregroundStyle(.secondary)
                             }
 
@@ -436,19 +436,19 @@ struct DeveloperHotKeysAndConfigView: View {
                         if inAppConflict == nil && systemConflict == nil {
                             StatusBadge(text: "Clear", color: .green)
                             Text("\(uiState.testShortcut.displayString) has no detected in-app or reserved macOS conflicts.")
-                                .font(.caption)
+                                .toolboxFont(.caption)
                                 .foregroundStyle(.secondary)
                         } else {
                             StatusBadge(text: "Conflict", color: .orange)
                             VStack(alignment: .leading, spacing: 2) {
                                 if let inAppConflict {
                                     Text("In-App: \(inAppConflict)")
-                                        .font(.caption)
+                                        .toolboxFont(.caption)
                                         .foregroundStyle(.orange)
                                 }
                                 if let systemConflict {
                                     Text("macOS / Menu: \(systemConflict)")
-                                        .font(.caption)
+                                        .toolboxFont(.caption)
                                         .foregroundStyle(.orange)
                                 }
                             }
@@ -503,7 +503,7 @@ struct DeveloperHotKeysAndConfigView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text("Live Config Diff")
-                            .font(.callout.weight(.medium))
+                            .toolboxFont(.callout.weight(.medium))
                         Spacer()
                         Picker("", selection: $uiState.diffMode) {
                             Text("vs Checkpoint").tag(0)
@@ -517,13 +517,13 @@ struct DeveloperHotKeysAndConfigView: View {
 
                     if uiState.diffMode == 0 && checkpoints.checkpointConfig == nil {
                         Text("Save a checkpoint above to track diffs as you modify settings.")
-                            .font(.caption)
+                            .toolboxFont(.caption)
                             .foregroundStyle(.secondary)
                     } else if diffs.isEmpty {
                         HStack(spacing: 6) {
                             StatusBadge(text: "In Sync", color: .green)
                             Text(uiState.diffMode == 0 ? "Live config matches saved checkpoint." : "Live config matches config.json on disk.")
-                                .font(.caption)
+                                .toolboxFont(.caption)
                                 .foregroundStyle(.secondary)
                         }
                     } else {
@@ -531,10 +531,10 @@ struct DeveloperHotKeysAndConfigView: View {
                             ForEach(diffs) { item in
                                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                                     Text(item.keyPath)
-                                        .font(.caption2.monospaced().weight(.semibold))
+                                        .toolboxFont(.caption2.monospaced().weight(.semibold))
                                     Spacer(minLength: 8)
                                     Text("\(item.baselineValue) → \(item.currentValue)")
-                                        .font(.caption2.monospaced())
+                                        .toolboxFont(.caption2.monospaced())
                                         .foregroundStyle(.orange)
                                         .textSelection(.enabled)
                                 }

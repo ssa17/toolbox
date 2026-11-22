@@ -36,15 +36,15 @@ struct DeveloperPinPromptView: View {
                         .fill(Color.purple.opacity(0.16))
                         .frame(width: 40, height: 40)
                     Image(systemName: "lock.shield.fill")
-                        .font(.title3.weight(.semibold))
+                        .toolboxFont(.title3.weight(.semibold))
                         .foregroundStyle(.purple)
                 }
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Unlock Developer Tools")
-                        .font(.headline)
+                        .toolboxFont(.headline)
                     Text("Enter the developer PIN to access simulations and diagnostics.")
-                        .font(.caption)
+                        .toolboxFont(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -53,7 +53,7 @@ struct DeveloperPinPromptView: View {
             VStack(alignment: .leading, spacing: 8) {
                 SecureField("Developer PIN", text: $state.pinText)
                     .textFieldStyle(.roundedBorder)
-                    .font(.system(.title3, design: .monospaced))
+                    .toolboxFont(.system(.title3, design: .monospaced))
                     .focused($isPinFieldFocused)
                     .disabled(state.lockoutRemainingSeconds > 0)
                     .onSubmit {
@@ -73,9 +73,9 @@ struct DeveloperPinPromptView: View {
                 if let error = state.errorMessage {
                     HStack(spacing: 6) {
                         Image(systemName: state.lockoutRemainingSeconds > 0 ? "clock.badge.exclamationmark" : "exclamationmark.triangle.fill")
-                            .font(.caption)
+                            .toolboxFont(.caption)
                         Text(error)
-                            .font(.caption)
+                            .toolboxFont(.caption)
                     }
                     .foregroundStyle(state.lockoutRemainingSeconds > 0 ? .orange : .red)
                 }

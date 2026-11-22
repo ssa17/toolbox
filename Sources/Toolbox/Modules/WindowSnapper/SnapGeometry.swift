@@ -1112,7 +1112,6 @@ enum SnapGeometry {
         primaryScreenHeight: CGFloat,
         layout: DisplayLayoutConfig?,
         gaps: GapConfig,
-        spanAnchorCoord: GridCellCoord?,
         seamRadius: CGFloat = seamSpanProximityPoints
     ) -> DragZoneHit? {
         let division = layout?.division ?? DisplayDivision()
@@ -1126,12 +1125,10 @@ enum SnapGeometry {
         )
         let divisionCells = allZones.filter { $0.gridCoord != nil }
 
-        // Check explicit custom zones first when inside them and no grid anchor is spanning
-        if spanAnchorCoord == nil {
-            for custom in allZones where custom.gridCoord == nil {
-                if custom.frameInAX.contains(pointerAX) {
-                    return DragZoneHit(zone: custom, isSpanning: false)
-                }
+        // Check explicit custom zones first when inside them
+        for custom in allZones where custom.gridCoord == nil {
+            if custom.frameInAX.contains(pointerAX) {
+                return DragZoneHit(zone: custom, isSpanning: false)
             }
         }
 
@@ -1149,31 +1146,8 @@ enum SnapGeometry {
             return nil
         }
 
-        // Explicit span anchor (when holding spanModifier)
-        if let anchor = spanAnchorCoord {
-            let span = GridSpan(
-                startCol: anchor.col,
-                endCol: hoveredCoord.col,
-                startRow: anchor.row,
-                endRow: hoveredCoord.row
-            ).normalized
-            if let spanned = resolveSpannedZone(
-                span: span,
-                division: division,
-                usableAXRect: usableAXRect,
-                primaryScreenHeight: primaryScreenHeight,
-                outerMargin: outer,
-                innerGap: inner
-            ) {
-                let isMulti = span.startCol != span.endCol || span.startRow != span.endRow
-                return DragZoneHit(zone: spanned, isSpanning: isMulti)
-            }
-        }
-
         if layout?.presetKind == .leftMainRightStack || layout?.presetKind == .leftStackRightMain {
-            if spanAnchorCoord == nil {
-                return DragZoneHit(zone: hovered, isSpanning: false)
-            }
+            return DragZoneHit(zone: hovered, isSpanning: false)
         }
 
         // Automatic seam-proximity spanning (hovering within `seamRadius` of an interior divider)
@@ -1272,5 +1246,21 @@ enum SnapGeometry {
             CGRect(x: usableAX.minX, y: usableAX.maxY - band, width: band, height: band),
             CGRect(x: usableAX.maxX - band, y: usableAX.maxY - band, width: band, height: band)
         ]
+    }
+
+    /// Balanced two-tile (Left / Right) layout at 1:1 scale used to preview
+    /// uniform Tile Spacing (outer margins + inner gap) and Outline Thickness on screen.
+    static func stylePreviewZonesAX(
+        usableAXRect: CGRect,
+        primaryScreenHeight: CGFloat,
+        gaps: GapConfig
+    ) -> [ResolvedZone] {
+        resolveTemplateZones(
+            preset: .halves,
+            usableAXRect: usableAXRect,
+            primaryScreenHeight: primaryScreenHeight,
+            gaps: gaps,
+            layoutOverride: nil
+        )
     }
 }

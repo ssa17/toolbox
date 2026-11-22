@@ -75,7 +75,7 @@ struct CleanLockSettingsView: View {
                             formattedDurationButtonLabel,
                             systemImage: module.isLocked ? "lock.open.fill" : "lock.fill"
                         )
-                        .font(.callout.weight(.semibold))
+                        .toolboxFont(.callout.weight(.semibold))
                     }
                     .buttonStyle(.toolboxProminent(.red))
                     .controlSize(.large)

@@ -718,20 +718,20 @@ struct GlassPaneSurfaceView: View {
                                     )
                             )
                         Image(systemName: "plus")
-                            .font(.system(size: 18, weight: .semibold))
+                            .toolboxFont(.system(size: 18, weight: .semibold))
                             .foregroundStyle(.white)
                     }
 
                     Text(pane.zone.name)
-                        .font(.system(size: 14, weight: .semibold))
+                        .toolboxFont(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.white)
 
                     Text("\(Int(round(pane.zone.frameInAppKit.width))) × \(Int(round(pane.zone.frameInAppKit.height)))")
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .toolboxFont(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundStyle(Color.white.opacity(0.68))
 
                     Text("Click to choose an app")
-                        .font(.caption)
+                        .toolboxFont(.caption)
                         .foregroundStyle(isInactiveHovered ? accentStroke : Color.white.opacity(0.76))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 3.5)
@@ -760,19 +760,19 @@ struct GlassPaneSurfaceView: View {
                     .frame(width: 7, height: 7)
 
                 Text(pane.zone.name)
-                    .font(.system(size: 13, weight: .semibold))
+                    .toolboxFont(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
 
                 Text("· Choose an app")
-                    .font(.caption)
+                    .toolboxFont(.caption)
                     .foregroundStyle(Color.white.opacity(0.72))
                     .lineLimit(1)
 
                 Spacer(minLength: 6)
 
                 Text("Esc")
-                    .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                    .toolboxFont(.system(size: 10.5, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Color.white.opacity(0.72))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
@@ -782,7 +782,7 @@ struct GlassPaneSurfaceView: View {
                     onDismiss()
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 10.5, weight: .bold))
+                        .toolboxFont(.system(size: 10.5, weight: .bold))
                         .foregroundStyle(Color.white.opacity(0.86))
                         .frame(width: 22, height: 22)
                         .background(Color.white.opacity(0.12), in: Circle())
@@ -802,13 +802,13 @@ struct GlassPaneSurfaceView: View {
                 VStack(spacing: 10) {
                     Spacer(minLength: 0)
                     Image(systemName: "macwindow.on.rectangle")
-                        .font(.system(size: 28, weight: .medium))
+                        .toolboxFont(.system(size: 28, weight: .medium))
                         .foregroundStyle(Color.white.opacity(0.65))
                     Text("No other running app windows")
-                        .font(.callout.weight(.semibold))
+                        .toolboxFont(.callout.weight(.semibold))
                         .foregroundStyle(.white)
                     Text("Open or unhide another app window to place it here.")
-                        .font(.caption)
+                        .toolboxFont(.caption)
                         .foregroundStyle(Color.white.opacity(0.68))
                         .multilineTextAlignment(.center)
                     Button("Dismiss") {
@@ -925,13 +925,13 @@ private struct GlassPaneAppCardView: View {
 
                     VStack(alignment: .leading, spacing: 1) {
                         Text(item.candidate.appName)
-                            .font(.system(size: 11.5, weight: .semibold))
+                            .toolboxFont(.system(size: 11.5, weight: .semibold))
                             .foregroundStyle(.white)
                             .lineLimit(1)
 
                         if hasSubtitle {
                             Text(item.candidate.windowTitle)
-                                .font(.system(size: 10))
+                                .toolboxFont(.system(size: 10))
                                 .foregroundStyle(Color.white.opacity(0.72))
                                 .lineLimit(1)
                         }
@@ -962,20 +962,20 @@ private struct GlassPaneAppCardView: View {
                 appIconView(size: iconSize)
 
                 Text(item.candidate.appName)
-                    .font(.system(size: 12, weight: .semibold))
+                    .toolboxFont(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .padding(.horizontal, 6)
 
                 if item.size.height >= 78, !item.candidate.windowTitle.isEmpty {
                     Text(item.candidate.windowTitle)
-                        .font(.system(size: 10))
+                        .toolboxFont(.system(size: 10))
                         .foregroundStyle(Color.white.opacity(0.70))
                         .lineLimit(1)
                         .padding(.horizontal, 8)
                 } else if item.candidate.isMinimized {
                     Text("Minimized")
-                        .font(.system(size: 9.5, weight: .medium))
+                        .toolboxFont(.system(size: 9.5, weight: .medium))
                         .foregroundStyle(Color.white.opacity(0.60))
                 }
             }

@@ -220,9 +220,11 @@ enum SelfTestRunner {
         expect(cfg.clipboard.maxItems == 25, "Clipboard default maxItems should be 25")
         expect(cfg.clipboard.persistHistory, "Clipboard default persistHistory should be true")
         expect(cfg.general.showModuleCardDetails, "Dashboard showModuleCardDetails should default to true")
+        expect(cfg.general.textSize == .standard, "General textSize should default to .standard")
 
         if let legacyGeneral = try? JSONDecoder().decode(GeneralConfig.self, from: Data("{}".utf8)) {
             expect(legacyGeneral.showModuleCardDetails, "Decoding legacy GeneralConfig without showModuleCardDetails should default to true")
+            expect(legacyGeneral.textSize == .standard, "Decoding legacy GeneralConfig without textSize should default to .standard")
         } else {
             failures.append("Failed to decode legacy GeneralConfig")
         }
@@ -235,6 +237,70 @@ enum SelfTestRunner {
         } else {
             failures.append("ToolboxConfig Codable round-trip for showModuleCardDetails=false failed")
         }
+
+        for size in AppTextSize.allCases {
+            var sizeCfg = ToolboxConfig()
+            sizeCfg.general.textSize = size
+            if let encoded = try? JSONEncoder().encode(sizeCfg),
+               let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: encoded) {
+                expect(decoded.general.textSize == size, "textSize=\(size.rawValue) should round-trip through Codable")
+            } else {
+                failures.append("ToolboxConfig Codable round-trip for textSize=\(size.rawValue) failed")
+            }
+            expect(cfg.runtimeBehaviorEquals(sizeCfg), "runtimeBehaviorEquals should ignore general.textSize=\(size.rawValue)")
+        }
+
+        for base in [CGFloat(10), CGFloat(12), CGFloat(13), CGFloat(15)] {
+            let small = AppTextSize.small.scaledPointSize(base)
+            let standard = AppTextSize.standard.scaledPointSize(base)
+            let large = AppTextSize.large.scaledPointSize(base)
+            let extraLarge = AppTextSize.extraLarge.scaledPointSize(base)
+            expect(standard == base, "AppTextSize.standard.scaledPointSize(\(base)) must equal \(base), got \(standard)")
+            expect(
+                small < standard && standard < large && large < extraLarge,
+                "AppTextSize.scaledPointSize(\(base)) must be strictly monotonic: \(small) < \(standard) < \(large) < \(extraLarge)"
+            )
+        }
+
+        let previousTextSize = ConfigManager.shared.config.general.textSize
+        defer { ConfigManager.shared.config.general.textSize = previousTextSize }
+
+        func measureSampleTextSize(for textSize: AppTextSize) -> CGSize {
+            ConfigManager.shared.config.general.textSize = textSize
+            let hosting = NSHostingView(
+                rootView: Text("Toolbox Readability Sample")
+                    .toolboxFont(.body)
+                    .toolboxDarkAppearance()
+            )
+            hosting.sizingOptions = [.intrinsicContentSize]
+            hosting.layoutSubtreeIfNeeded()
+            return hosting.fittingSize
+        }
+
+        let smallSample = measureSampleTextSize(for: .small)
+        let standardSample = measureSampleTextSize(for: .standard)
+        let largeSample = measureSampleTextSize(for: .large)
+        let extraLargeSample = measureSampleTextSize(for: .extraLarge)
+        expect(
+            smallSample.width < standardSample.width
+                && standardSample.width < largeSample.width
+                && largeSample.width < extraLargeSample.width,
+            "Live SwiftUI text width must scale across text sizes: \(smallSample.width) < \(standardSample.width) < \(largeSample.width) < \(extraLargeSample.width)"
+        )
+        expect(
+            largeSample.height > standardSample.height,
+            "Live SwiftUI text height must grow at .large: \(largeSample.height) > \(standardSample.height)"
+        )
+
+        ConfigManager.shared.config.general.textSize = .standard
+        let standardToast = HUDToast.measuredSize(title: "Toolbox Readability Scaling Toast", symbol: "checkmark.circle.fill", tint: .green)
+        ConfigManager.shared.config.general.textSize = .large
+        let largeToast = HUDToast.measuredSize(title: "Toolbox Readability Scaling Toast", symbol: "checkmark.circle.fill", tint: .green)
+        expect(
+            largeToast.width > standardToast.width && largeToast.height > standardToast.height,
+            "HUDToast size must scale at .large: standard=\(standardToast), large=\(largeToast)"
+        )
+        ConfigManager.shared.config.general.textSize = previousTextSize
 
         expect(cfg.runtimeBehaviorEquals(compactCfg), "runtimeBehaviorEquals should ignore showModuleCardDetails differences")
         var pausedCfg = cfg
@@ -5504,6 +5570,52 @@ enum SelfTestRunner {
             "DisplayPresetKind.maximized must resolve to a single full usable-rect zone named Maximized"
         )
 
+        let legacySpanDragJSON = "{\"enabled\": true, \"gridModifier\": \"option\", \"spanModifier\": \"control_option\", \"edgeProximityPoints\": 12}"
+        if let legacySpanData = legacySpanDragJSON.data(using: .utf8),
+           let decodedLegacyDrag = try? JSONDecoder().decode(DragSnapConfig.self, from: legacySpanData) {
+            expect(
+                decodedLegacyDrag.enabled && decodedLegacyDrag.gridModifier == .option && decodedLegacyDrag.edgeProximityPoints == 12,
+                "Legacy DragSnapConfig JSON with spanModifier must decode cleanly"
+            )
+        } else {
+            failures.append("Failed to decode legacy DragSnapConfig JSON containing spanModifier")
+        }
+
+        let defaultHalvesLayout = DisplayLayoutConfig(
+            display: DisplaySignature(),
+            presetID: DisplayPresetKind.halves.rawValue,
+            division: DisplayPresetKind.halves.defaultDivision
+        )
+        var adjustedStackLayout = DisplayLayoutConfig(
+            display: DisplaySignature(),
+            presetID: DisplayPresetKind.leftMainRightStack.rawValue,
+            division: DisplayPresetKind.leftMainRightStack.defaultDivision
+        )
+        expect(
+            !defaultHalvesLayout.hasCustomDividerProportions && !adjustedStackLayout.hasCustomDividerProportions,
+            "Default template divisions must report hasCustomDividerProportions == false"
+        )
+        adjustedStackLayout.division = DisplayDivision(columnWeights: [1.5, 0.5], rowWeights: [0.6, 1.4])
+        expect(
+            adjustedStackLayout.hasCustomDividerProportions && adjustedStackLayout.presetKind == .leftMainRightStack,
+            "Adjusted divider weights must report hasCustomDividerProportions == true while preserving presetKind"
+        )
+        let stackUsableAX = CGRect(x: 0, y: 25, width: 1440, height: 875)
+        let customStackZones = SnapGeometry.resolveZones(
+            layout: adjustedStackLayout,
+            usableAXRect: stackUsableAX,
+            primaryScreenHeight: 900,
+            gaps: GapConfig()
+        )
+        expect(
+            customStackZones.count == 3
+                && abs(customStackZones[0].frameInAX.width - (1440 * 0.75)) <= 2.0
+                && abs(customStackZones[0].frameInAX.height - 875) <= 2.0
+                && abs(customStackZones[1].frameInAX.height - (875 * 0.30)) <= 2.0
+                && abs(customStackZones[2].frameInAX.height - (875 * 0.70)) <= 2.0,
+            "Adjusted Left + 2 Right layout must stay 3 zones with proportional column/row sizing"
+        )
+
         // 2. Sequoia native tiling preference parser & flash auto-hide regression check
         let allOnConflict = SnapGeometry.evaluateSequoiaTilingConflict(
             windowManagerDefaults: [
@@ -6183,6 +6295,110 @@ enum SelfTestRunner {
         )
         ZoneOverlayController.shared.hideAllPreviews()
 
+        let flushStyleZones = SnapGeometry.stylePreviewZonesAX(
+            usableAXRect: mainDisp.usableAX,
+            primaryScreenHeight: 900,
+            gaps: GapConfig(outerMarginPoints: 0, innerGapPoints: 0)
+        )
+        let spaciousStyleZones = SnapGeometry.stylePreviewZonesAX(
+            usableAXRect: mainDisp.usableAX,
+            primaryScreenHeight: 900,
+            gaps: GapConfig(outerMarginPoints: 16, innerGapPoints: 16)
+        )
+        expect(
+            flushStyleZones.count == 2
+                && abs(flushStyleZones[0].frameInAX.minX - mainDisp.usableAX.minX) <= 1.0
+                && abs(flushStyleZones[0].frameInAX.minY - mainDisp.usableAX.minY) <= 1.0
+                && abs(flushStyleZones[1].frameInAX.minX - flushStyleZones[0].frameInAX.maxX) <= 1.0
+                && abs(flushStyleZones[1].frameInAX.maxX - mainDisp.usableAX.maxX) <= 1.0
+                && abs(flushStyleZones[1].frameInAX.maxY - mainDisp.usableAX.maxY) <= 1.0,
+            "SnapGeometry.stylePreviewZonesAX with 0 pt gaps must emit two flush zones touching all outer edges with 0 pt inner gap"
+        )
+        expect(
+            spaciousStyleZones.count == 2
+                && abs(spaciousStyleZones[0].frameInAX.minX - (mainDisp.usableAX.minX + 16)) <= 1.0
+                && abs(spaciousStyleZones[0].frameInAX.minY - (mainDisp.usableAX.minY + 16)) <= 1.0
+                && abs((spaciousStyleZones[1].frameInAX.minX - spaciousStyleZones[0].frameInAX.maxX) - 16) <= 1.0
+                && abs(spaciousStyleZones[1].frameInAX.maxX - (mainDisp.usableAX.maxX - 16)) <= 1.0
+                && abs(spaciousStyleZones[1].frameInAX.maxY - (mainDisp.usableAX.maxY - 16)) <= 1.0,
+            "SnapGeometry.stylePreviewZonesAX with 16 pt gaps must inset all 4 outer edges by 16 pt and maintain an exact 16 pt inner gap"
+        )
+
+        ZoneOverlayController.shared.flashZoneStylePreview(
+            on: [mainDisp],
+            zonesProvider: { _ in spaciousStyleZones },
+            bannerText: "Tile Spacing · Spacious (16 pt)",
+            style: OverlayStyleConfig(borderWidthPoints: 4.0),
+            showZoneLabels: true,
+            holdDuration: 0.02,
+            fadeDuration: 0.04
+        )
+        expect(
+            ZoneOverlayController.shared.anyPassivePanelIsVisibleForTesting(),
+            "flashZoneStylePreview with zone labels must show passive overlay panel immediately"
+        )
+        RunLoop.main.run(until: Date().addingTimeInterval(0.20))
+        expect(
+            !ZoneOverlayController.shared.anyPassivePanelIsVisibleForTesting(),
+            "flashZoneStylePreview must auto-hide overlay panel after hold and fade expire"
+        )
+        ZoneOverlayController.shared.hideAllPreviews()
+
+        expect(
+            ZoneOnScreenEditorView.zoneMetricsLabel(
+                normalizedRect: NormalizedRect(x: 0, y: 0, width: 1.0, height: 1.0),
+                widthPoints: 1264,
+                heightPoints: 720
+            ) == "1264 × 720"
+                && ZoneOnScreenEditorView.zoneMetricsLabel(
+                    normalizedRect: NormalizedRect(x: 0, y: 0, width: 0.65, height: 1.0),
+                    widthPoints: 816,
+                    heightPoints: 720
+                ) == "65% · 816 × 720"
+                && ZoneOnScreenEditorView.zoneMetricsLabel(
+                    normalizedRect: NormalizedRect(x: 0, y: 0, width: 1.0, height: 0.50),
+                    widthPoints: 1264,
+                    heightPoints: 356
+                ) == "50% · 1264 × 356"
+                && ZoneOnScreenEditorView.zoneMetricsLabel(
+                    normalizedRect: NormalizedRect(x: 0, y: 0, width: 0.35, height: 0.40),
+                    widthPoints: 440,
+                    heightPoints: 285
+                ) == "35% × 40% · 440 × 285",
+            "ZoneOnScreenEditorView.zoneMetricsLabel must format full, column, row, and quadrant zone dimensions accurately"
+        )
+
+        let compactCenter = SnapGeometry.resolveUniversalOrBuiltInZone(
+            id: "universal:center",
+            usableAXRect: mainDisp.usableAX,
+            primaryScreenHeight: 900,
+            gaps: GapConfig(outerMarginPoints: 8, innerGapPoints: 8),
+            layoutOverride: nil,
+            centerWidthFraction: 0.60,
+            centerHeightFraction: 0.72
+        )
+        let largeCenter = SnapGeometry.resolveUniversalOrBuiltInZone(
+            id: "universal:center",
+            usableAXRect: mainDisp.usableAX,
+            primaryScreenHeight: 900,
+            gaps: GapConfig(outerMarginPoints: 8, innerGapPoints: 8),
+            layoutOverride: nil,
+            centerWidthFraction: 0.82,
+            centerHeightFraction: 0.88
+        )
+        expect(
+            compactCenter != nil
+                && largeCenter != nil
+                && abs((compactCenter?.frameInAX.width ?? 0) - mainDisp.usableAX.width * 0.60) <= 2.0
+                && abs((compactCenter?.frameInAX.height ?? 0) - mainDisp.usableAX.height * 0.72) <= 2.0
+                && abs((compactCenter?.frameInAX.midX ?? 0) - mainDisp.usableAX.midX) <= 2.0
+                && abs((compactCenter?.frameInAX.midY ?? 0) - mainDisp.usableAX.midY) <= 2.0
+                && abs((largeCenter?.frameInAX.width ?? 0) - mainDisp.usableAX.width * 0.82) <= 2.0
+                && abs((largeCenter?.frameInAX.height ?? 0) - mainDisp.usableAX.height * 0.88) <= 2.0
+                && (largeCenter?.frameInAX.width ?? 0) > (compactCenter?.frameInAX.width ?? 0),
+            "Universal center resolution must match Compact (60x72%) and Large (82x88%) centered fractions"
+        )
+
         // TopEdgeTriggerWidth Codable + trigger rect width ordering + descriptive preset labels
         var widthRoundTrip = ToolboxConfig()
         widthRoundTrip.windowSnapper.topEdgePanel.triggerWidth = .wide
@@ -6249,8 +6465,12 @@ enum SelfTestRunner {
                 && GapConfig.spacingPresetLabel(for: 4) == "Tight"
                 && GapConfig.spacingPresetLabel(for: 8) == "Cozy"
                 && GapConfig.spacingPresetLabel(for: 12) == "Relaxed"
-                && GapConfig.spacingPresetLabel(for: 16) == "Spacious",
-            "Descriptive spacing and trigger preset labels must map cleanly across all tiers"
+                && GapConfig.spacingPresetLabel(for: 16) == "Spacious"
+                && OverlayStyleConfig.borderThicknessLabel(for: 1.0) == "Thin"
+                && OverlayStyleConfig.borderThicknessLabel(for: 2.0) == "Medium"
+                && OverlayStyleConfig.borderThicknessLabel(for: 4.0) == "Thick"
+                && OverlayStyleConfig.borderThicknessLabel(for: 7.0) == "Bold",
+            "Descriptive spacing, border thickness, and trigger preset labels must map cleanly across all tiers"
         )
 
         wsCfg.enabled = false

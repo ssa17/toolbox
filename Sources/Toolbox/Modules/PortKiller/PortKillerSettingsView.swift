@@ -180,10 +180,10 @@ struct PortKillerSettingsView: View {
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Popover Size")
-                    .font(.callout.weight(.semibold))
+                    .toolboxFont(.callout.weight(.semibold))
                 Spacer()
                 Text("\(String(configManager.config.portKiller.popoverWidth)) × \(String(configManager.config.portKiller.popoverHeight)) px")
-                    .font(.caption.monospacedDigit().weight(.semibold))
+                    .toolboxFont(.caption.monospacedDigit().weight(.semibold))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 3)
@@ -227,7 +227,7 @@ struct PortKillerSettingsView: View {
                         }
                     }
                     Text("Allowed size: 360–760 px wide, 300–780 px tall.")
-                        .font(.caption)
+                        .toolboxFont(.caption)
                         .foregroundStyle(.secondary)
                 }
                 .padding(.top, 2)
@@ -238,10 +238,10 @@ struct PortKillerSettingsView: View {
     private var customWidthStepper: some View {
         HStack(spacing: 6) {
             Text("Width")
-                .font(.caption)
+                .toolboxFont(.caption)
                 .foregroundStyle(.secondary)
             Text("\(String(configManager.config.portKiller.popoverWidth)) px")
-                .font(.caption.monospacedDigit().weight(.medium))
+                .toolboxFont(.caption.monospacedDigit().weight(.medium))
             Stepper("", value: $configManager.config.portKiller.popoverWidth, in: 360...760, step: 20)
                 .labelsHidden()
                 .pointerCursor()
@@ -251,10 +251,10 @@ struct PortKillerSettingsView: View {
     private var customHeightStepper: some View {
         HStack(spacing: 6) {
             Text("Height")
-                .font(.caption)
+                .toolboxFont(.caption)
                 .foregroundStyle(.secondary)
             Text("\(String(configManager.config.portKiller.popoverHeight)) px")
-                .font(.caption.monospacedDigit().weight(.medium))
+                .toolboxFont(.caption.monospacedDigit().weight(.medium))
             Stepper("", value: $configManager.config.portKiller.popoverHeight, in: 300...780, step: 20)
                 .labelsHidden()
                 .pointerCursor()
@@ -282,10 +282,10 @@ struct PortKillerSettingsView: View {
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: isPinned ? "star.fill" : "star")
-                                .font(.caption2)
+                                .toolboxFont(.caption2)
                                 .foregroundStyle(isPinned ? Color.orange : .secondary)
                             Text(":\(String(port))")
-                                .font(.caption.monospaced().weight(.semibold))
+                                .toolboxFont(.caption.monospaced().weight(.semibold))
                                 .foregroundStyle(.primary)
                         }
                         .frame(maxWidth: .infinity)
@@ -314,7 +314,7 @@ struct PortKillerSettingsView: View {
             if !customFavorites.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Custom Pinned Ports")
-                        .font(.caption.weight(.medium))
+                        .toolboxFont(.caption.weight(.medium))
                         .foregroundStyle(.secondary)
                     LazyVGrid(
                         columns: [GridItem(.adaptive(minimum: 76, maximum: 100), spacing: 8)],
@@ -324,14 +324,14 @@ struct PortKillerSettingsView: View {
                         ForEach(customFavorites, id: \.self) { port in
                             HStack(spacing: 4) {
                                 Text(":\(String(port))")
-                                    .font(.caption.monospaced().weight(.semibold))
+                                    .toolboxFont(.caption.monospaced().weight(.semibold))
                                     .lineLimit(1)
                                 Spacer(minLength: 2)
                                 Button {
                                     module.toggleFavoritePort(port)
                                 } label: {
                                     Image(systemName: "xmark")
-                                        .font(.system(size: 9, weight: .bold))
+                                        .toolboxFont(.system(size: 9, weight: .bold))
                                         .frame(width: 22, height: 22)
                                         .contentShape(Rectangle())
                                 }
@@ -375,7 +375,7 @@ struct PortKillerSettingsView: View {
 
                 if let error = customPortValidationError {
                     Label(error, systemImage: "exclamationmark.circle.fill")
-                        .font(.caption)
+                        .toolboxFont(.caption)
                         .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
                 }
             }
@@ -438,7 +438,7 @@ struct PortKillerSettingsView: View {
                                 uiState.searchQuery = ""
                             } label: {
                                 Image(systemName: "xmark.circle.fill")
-                                    .font(.caption)
+                                    .toolboxFont(.caption)
                                     .foregroundStyle(.secondary)
                             }
                             .buttonStyle(.plain)
@@ -488,7 +488,7 @@ struct PortKillerSettingsView: View {
                             ? "\(items.count) of \(module.ports.count) ports"
                             : "\(items.count) \(items.count == 1 ? "port" : "ports")"
                     )
-                    .font(.caption.monospacedDigit().weight(.semibold))
+                    .toolboxFont(.caption.monospacedDigit().weight(.semibold))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 4)
@@ -501,10 +501,10 @@ struct PortKillerSettingsView: View {
             if items.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: module.isScanning ? "network" : "checkmark.circle")
-                        .font(.title2)
+                        .toolboxFont(.title2)
                         .foregroundStyle(.secondary)
                     Text(module.isScanning ? "Scanning listening TCP ports…" : "No matching listening ports")
-                        .font(.callout.weight(.medium))
+                        .toolboxFont(.callout.weight(.medium))
                         .foregroundStyle(.secondary)
                     if !module.isScanning && hasActiveFilters {
                         Button("Clear Filters") {
@@ -541,7 +541,7 @@ struct PortKillerSettingsView: View {
                 module.toggleFavoritePort(entry.port)
             } label: {
                 Image(systemName: isFavorite ? "star.fill" : "star")
-                    .font(.caption)
+                    .toolboxFont(.caption)
                     .foregroundStyle(isFavorite ? Color.orange : Color.secondary.opacity(0.6))
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
@@ -554,11 +554,11 @@ struct PortKillerSettingsView: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(entry.processName)
-                        .font(.callout.weight(.semibold))
+                        .toolboxFont(.callout.weight(.semibold))
                         .lineLimit(1)
 
                     Text(":\(String(entry.port))")
-                        .font(.caption.monospaced().weight(.bold))
+                        .toolboxFont(.caption.monospaced().weight(.bold))
                         .foregroundStyle(indigoText)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1.5)
@@ -567,9 +567,9 @@ struct PortKillerSettingsView: View {
                     if entry.requiresElevation {
                         HStack(spacing: 3) {
                             Image(systemName: "lock.fill")
-                                .font(.system(size: 9))
+                                .toolboxFont(.system(size: 10))
                             Text(entry.ownerLabel ?? "admin")
-                                .font(.caption2.weight(.semibold))
+                                .toolboxFont(.caption2.weight(.semibold))
                         }
                         .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
                         .padding(.horizontal, 6)
@@ -581,20 +581,20 @@ struct PortKillerSettingsView: View {
 
                 HStack(spacing: 6) {
                     Text("PID \(String(entry.pid))")
-                        .font(.caption.monospaced())
+                        .toolboxFont(.caption.monospaced())
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: true, vertical: false)
                     Text("·")
                         .foregroundStyle(.tertiary)
                     Text(entry.bindDisplay)
-                        .font(.caption)
+                        .toolboxFont(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: true, vertical: false)
                     if let folder = entry.cwdBasename {
                         Text("·")
                             .foregroundStyle(.tertiary)
                         Label(folder, systemImage: "folder")
-                            .font(.caption)
+                            .toolboxFont(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -604,7 +604,7 @@ struct PortKillerSettingsView: View {
                         Text("·")
                             .foregroundStyle(.tertiary)
                         Text("Also on \(extraPorts.map { ":\($0)" }.joined(separator: ", "))")
-                            .font(.caption)
+                            .toolboxFont(.caption)
                             .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
                             .lineLimit(1)
                             .truncationMode(.tail)

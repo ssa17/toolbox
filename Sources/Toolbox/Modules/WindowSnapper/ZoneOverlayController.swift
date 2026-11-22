@@ -107,6 +107,12 @@ enum OverlayDisplayMode: Equatable, Sendable {
         bannerAnchorAX: CGPoint,
         style: OverlayStyleConfig
     )
+    case zoneStyleFlash(
+        zones: [ResolvedZone],
+        bannerText: String,
+        style: OverlayStyleConfig,
+        showZoneLabels: Bool = false
+    )
     case liveSettingsPreview(
         zones: [ResolvedZone],
         displayTitle: String,
@@ -445,6 +451,48 @@ final class ZoneOverlayController: ObservableObject {
             positionAndShow(entry.panel, for: display)
         }
 
+        scheduleFlashAutoFade(holdDuration: holdDuration, fadeDuration: fadeDuration)
+    }
+
+    func flashZoneStylePreview(
+        on displays: [ConnectedDisplay],
+        zonesProvider: (ConnectedDisplay) -> [ResolvedZone],
+        bannerText: String,
+        style: OverlayStyleConfig,
+        showZoneLabels: Bool = false,
+        holdDuration: TimeInterval = 0.80,
+        fadeDuration: TimeInterval = 0.28
+    ) {
+        guard !isLivePreviewActive, !isDryRunPreviewActive, !isEditingOnScreen else { return }
+
+        cancelFlash()
+        let activeIDs = Set(displays.map(\.displayID))
+        hideUnlistedPassivePanels(keeping: activeIDs)
+        guard !displays.isEmpty else { return }
+
+        for display in displays {
+            let zones = zonesProvider(display)
+            let entry = ensurePassivePanel(for: display)
+            if entry.state.displayFrameAX != display.frameAX {
+                entry.state.displayFrameAX = display.frameAX
+            }
+            if entry.state.usableAXRect != display.usableAX {
+                entry.state.usableAXRect = display.usableAX
+            }
+            entry.state.mode = .zoneStyleFlash(
+                zones: zones,
+                bannerText: bannerText,
+                style: style,
+                showZoneLabels: showZoneLabels
+            )
+            resetPanelAlphaImmediate([entry.panel])
+            positionAndShow(entry.panel, for: display)
+        }
+
+        scheduleFlashAutoFade(holdDuration: holdDuration, fadeDuration: fadeDuration)
+    }
+
+    private func scheduleFlashAutoFade(holdDuration: TimeInterval, fadeDuration: TimeInterval) {
         flashGeneration &+= 1
         let gen = flashGeneration
         let work = DispatchWorkItem { [weak self] in
@@ -524,6 +572,7 @@ final class ZoneOverlayController: ObservableObject {
         for display: ConnectedDisplay,
         initialLayout: DisplayLayoutConfig,
         gaps: GapConfig,
+        style: OverlayStyleConfig = OverlayStyleConfig(),
         onCommitLayout: @escaping (DisplayLayoutConfig) -> Void
     ) {
         onBeforeBlockingOverlayShown?()
@@ -555,6 +604,7 @@ final class ZoneOverlayController: ObservableObject {
             display: display,
             initialLayout: initialLayout,
             gaps: gaps,
+            style: style,
             onSave: { [weak self] updated in
                 onCommitLayout(updated)
                 self?.endOnScreenEditor()
@@ -898,24 +948,27 @@ struct ZoneOverlayPreviewCanvasView: View {
                 let clampedX = min(max(rawLocalX, minLocalX), maxLocalX)
                 let clampedY = min(max(rawLocalY, minLocalY), maxLocalY)
 
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(strokeColor)
-                        .frame(width: 6, height: 6)
-                    Text(bannerText)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
+                flashBannerPill(text: bannerText, strokeColor: strokeColor)
+                    .position(x: clampedX, y: clampedY)
+
+            case .zoneStyleFlash(let zones, let bannerText, let style, let showZoneLabels):
+                let strokeColor = style.tintColor.readableStrokeColor
+                ForEach(zones) { zone in
+                    zoneOutlineView(
+                        zone: zone,
+                        isHighlighted: true,
+                        showBadges: showZoneLabels,
+                        style: style,
+                        isDashed: false
+                    )
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
-                .background(.ultraThickMaterial, in: Capsule())
-                .overlay(
-                    Capsule()
-                        .strokeBorder(Color.white.opacity(0.18), lineWidth: 0.75)
-                )
-                .shadow(color: .black.opacity(0.35), radius: 8, y: 3)
-                .position(x: clampedX, y: clampedY)
+                .animation(.easeOut(duration: 0.14), value: zones)
+                .animation(.easeOut(duration: 0.14), value: style)
+
+                let centerX = usableAXRect.midX - displayFrameAX.minX
+                let pillY = (usableAXRect.minY - displayFrameAX.minY) + 44
+                flashBannerPill(text: bannerText, strokeColor: strokeColor)
+                    .position(x: centerX, y: pillY)
 
             case .liveSettingsPreview(let zones, let displayTitle, let style):
                 ForEach(zones) { zone in
@@ -981,7 +1034,7 @@ struct ZoneOverlayPreviewCanvasView: View {
                     style: StrokeStyle(lineWidth: 2, dash: [6, 4])
                 )
             Text("Actual \(Int(round(width)))×\(Int(round(height)))")
-                .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                .toolboxFont(.system(size: 10.5, weight: .semibold, design: .monospaced))
                 .foregroundStyle(readableOrange)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
@@ -1045,18 +1098,18 @@ struct ZoneOverlayPreviewCanvasView: View {
                         HStack(spacing: 6) {
                             if zone.badgeNumber > 0 {
                                 Text("\(zone.badgeNumber)")
-                                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                                    .toolboxFont(.system(size: 13, weight: .bold, design: .rounded))
                                     .foregroundStyle(.white)
                                     .frame(width: 24, height: 24)
                                     .background(tint.opacity(0.85), in: Circle())
                             }
                             Text(zone.name)
-                                .font(.system(size: 14, weight: .semibold))
+                                .toolboxFont(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(.white)
                         }
 
                         Text("\(Int(round(width))) × \(Int(round(height)))")
-                            .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+                            .toolboxFont(.system(size: 11.5, weight: .medium, design: .monospaced))
                             .foregroundStyle(Color.white.opacity(0.84))
 
                         if !zone.shortcut.isEmpty {
@@ -1066,7 +1119,7 @@ struct ZoneOverlayPreviewCanvasView: View {
 
                     if hasWarning, let minSizeWarning {
                         Label(minSizeWarning.badgeText, systemImage: "exclamationmark.triangle.fill")
-                            .font(.system(size: 11, weight: .semibold))
+                            .toolboxFont(.system(size: 11, weight: .semibold))
                             .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
                     }
                 }
@@ -1115,24 +1168,24 @@ struct ZoneOverlayPreviewCanvasView: View {
                         .frame(width: 32, height: 32)
                 } else {
                     Image(systemName: "macwindow")
-                        .font(.title2.weight(.semibold))
+                        .toolboxFont(.title2.weight(.semibold))
                         .foregroundStyle(.white)
                 }
 
                 Text(item.appName)
-                    .font(.system(size: 14, weight: .bold))
+                    .toolboxFont(.system(size: 14, weight: .bold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
 
                 Text("\(item.zone.name) · \(Int(round(width))) × \(Int(round(height)))")
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .toolboxFont(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(Color.white.opacity(0.78))
 
                 HStack(spacing: 5) {
                     Image(systemName: item.status.symbolName)
-                        .font(.caption2.weight(.bold))
+                        .toolboxFont(.caption2.weight(.bold))
                     Text(item.status.label)
-                        .font(.caption.weight(.semibold))
+                        .toolboxFont(.caption.weight(.semibold))
                 }
                 .foregroundStyle(ToolboxTheme.readableAccentText(for: statusColor))
                 .padding(.horizontal, 9)
@@ -1240,7 +1293,7 @@ struct ZoneOverlayPreviewCanvasView: View {
                         .fill(strokeColor)
                         .frame(width: 6, height: 6)
                     Text(captionText)
-                        .font(.caption.weight(.semibold))
+                        .toolboxFont(.caption.weight(.semibold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                 }
@@ -1257,16 +1310,36 @@ struct ZoneOverlayPreviewCanvasView: View {
         }
     }
 
+    private func flashBannerPill(text: String, strokeColor: Color) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(strokeColor)
+                .frame(width: 6, height: 6)
+            Text(text)
+                .toolboxFont(.caption.weight(.semibold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .background(.ultraThickMaterial, in: Capsule())
+        .overlay(
+            Capsule()
+                .strokeBorder(Color.white.opacity(0.18), lineWidth: 0.75)
+        )
+        .shadow(color: .black.opacity(0.35), radius: 8, y: 3)
+    }
+
     private func bannerPill(icon: String, text: String, tint: Color) -> some View {
         let localCenterX = (usableAXRect.midX - displayFrameAX.minX)
         let localY = (usableAXRect.minY - displayFrameAX.minY) + 14
 
         return HStack(spacing: 8) {
             Image(systemName: icon)
-                .font(.caption.weight(.semibold))
+                .toolboxFont(.caption.weight(.semibold))
                 .foregroundStyle(ToolboxTheme.readableAccentText(for: tint))
             Text(text)
-                .font(.callout.weight(.semibold))
+                .toolboxFont(.callout.weight(.semibold))
                 .foregroundStyle(.white)
         }
         .padding(.horizontal, 14)
@@ -1317,7 +1390,7 @@ struct TopEdgePickerSlotTile: View {
                         )
                         .overlay(
                             Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                .font(.system(size: 13, weight: .bold))
+                                .toolboxFont(.system(size: 13, weight: .bold))
                                 .foregroundStyle(isActive ? .white : Color.white.opacity(0.86))
                         )
                         .frame(width: innerW, height: innerH)

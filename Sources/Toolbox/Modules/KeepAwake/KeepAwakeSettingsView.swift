@@ -75,7 +75,7 @@ struct KeepAwakeSettingsView: View {
                             )
                             Spacer(minLength: 0)
                         }
-                        .font(.caption.weight(.medium))
+                        .toolboxFont(.caption.weight(.medium))
                         .foregroundStyle(ToolboxTheme.readableAccentText(for: module.accentColor))
                         .padding(10)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -88,7 +88,7 @@ struct KeepAwakeSettingsView: View {
                             }
                             Label("Nudges: \(module.jiggleCount)", systemImage: "arrow.left.and.right")
                         }
-                        .font(.caption.monospacedDigit())
+                        .toolboxFont(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                         .padding(10)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -125,7 +125,7 @@ struct KeepAwakeSettingsView: View {
                     ) {
                         HStack(spacing: 8) {
                             Text("\(configManager.config.keepAwake.jiggleLeadSeconds)s before sleep")
-                                .font(.callout.monospacedDigit())
+                                .toolboxFont(.callout.monospacedDigit())
                             Stepper("", value: $configManager.config.keepAwake.jiggleLeadSeconds, in: 5...300, step: 5)
                                 .labelsHidden()
                                 .pointerCursor()
@@ -142,7 +142,7 @@ struct KeepAwakeSettingsView: View {
                     ) {
                         HStack(spacing: 8) {
                             Text(formattedFallbackInterval(configManager.config.keepAwake.fallbackJiggleIntervalSeconds))
-                                .font(.callout.monospacedDigit())
+                                .toolboxFont(.callout.monospacedDigit())
                             Stepper("", value: $configManager.config.keepAwake.fallbackJiggleIntervalSeconds, in: 15...600, step: 15)
                                 .labelsHidden()
                                 .pointerCursor()
@@ -224,7 +224,7 @@ struct KeepAwakeSettingsView: View {
     private func quickStartChips(enabled appEnabled: Bool) -> some View {
         HStack(spacing: 8) {
             Text("Quick Start:")
-                .font(.caption.weight(.medium))
+                .toolboxFont(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
             ForEach([15, 30, 60, 0], id: \.self) { mins in
                 ToolboxPresetChip(
@@ -251,7 +251,7 @@ struct KeepAwakeSettingsView: View {
             TextField("Min", text: $draft.customMinutesText)
                 .textFieldStyle(.roundedBorder)
                 .multilineTextAlignment(.center)
-                .font(.caption.monospacedDigit())
+                .toolboxFont(.caption.monospacedDigit())
                 .frame(width: 50)
                 .help("Enter custom duration (1–1440m)")
                 .onChange(of: draft.customMinutesText, initial: false) { _, val in
@@ -268,7 +268,7 @@ struct KeepAwakeSettingsView: View {
                     }
                 }
             Text("min")
-                .font(.caption)
+                .toolboxFont(.caption)
                 .foregroundStyle(.secondary)
             Button("Start") {
                 startCustomDuration()

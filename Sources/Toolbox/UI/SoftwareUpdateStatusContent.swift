@@ -14,10 +14,10 @@ struct SoftwareUpdateStatusContent: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
                         Text("Toolbox")
-                            .font(.callout.weight(.semibold))
+                            .toolboxFont(.callout.weight(.semibold))
 
                         Text("v\(updateManager.currentVersion)")
-                            .font(.caption.monospaced().weight(.semibold))
+                            .toolboxFont(.caption.monospaced().weight(.semibold))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 2)
@@ -27,7 +27,7 @@ struct SoftwareUpdateStatusContent: View {
                     }
 
                     Text(updateSubtitleText)
-                        .font(.caption)
+                        .toolboxFont(.caption)
                         .foregroundStyle(updateManager.lastCheckFailed && !updateManager.isChecking ? .orange : .secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -61,11 +61,11 @@ struct SoftwareUpdateStatusContent: View {
 
                     HStack {
                         Text("Checking for newer releases…")
-                            .font(.caption2)
+                            .toolboxFont(.caption2)
                             .foregroundStyle(.secondary)
                         Spacer()
                         Text("\(Int((min(1.0, updateManager.checkProgress) * 100).rounded()))%")
-                            .font(.caption2.monospacedDigit())
+                            .toolboxFont(.caption2.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -75,14 +75,14 @@ struct SoftwareUpdateStatusContent: View {
             if let newVer = updateManager.pendingUpdateVersion, !updateManager.isChecking {
                 HStack(spacing: 12) {
                     Image(systemName: "arrow.down.circle.fill")
-                        .font(.title3)
+                        .toolboxFont(.title3)
                         .foregroundStyle(ToolboxTheme.accentBlue)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text("New update available: Toolbox v\(newVer)")
-                            .font(.callout.weight(.semibold))
+                            .toolboxFont(.callout.weight(.semibold))
                         Text(pendingUpdateDetailText(newVersion: newVer))
-                            .font(.caption)
+                            .toolboxFont(.caption)
                             .foregroundStyle(.secondary)
                     }
 
@@ -125,7 +125,7 @@ struct SoftwareUpdateStatusContent: View {
                 .fill(color.opacity(0.14))
                 .frame(width: 34, height: 34)
             Image(systemName: symbol)
-                .font(.body.weight(.semibold))
+                .toolboxFont(.body.weight(.semibold))
                 .foregroundStyle(ToolboxTheme.readableAccentText(for: color))
         }
     }

@@ -57,7 +57,7 @@ struct PortKillerPopoverView: View {
                     uiState.selectedKey = visiblePorts.first?.id
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 12))
+                        .toolboxFont(.system(size: 12))
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -75,7 +75,7 @@ struct PortKillerPopoverView: View {
                         .frame(width: 18, height: 18)
                 } else {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 13, weight: .medium))
+                        .toolboxFont(.system(size: 13, weight: .medium))
                         .foregroundStyle(.secondary)
                         .frame(width: 22, height: 22)
                         .contentShape(Circle())
@@ -93,7 +93,7 @@ struct PortKillerPopoverView: View {
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .symbolRenderingMode(.hierarchical)
-                    .font(.system(size: 16))
+                    .toolboxFont(.system(size: 16))
                     .foregroundStyle(.secondary)
                     .frame(width: 22, height: 22)
                     .contentShape(Circle())
@@ -119,7 +119,7 @@ struct PortKillerPopoverView: View {
                     uiState.selectedKey = visiblePorts.first?.id
                 } label: {
                     Text(mode.rawValue)
-                        .font(.caption.weight(isSelected ? .semibold : .medium))
+                        .toolboxFont(.caption.weight(isSelected ? .semibold : .medium))
                         .foregroundStyle(isSelected ? Color.white : Color.primary)
                         .padding(.horizontal, 9)
                         .padding(.vertical, 4)
@@ -144,9 +144,9 @@ struct PortKillerPopoverView: View {
                 let hiding = configManager.config.portKiller.hideSystemProcesses
                 HStack(spacing: 4) {
                     Image(systemName: hiding ? "eye.slash" : "eye")
-                        .font(.caption2)
+                        .toolboxFont(.caption2)
                     Text("Hide System")
-                        .font(.caption.weight(.medium))
+                        .toolboxFont(.caption.weight(.medium))
                 }
                 .foregroundStyle(hiding ? ToolboxTheme.readableAccentText(for: .indigo) : Color.secondary)
                 .padding(.horizontal, 8)
@@ -183,14 +183,14 @@ struct PortKillerPopoverView: View {
         if items.isEmpty {
             VStack(spacing: 8) {
                 Image(systemName: module.isScanning ? "network" : "checkmark.circle")
-                    .font(.system(size: 28))
+                    .toolboxFont(.system(size: 28))
                     .foregroundStyle(.secondary)
                 Text(module.isScanning ? "Scanning listening TCP ports…" : "No matching listening ports")
-                    .font(.headline)
+                    .toolboxFont(.headline)
                     .foregroundStyle(.secondary)
                 if !uiState.query.isEmpty {
                     Text("Try clearing your search or switching filter chips.")
-                        .font(.caption)
+                        .toolboxFont(.caption)
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -236,11 +236,11 @@ struct PortKillerPopoverView: View {
     private func footerBar(count: Int) -> some View {
         HStack(spacing: 10) {
             Text("\(count) listening")
-                .font(.caption2.monospacedDigit())
+                .toolboxFont(.caption2.monospacedDigit())
                 .foregroundStyle(.secondary)
             Spacer()
             Text("↑↓ Select · ↩ Stop · ⌥↩ Force Kill · Esc Close")
-                .font(.caption2)
+                .toolboxFont(.caption2)
                 .foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 12)
@@ -369,7 +369,7 @@ private struct PortPopoverRowView: View, Equatable {
         HStack(spacing: 10) {
             Button(action: onToggleFavorite) {
                 Image(systemName: isFavorite ? "star.fill" : "star")
-                    .font(.caption)
+                    .toolboxFont(.caption)
                     .foregroundStyle(isFavorite ? Color.orange : Color.secondary.opacity(0.6))
                     .frame(width: 18, height: 18)
             }
@@ -385,11 +385,11 @@ private struct PortPopoverRowView: View, Equatable {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(entry.processName)
-                        .font(.system(size: 13, weight: .semibold))
+                        .toolboxFont(.system(size: 13, weight: .semibold))
                         .lineLimit(1)
 
                     Text(":\(String(entry.port))")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .toolboxFont(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundStyle(ToolboxTheme.readableAccentText(for: .indigo))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1.5)
@@ -398,9 +398,9 @@ private struct PortPopoverRowView: View, Equatable {
                     if entry.requiresElevation {
                         HStack(spacing: 3) {
                             Image(systemName: "lock.fill")
-                                .font(.system(size: 9))
+                                .toolboxFont(.system(size: 10))
                             Text(entry.ownerLabel ?? "admin")
-                                .font(.system(size: 10, weight: .semibold))
+                                .toolboxFont(.system(size: 10.5, weight: .semibold))
                         }
                         .foregroundStyle(.orange)
                         .padding(.horizontal, 5)
@@ -416,14 +416,14 @@ private struct PortPopoverRowView: View, Equatable {
 
                 HStack(spacing: 6) {
                     Text("PID \(String(entry.pid))")
-                        .font(.caption2.monospaced())
+                        .toolboxFont(.caption2.monospaced())
                         .foregroundStyle(.secondary)
 
                     Text("·")
                         .foregroundStyle(.tertiary)
 
                     Text(entry.bindDisplay)
-                        .font(.caption2)
+                        .toolboxFont(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
 
@@ -431,7 +431,7 @@ private struct PortPopoverRowView: View, Equatable {
                         Text("·")
                             .foregroundStyle(.tertiary)
                         Label(folder, systemImage: "folder")
-                            .font(.caption2)
+                            .toolboxFont(.caption2)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -440,7 +440,7 @@ private struct PortPopoverRowView: View, Equatable {
                         Text("·")
                             .foregroundStyle(.tertiary)
                         Text("+\(extraPorts.count) port\(extraPorts.count == 1 ? "" : "s")")
-                            .font(.caption2)
+                            .toolboxFont(.caption2)
                             .foregroundStyle(.orange)
                     }
                 }
@@ -457,7 +457,7 @@ private struct PortPopoverRowView: View, Equatable {
                     onKill(.sigkill)
                 } label: {
                     Text("Force Kill")
-                        .font(.caption.weight(.semibold))
+                        .toolboxFont(.caption.weight(.semibold))
                         .foregroundStyle(ToolboxTheme.readableAccentText(for: .red))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
@@ -490,7 +490,7 @@ private struct PortPopoverRowView: View, Equatable {
                         onKill(.sigkill)
                     } label: {
                         Image(systemName: "bolt.slash.fill")
-                            .font(.caption2)
+                            .toolboxFont(.caption2)
                     }
                     .buttonStyle(.bordered)
                     .tint(.red)

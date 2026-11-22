@@ -271,7 +271,6 @@ final class WindowDragMonitor {
         var preSnapOriginalFrameAX: CGRect? = nil
         var downClickCount: Int = 1
         var preDoubleClickFrameAX: CGRect? = nil
-        var spanAnchorCoord: GridCellCoord? = nil
         var activeTargetZone: ResolvedZone? = nil
         var activeTargetDisplay: ConnectedDisplay? = nil
         var topPanelVisible: Bool = false
@@ -1077,7 +1076,7 @@ final class WindowDragMonitor {
 
         let layout = DisplayRegistry.layout(for: display.signature, in: config.displayLayouts)
 
-        // 1. Modifier-hold full-grid overlay (default Shift) + multi-zone spanning
+        // 1. Modifier-hold full-grid overlay (default Shift) + automatic seam spanning
         if config.drag.gridModifier.matches(cgFlags: flags) {
             let zones = SnapGeometry.resolveZones(
                 layout: layout,
@@ -1085,28 +1084,12 @@ final class WindowDragMonitor {
                 primaryScreenHeight: display.primaryScreenHeight,
                 gaps: config.gaps
             )
-            let spanHeld = config.drag.spanModifier.matches(cgFlags: flags)
-            if spanHeld && current.spanAnchorCoord == nil {
-                let initialHit = SnapGeometry.hitTestGridOrSpan(
-                    pointerAX: pointerAX,
-                    usableAXRect: display.usableAX,
-                    primaryScreenHeight: display.primaryScreenHeight,
-                    layout: layout,
-                    gaps: config.gaps,
-                    spanAnchorCoord: nil
-                )
-                current.spanAnchorCoord = initialHit?.zone.gridCoord
-            } else if !spanHeld {
-                current.spanAnchorCoord = nil
-            }
-
             let hit = SnapGeometry.hitTestGridOrSpan(
                 pointerAX: pointerAX,
                 usableAXRect: display.usableAX,
                 primaryScreenHeight: display.primaryScreenHeight,
                 layout: layout,
-                gaps: config.gaps,
-                spanAnchorCoord: current.spanAnchorCoord
+                gaps: config.gaps
             )
             current.activeTargetZone = hit?.zone
             current.activeTargetDisplay = display
@@ -1133,8 +1116,6 @@ final class WindowDragMonitor {
             )
             return
         }
-
-        current.spanAnchorCoord = nil
 
         if current.topPanelDisplayID != display.displayID {
             current.topPanelVisible = false

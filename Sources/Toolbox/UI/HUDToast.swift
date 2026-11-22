@@ -22,27 +22,8 @@ final class HUDToast {
     private init() {}
 
     static func makeToastView(title: String, symbol: String, tint: Color, fixedWidth: CGFloat? = nil) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: symbol)
-                .font(.system(size: 16, weight: .semibold))
-                .frame(width: 22, height: 22)
-                .foregroundStyle(tint)
-            Text(title)
-                .font(.title3.weight(.medium))
-                .lineLimit(1)
-                .truncationMode(.tail)
-        }
-        .padding(.horizontal, 18)
-        .frame(minWidth: fixedWidth ?? minWidth, maxWidth: fixedWidth)
-        .frame(height: fixedHeight)
-        .fixedSize(horizontal: fixedWidth == nil, vertical: true)
-        .background(.ultraThickMaterial, in: Capsule())
-        .overlay(
-            Capsule()
-                .strokeBorder(Color.primary.opacity(0.14), lineWidth: 1)
-        )
-        .clipShape(Capsule())
-        .toolboxDarkAppearance()
+        HUDToastPillView(title: title, symbol: symbol, tint: tint, fixedWidth: fixedWidth)
+            .toolboxDarkAppearance()
     }
 
     private static func makeHostedToast(
@@ -147,5 +128,44 @@ final class HUDToast {
         }
         dismissTask = work
         DispatchQueue.main.asyncAfter(deadline: .now() + max(0.05, duration), execute: work)
+    }
+}
+
+private struct HUDToastPillView: View {
+    let title: String
+    let symbol: String
+    let tint: Color
+    let fixedWidth: CGFloat?
+
+    @Environment(\.toolboxTextSize) private var textSize
+
+    var body: some View {
+        let pillHeight = textSize == .standard
+            ? HUDToast.fixedHeight
+            : max(HUDToast.fixedHeight, ceil(HUDToast.fixedHeight * textSize.scaleFactor))
+        let iconBoxSize = textSize == .standard
+            ? CGFloat(22)
+            : max(CGFloat(22), ceil(22 * textSize.scaleFactor))
+
+        HStack(spacing: 10) {
+            Image(systemName: symbol)
+                .toolboxFont(.system(size: 16, weight: .semibold))
+                .frame(width: iconBoxSize, height: iconBoxSize)
+                .foregroundStyle(tint)
+            Text(title)
+                .toolboxFont(.title3.weight(.medium))
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .padding(.horizontal, 18)
+        .frame(minWidth: fixedWidth ?? HUDToast.minWidth, maxWidth: fixedWidth)
+        .frame(height: pillHeight)
+        .fixedSize(horizontal: fixedWidth == nil, vertical: true)
+        .background(.ultraThickMaterial, in: Capsule())
+        .overlay(
+            Capsule()
+                .strokeBorder(Color.primary.opacity(0.14), lineWidth: 1)
+        )
+        .clipShape(Capsule())
     }
 }

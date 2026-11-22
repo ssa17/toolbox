@@ -168,7 +168,7 @@ struct SupportView: View {
                                         )
                                 )
                             Image(systemName: supportState.isSupporterUnlocked ? "heart.circle.fill" : "heart.fill")
-                                .font(.title2)
+                                .toolboxFont(.title2)
                                 .foregroundStyle(pinkText)
                                 .scaleEffect(uiState.highFivePulse ? 1.22 : 1.0)
                         }
@@ -181,7 +181,7 @@ struct SupportView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 8) {
                             Text("Support Toolbox")
-                                .font(.title3.weight(.semibold))
+                                .toolboxFont(.title3.weight(.semibold))
 
                             if supportState.isSupporterUnlocked {
                                 StatusBadge(text: "Supporter ♥", color: .pink)
@@ -189,7 +189,7 @@ struct SupportView: View {
                         }
 
                         Text("Built & maintained by one indie developer: free, local-first, with zero ads or tracking. If Toolbox saves you time every day, consider supporting its ongoing development.")
-                            .font(.callout)
+                            .toolboxFont(.callout)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -209,7 +209,7 @@ struct SupportView: View {
                                     : "Send a High-Five",
                                 systemImage: "hands.clap.fill"
                             )
-                            .font(.callout.weight(.semibold))
+                            .toolboxFont(.callout.weight(.semibold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 7)
@@ -247,7 +247,7 @@ struct SupportView: View {
                                 supportState.isSupporterUnlocked ? "Supporter Badge Active" : "I Supported Toolbox!",
                                 systemImage: supportState.isSupporterUnlocked ? "checkmark.seal.fill" : "sparkles"
                             )
-                            .font(.callout.weight(.medium))
+                            .toolboxFont(.callout.weight(.medium))
                             .foregroundStyle(supportState.isSupporterUnlocked ? pinkText : .primary)
                             .padding(.horizontal, 13)
                             .padding(.vertical, 7)
@@ -277,11 +277,11 @@ struct SupportView: View {
 
                     if let status = supportState.highFiveStatusMessage {
                         Text(status)
-                            .font(.caption)
+                            .toolboxFont(.caption)
                             .foregroundStyle(.secondary)
                     } else if supportState.isSupporterUnlocked {
                         Text("Thank you for keeping Toolbox free & open-source!")
-                            .font(.caption)
+                            .toolboxFont(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -460,7 +460,7 @@ private struct SupportActionCard: View {
                             .fill(accentColor.opacity(hoverState.isHovered ? 0.22 : 0.15))
                             .frame(width: isCompact ? 34 : 40, height: isCompact ? 34 : 40)
                         Image(systemName: symbolName)
-                            .font(isCompact ? .body.weight(.semibold) : .title3.weight(.semibold))
+                            .toolboxFont(isCompact ? .body.weight(.semibold) : .title3.weight(.semibold))
                             .foregroundStyle(readableAccent)
                     }
 
@@ -468,7 +468,7 @@ private struct SupportActionCard: View {
 
                     if let badge {
                         Text(badge)
-                            .font(.caption2.weight(.semibold))
+                            .toolboxFont(.caption2.weight(.semibold))
                             .foregroundStyle(readableAccent)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
@@ -478,12 +478,12 @@ private struct SupportActionCard: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
-                        .font(isCompact ? .headline : .title3.weight(.semibold))
+                        .toolboxFont(isCompact ? .headline : .title3.weight(.semibold))
                         .foregroundStyle(.primary)
                         .multilineTextAlignment(.leading)
 
                     Text(subtitle)
-                        .font(.system(size: isCompact ? 12 : 12.5))
+                        .toolboxFont(.system(size: isCompact ? 12 : 12.5))
                         .foregroundStyle(Color.primary.opacity(0.76))
                         .lineSpacing(1.5)
                         .multilineTextAlignment(.leading)
@@ -494,9 +494,9 @@ private struct SupportActionCard: View {
 
                 HStack(spacing: 6) {
                     Text(actionTitle)
-                        .font((isCompact ? Font.caption : Font.callout).weight(.semibold))
+                        .toolboxFont((isCompact ? ToolboxFont.caption : ToolboxFont.callout).weight(.semibold))
                     Image(systemName: actionSymbol)
-                        .font((isCompact ? Font.caption2 : Font.caption).weight(.semibold))
+                        .toolboxFont((isCompact ? ToolboxFont.caption2 : ToolboxFont.caption).weight(.semibold))
                 }
                 .foregroundStyle(isCompact ? readableAccent : .white)
                 .padding(.horizontal, isCompact ? 10 : 14)

@@ -75,7 +75,7 @@ struct PortKillerTooltipBubbleView: View {
 
     var body: some View {
         Text(text)
-            .font(.caption2.weight(.medium))
+            .toolboxFont(.caption2.weight(.medium))
             .foregroundStyle(.primary)
             .lineLimit(2)
             .multilineTextAlignment(.center)

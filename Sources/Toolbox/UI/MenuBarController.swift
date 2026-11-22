@@ -1044,9 +1044,9 @@ struct MenuBarPopoverView: View {
                 HStack(spacing: 8) {
                     ToolboxBentoMark(size: 16, primaryColor: .primary, accentColor: .accentColor)
                     Text("Toolbox")
-                        .font(.headline)
+                        .toolboxFont(.headline)
                     Text(versionText)
-                        .font(.caption2.monospaced())
+                        .toolboxFont(.caption2.monospaced())
                         .foregroundStyle(.secondary)
                 }
 
@@ -1059,14 +1059,15 @@ struct MenuBarPopoverView: View {
                     } label: {
                         HStack(spacing: 5) {
                             Image(systemName: "square.grid.2x2")
-                                .font(.system(size: 11, weight: .semibold))
+                                .toolboxFont(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(Color.blue)
                             Text("Dashboard")
-                                .font(.caption.weight(.semibold))
+                                .toolboxFont(.caption.weight(.semibold))
                                 .foregroundStyle(.primary)
                         }
                         .padding(.horizontal, 10)
-                        .frame(height: 26)
+                        .padding(.vertical, 4)
+                        .frame(minHeight: 26)
                         .background(
                             Color.blue.opacity(headerHover.isDashboardHovered ? 0.22 : 0.14),
                             in: RoundedRectangle(cornerRadius: 7)
@@ -1090,7 +1091,7 @@ struct MenuBarPopoverView: View {
                         onOpenDashboard(.settings)
                     } label: {
                         Image(systemName: "gearshape")
-                            .font(.system(size: 12.5, weight: .medium))
+                            .toolboxFont(.system(size: 12.5, weight: .medium))
                             .foregroundStyle(headerHover.isSettingsHovered ? .primary : .secondary)
                             .frame(width: 26, height: 26)
                             .background(
@@ -1125,15 +1126,15 @@ struct MenuBarPopoverView: View {
             // Top-level master power toggle to pause/resume all Toolbox modules at once
             HStack(spacing: 10) {
                 Image(systemName: configManager.config.general.appEnabled ? "power.circle.fill" : "pause.circle")
-                    .font(.body)
+                    .toolboxFont(.body)
                     .foregroundStyle(configManager.config.general.appEnabled ? Color.green : Color.secondary)
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(configManager.config.general.appEnabled ? "Toolbox Active" : "Toolbox Paused")
-                        .font(.callout.weight(.semibold))
+                        .toolboxFont(.callout.weight(.semibold))
                         .lineLimit(1)
                     Text(configManager.config.general.appEnabled ? "Enabled features are running" : "All modules temporarily suspended")
-                        .font(.caption2)
+                        .toolboxFont(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -1168,14 +1169,14 @@ struct MenuBarPopoverView: View {
                             .foregroundStyle(.orange)
                         VStack(alignment: .leading, spacing: 1) {
                             Text("Enable Accessibility")
-                                .font(.caption.weight(.semibold))
+                                .toolboxFont(.caption.weight(.semibold))
                             Text("Needed for Dock Minimize, Auto-Paste & Scroll")
-                                .font(.caption2)
+                                .toolboxFont(.caption2)
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
                         Image(systemName: "chevron.right")
-                            .font(.caption2)
+                            .toolboxFont(.caption2)
                             .foregroundStyle(.secondary)
                     }
                     .padding(9)
@@ -1208,29 +1209,31 @@ struct MenuBarPopoverView: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 CollapsibleBlock(progress: p.quickActions, isInteractive: isAppEnabled) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 6) {
                         Button {
                             onClosePopover(false)
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
                                 clipboard.showPopover()
                             }
                         } label: {
-                            HStack(spacing: 6) {
+                            HStack(spacing: 4.5) {
                                 Image(systemName: "doc.on.clipboard")
-                                    .font(.caption.weight(.semibold))
+                                    .toolboxFont(.caption.weight(.semibold))
                                     .foregroundStyle(.cyan)
                                 Text("Clipboard")
-                                    .font(.caption.weight(.medium))
+                                    .toolboxFont(.caption.weight(.medium))
                                     .foregroundStyle(.primary)
                                     .lineLimit(1)
+                                    .minimumScaleFactor(0.80)
                                 Text("\(clipboard.entries.count)")
-                                    .font(.caption2.monospacedDigit().weight(.semibold))
+                                    .toolboxFont(.caption2.monospacedDigit().weight(.semibold))
                                     .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 5)
+                                    .padding(.horizontal, 4.5)
                                     .padding(.vertical, 1)
                                     .background(Color.primary.opacity(0.08), in: Capsule())
                             }
                             .frame(maxWidth: .infinity)
+                            .padding(.horizontal, 4)
                             .padding(.vertical, 7)
                             .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
                             .overlay(
@@ -1252,12 +1255,13 @@ struct MenuBarPopoverView: View {
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: "network")
-                                    .font(.caption.weight(.semibold))
+                                    .toolboxFont(.caption.weight(.semibold))
                                     .foregroundStyle(.indigo)
                                 Text("Ports")
-                                    .font(.caption.weight(.medium))
+                                    .toolboxFont(.caption.weight(.medium))
                                     .foregroundStyle(.primary)
                                     .lineLimit(1)
+                                    .minimumScaleFactor(0.85)
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 7)
@@ -1278,16 +1282,16 @@ struct MenuBarPopoverView: View {
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: keepAwake.isAwakeActive ? "bolt.fill" : "bolt")
-                                    .font(.caption.weight(.semibold))
+                                    .toolboxFont(.caption.weight(.semibold))
                                     .foregroundStyle(keepAwake.isAwakeActive ? .orange : .secondary)
                                 Text("Keep Awake")
-                                    .font(.caption.weight(.medium))
+                                    .toolboxFont(.caption.weight(.medium))
                                     .foregroundStyle(.primary)
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.85)
                                 if keepAwake.isAwakeActive {
                                     Text("ON")
-                                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                                        .toolboxFont(.system(size: 10.5, weight: .bold, design: .rounded))
                                         .foregroundStyle(.orange)
                                         .padding(.horizontal, 5)
                                         .padding(.vertical, 1.5)
@@ -1324,10 +1328,10 @@ struct MenuBarPopoverView: View {
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: callControls.isInputMuted ? "mic.slash.fill" : "mic.fill")
-                                    .font(.caption.weight(.semibold))
+                                    .toolboxFont(.caption.weight(.semibold))
                                     .foregroundStyle(callControls.isInputMuted ? .red : .green)
                                 Text(callControls.isInputMuted ? "Mic Muted" : "Mic Live")
-                                    .font(.caption.weight(.medium))
+                                    .toolboxFont(.caption.weight(.medium))
                                     .foregroundStyle(.primary)
                                     .lineLimit(1)
                             }
@@ -1357,10 +1361,10 @@ struct MenuBarPopoverView: View {
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: callControls.defaultOutputDevice?.transport.symbolName(isInput: false) ?? "speaker.wave.2")
-                                    .font(.caption.weight(.semibold))
+                                    .toolboxFont(.caption.weight(.semibold))
                                     .foregroundStyle(.blue)
                                 Text(callControls.defaultOutputDevice?.name ?? "Cycle Output")
-                                    .font(.caption.weight(.medium))
+                                    .toolboxFont(.caption.weight(.medium))
                                     .foregroundStyle(.primary)
                                     .lineLimit(1)
                                     .truncationMode(.tail)
@@ -1391,7 +1395,7 @@ struct MenuBarPopoverView: View {
                 CollapsibleBlock(progress: p.quickCommands, isInteractive: isAppEnabled) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Quick Commands")
-                            .font(.caption2.weight(.semibold))
+                            .toolboxFont(.caption2.weight(.semibold))
                             .foregroundStyle(.secondary)
                         ForEach(activeCommands.prefix(4)) { cmd in
                             Button {
@@ -1402,7 +1406,7 @@ struct MenuBarPopoverView: View {
                                     Image(systemName: "play.circle")
                                         .foregroundStyle(.purple)
                                     Text(cmd.name)
-                                        .font(.caption)
+                                        .toolboxFont(.caption)
                                         .lineLimit(1)
                                         .truncationMode(.tail)
                                     Spacer()
@@ -1429,7 +1433,7 @@ struct MenuBarPopoverView: View {
                 CollapsibleBlock(progress: p.windowProfiles, isInteractive: isAppEnabled) {
                     VStack(alignment: .leading, spacing: 5) {
                         Text("Workspace Profiles")
-                            .font(.caption2.weight(.semibold))
+                            .toolboxFont(.caption2.weight(.semibold))
                             .foregroundStyle(.secondary)
 
                         ForEach(activeProfiles.prefix(4)) { profile in
@@ -1443,10 +1447,10 @@ struct MenuBarPopoverView: View {
                                 } label: {
                                     HStack(spacing: 6) {
                                         Image(systemName: profile.symbolName)
-                                            .font(.caption)
+                                            .toolboxFont(.caption)
                                             .foregroundStyle(ToolboxTheme.readableAccentText(for: .indigo))
                                         Text(profile.name)
-                                            .font(.caption.weight(isActiveProfile ? .semibold : .regular))
+                                            .toolboxFont(.caption.weight(isActiveProfile ? .semibold : .regular))
                                             .lineLimit(1)
                                         if isActiveProfile {
                                             Circle()
@@ -1471,7 +1475,7 @@ struct MenuBarPopoverView: View {
                                     windowSnapper.previewProfile(profile)
                                 } label: {
                                     Image(systemName: "eye")
-                                        .font(.caption.weight(.medium))
+                                        .toolboxFont(.caption.weight(.medium))
                                         .foregroundStyle(isDryRun ? ToolboxTheme.readableAccentText(for: .indigo) : .secondary)
                                         .frame(width: 26, height: 24)
                                         .background(Color.primary.opacity(isDryRun ? 0.16 : 0.05), in: RoundedRectangle(cornerRadius: 6))
@@ -1498,14 +1502,14 @@ struct MenuBarPopoverView: View {
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "slider.horizontal.3")
-                            .font(.caption.weight(.semibold))
+                            .toolboxFont(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                         Text("All menu sections hidden · Customize in Settings")
-                            .font(.caption.weight(.medium))
+                            .toolboxFont(.caption.weight(.medium))
                             .foregroundStyle(.secondary)
                         Spacer()
                         Image(systemName: "chevron.right")
-                            .font(.caption2)
+                            .toolboxFont(.caption2)
                             .foregroundStyle(.tertiary)
                     }
                     .padding(.horizontal, 10)
@@ -1535,7 +1539,7 @@ struct MenuBarPopoverView: View {
                         updateManager.openPendingUpdateOrCheck()
                     } label: {
                         Label("Update to v\(pendingVer)\(sizeNote)…", systemImage: "arrow.down.circle.fill")
-                            .font(.caption.weight(.semibold))
+                            .toolboxFont(.caption.weight(.semibold))
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 6)
@@ -1553,7 +1557,7 @@ struct MenuBarPopoverView: View {
                     AppDelegate.terminateNow()
                 } label: {
                     Label("Quit", systemImage: "power")
-                        .font(.caption.weight(.medium))
+                        .toolboxFont(.caption.weight(.medium))
                         .foregroundStyle(isQuitHovered ? Color.red : .secondary)
                         .frame(maxWidth: hasPending ? nil : .infinity)
                         .padding(.horizontal, hasPending ? 14 : 0)
@@ -1607,7 +1611,7 @@ struct MenuBarPopoverView: View {
 
                     VStack(alignment: .leading, spacing: 1) {
                         Text(module.name)
-                            .font(.callout.weight(.medium))
+                            .toolboxFont(.callout.weight(.medium))
                             .foregroundStyle(isEnabled ? .primary : .secondary)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -1620,7 +1624,7 @@ struct MenuBarPopoverView: View {
                                 )
                                 .frame(width: 5, height: 5)
                             Text(status)
-                                .font(.caption2)
+                                .toolboxFont(.caption2)
                                 .foregroundStyle(
                                     needsAccessibility ? Color.orange :
                                     (isEnabled && isAppEnabled) ? Color.secondary : Color.secondary.opacity(0.75)
@@ -1646,10 +1650,10 @@ struct MenuBarPopoverView: View {
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: pillOn ? "capsule.inset.filled" : "capsule")
-                                .font(.system(size: 10, weight: .semibold))
+                                .toolboxFont(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(pillOn ? .green : .secondary)
                             Text("Pill")
-                                .font(.caption2.weight(.semibold))
+                                .toolboxFont(.caption2.weight(.semibold))
                                 .foregroundStyle(pillOn ? .primary : .secondary)
                                 .lineLimit(1)
                         }

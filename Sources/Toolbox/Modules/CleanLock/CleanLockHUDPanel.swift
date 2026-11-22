@@ -117,7 +117,7 @@ struct CleanLockHUDCardView: View {
                         .foregroundStyle(.primary)
                         .contentTransition(.numericText())
                     Text("sec")
-                        .font(.caption.weight(.semibold))
+                        .toolboxFont(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .textCase(.uppercase)
                 }
@@ -126,19 +126,19 @@ struct CleanLockHUDCardView: View {
 
             VStack(spacing: 4) {
                 Text("Keyboard Lock Active")
-                    .font(.headline.weight(.semibold))
+                    .toolboxFont(.headline.weight(.semibold))
                     .foregroundStyle(.primary)
                 Text(state.lockMouseAndTrackpad ? "Keyboard & Trackpad Locked" : "Keyboard Locked")
-                    .font(.subheadline)
+                    .toolboxFont(.subheadline)
                     .foregroundStyle(.secondary)
             }
 
             HStack(spacing: 6) {
                 Image(systemName: "hand.raised.slash.fill")
-                    .font(.caption.weight(.semibold))
+                    .toolboxFont(.caption.weight(.semibold))
                     .foregroundStyle(.red)
                 Text("\(state.blockedCount) \(state.blockedCount == 1 ? "input" : "inputs") blocked")
-                    .font(.caption.monospacedDigit().weight(.medium))
+                    .toolboxFont(.caption.monospacedDigit().weight(.medium))
                     .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 10)
@@ -147,7 +147,7 @@ struct CleanLockHUDCardView: View {
 
             VStack(spacing: 6) {
                 Text("Hold ⌃ ⌥ ⌘ Esc (3s) to unlock early")
-                    .font(.caption.weight(.semibold))
+                    .toolboxFont(.caption.weight(.semibold))
                     .foregroundStyle(state.killSwitchProgress > 0 ? ToolboxTheme.readableAccentText(for: .red) : Color.primary.opacity(0.78))
 
                 GeometryReader { geo in

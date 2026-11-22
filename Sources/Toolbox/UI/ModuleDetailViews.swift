@@ -60,7 +60,7 @@ struct ModuleDetailContainerView: View {
                                         .strokeBorder(module.accentColor.opacity(0.28), lineWidth: 1)
                                 )
                             Image(systemName: module.symbolName)
-                                .font(.title3.weight(.semibold))
+                                .toolboxFont(.title3.weight(.semibold))
                                 .foregroundStyle(module.accentColor)
                         }
 
@@ -68,7 +68,7 @@ struct ModuleDetailContainerView: View {
                             ViewThatFits(in: .horizontal) {
                                 HStack(spacing: 8) {
                                     Text(module.name)
-                                        .font(.title3.bold())
+                                        .toolboxFont(.title3.bold())
                                     StatusBadge(
                                         text: module.statusText(
                                             in: configManager.config,
@@ -79,7 +79,7 @@ struct ModuleDetailContainerView: View {
                                 }
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(module.name)
-                                        .font(.title3.bold())
+                                        .toolboxFont(.title3.bold())
                                     StatusBadge(
                                         text: module.statusText(
                                             in: configManager.config,
@@ -90,7 +90,7 @@ struct ModuleDetailContainerView: View {
                                 }
                             }
                             Text(module.tagline)
-                                .font(.callout)
+                                .toolboxFont(.callout)
                                 .foregroundStyle(Color.primary.opacity(0.74))
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -125,17 +125,17 @@ struct ModuleDetailContainerView: View {
                     } label: {
                         HStack(spacing: 8) {
                             Image(systemName: "info.circle")
-                                .font(.subheadline.weight(.semibold))
+                                .toolboxFont(.subheadline.weight(.semibold))
                                 .foregroundStyle(ToolboxTheme.readableAccentText(for: module.accentColor))
                             Text("About This Feature")
-                                .font(.subheadline.weight(.semibold))
+                                .toolboxFont(.subheadline.weight(.semibold))
                                 .foregroundStyle(.primary)
                             Spacer()
                             Text(isAboutExpanded ? "Hide" : "Show details")
-                                .font(.caption)
+                                .toolboxFont(.caption)
                                 .foregroundStyle(.secondary)
                             Image(systemName: "chevron.right")
-                                .font(.caption.weight(.semibold))
+                                .toolboxFont(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
                                 .rotationEffect(.degrees(isAboutExpanded ? 90 : 0))
                         }
@@ -155,7 +155,7 @@ struct ModuleDetailContainerView: View {
                                 .opacity(0.55)
 
                             Text(module.aboutSummary)
-                                .font(.callout)
+                                .toolboxFont(.callout)
                                 .foregroundStyle(Color.primary.opacity(0.76))
 
                             if !module.featureTips.isEmpty {
@@ -167,7 +167,7 @@ struct ModuleDetailContainerView: View {
                                                 .frame(width: 5, height: 5)
                                                 .padding(.top, 5)
                                             Text(tip)
-                                                .font(.caption)
+                                                .toolboxFont(.caption)
                                                 .foregroundStyle(.secondary)
                                         }
                                     }
@@ -215,14 +215,14 @@ struct ModuleDetailContainerView: View {
                                     .fill(Color.orange.opacity(0.16))
                                     .frame(width: 38, height: 38)
                                 Image(systemName: "pause.circle.fill")
-                                    .font(.title3.weight(.semibold))
+                                    .toolboxFont(.title3.weight(.semibold))
                                     .foregroundStyle(.orange)
                             }
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Toolbox is Paused")
-                                    .font(.headline)
+                                    .toolboxFont(.headline)
                                 Text("All background features are temporarily suspended. Resume Toolbox to reactivate this module.")
-                                    .font(.callout)
+                                    .toolboxFont(.callout)
                                     .foregroundStyle(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
@@ -247,19 +247,19 @@ struct ModuleDetailContainerView: View {
                                         .fill(Color.orange.opacity(0.16))
                                         .frame(width: 40, height: 40)
                                     Image(systemName: "lock.shield")
-                                        .font(.title3.weight(.semibold))
+                                        .toolboxFont(.title3.weight(.semibold))
                                         .foregroundStyle(.orange)
                                 }
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack(spacing: 8) {
                                         Text("Accessibility Required for This Module")
-                                            .font(.headline)
+                                            .toolboxFont(.headline)
                                         if permissions.isAwaitingAccessibilityGrant {
                                             StatusBadge(text: "Waiting…", color: .orange)
                                         }
                                     }
                                     Text(module.accessibilityReason)
-                                        .font(.callout)
+                                        .toolboxFont(.callout)
                                         .foregroundStyle(.secondary)
                                         .fixedSize(horizontal: false, vertical: true)
                                 }

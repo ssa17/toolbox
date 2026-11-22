@@ -143,10 +143,10 @@ struct ClipboardSettingsView: View {
                     if configManager.config.clipboard.pasteAutomatically && !permissions.isAccessibilityGranted {
                         HStack(spacing: 6) {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.caption)
+                                .toolboxFont(.caption)
                                 .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
                             Text("Auto-paste requires Accessibility permission to send ⌘ V. Without it, items will be copied only.")
-                                .font(.caption)
+                                .toolboxFont(.caption)
                                 .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -226,7 +226,7 @@ struct ClipboardSettingsView: View {
                         }
                     }
                     Text("Type any number (1–5000) or pick a preset. Older unpinned items are removed, while pinned items stay saved.")
-                        .font(.system(size: 11.5))
+                        .toolboxFont(.system(size: 11.5))
                         .foregroundStyle(Color.primary.opacity(0.68))
                 }
 
@@ -378,11 +378,11 @@ struct ClipboardSettingsView: View {
     private var limitInputControls: some View {
         HStack(spacing: 8) {
             Text("Keep up to")
-                .font(.callout.weight(.semibold))
+                .toolboxFont(.callout.weight(.semibold))
             TextField("25", text: $limitDraft.text)
                 .textFieldStyle(.roundedBorder)
                 .multilineTextAlignment(.center)
-                .font(.body.monospacedDigit())
+                .toolboxFont(.body.monospacedDigit())
                 .frame(width: 62)
                 .focused($isLimitFocused)
                 .onAppear {
@@ -412,7 +412,7 @@ struct ClipboardSettingsView: View {
                 .labelsHidden()
                 .pointerCursor()
             Text("recent items")
-                .font(.callout)
+                .toolboxFont(.callout)
                 .foregroundStyle(.secondary)
         }
         .fixedSize(horizontal: true, vertical: false)
@@ -460,7 +460,7 @@ struct ClipboardSettingsView: View {
 
     private var dropdownDimensionPill: some View {
         Text("\(configManager.config.clipboard.popoverWidth) × \(configManager.config.clipboard.popoverHeight) px")
-            .font(.caption.monospacedDigit().weight(.semibold))
+            .toolboxFont(.caption.monospacedDigit().weight(.semibold))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
@@ -528,7 +528,7 @@ struct ClipboardSettingsView: View {
     private func shortcutTile(_ title: String, keys: [String]) -> some View {
         HStack(spacing: 8) {
             Text(title)
-                .font(.caption.weight(.medium))
+                .toolboxFont(.caption.weight(.medium))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
             Spacer(minLength: 4)
@@ -536,7 +536,7 @@ struct ClipboardSettingsView: View {
                 ForEach(Array(keys.enumerated()), id: \.offset) { idx, key in
                     if idx > 0 {
                         Text("/")
-                            .font(.caption2)
+                            .toolboxFont(.caption2)
                             .foregroundStyle(.tertiary)
                     }
                     ShortcutPill(text: key)
@@ -567,7 +567,7 @@ struct ClipboardSettingsView: View {
                 TextField("", text: text)
                     .textFieldStyle(.roundedBorder)
                     .multilineTextAlignment(.center)
-                    .font(.body.monospacedDigit())
+                    .toolboxFont(.body.monospacedDigit())
                     .frame(width: 68)
                     .focused(isFocused)
                     .onChange(of: text.wrappedValue, initial: false) { _, newValue in

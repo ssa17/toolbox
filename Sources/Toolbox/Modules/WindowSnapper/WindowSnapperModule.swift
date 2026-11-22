@@ -306,9 +306,10 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
     let id = "window_snapper"
     let name = "Window Snapper"
     let tagline = "Snap windows to custom display zones and switch workspace profiles in one click."
-    let aboutSummary = "Organize your desktop across one or multiple displays with pointer-targeted drag snapping, custom grid divisions with multi-zone spanning, hold-to-preview keyboard shortcuts, automatic pre-snap size restoration, and predefined workspace profiles that launch and position your apps automatically."
+    let aboutSummary = "Organize windows across one or multiple displays with magnetic edge & corner snapping, a Top Edge Panel with frosted glass panes for filling remaining slots, customizable per-display grids with adjustable dividers, hold-to-preview keyboard shortcuts, automatic pre-snap size restoration, and one-click Workspace Profiles."
     let featureTips = [
-        "Hold Shift while dragging a window to reveal every zone in your display grid, and move near a divider seam (or hold Ctrl+Opt) to span adjacent cells.",
+        "Drag near the top center of any display to reveal the Top Edge Panel and snap straight into any template mini-cell, then fill empty remaining cells via frosted glass panes.",
+        "Hold Shift while dragging a window to reveal every zone in your display grid, and hover near a divider seam to span adjacent cells.",
         "Hold shortcut modifiers (such as Ctrl+Opt+Cmd) and tap an arrow or zone key to preview and cycle sizes before releasing to snap, or press Backspace to cancel.",
         "Use Workspace Profiles to pick a screen layout template, bind a global shortcut to the profile, and launch your apps into position in one click."
     ]
@@ -1422,7 +1423,7 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
                 )
                 if self.config.showSnapHUDToasts {
                     HUDToast.shared.show(
-                        title: "\(window.appName) -> \(targetZone.name)",
+                        title: "\(window.appName) → \(targetZone.name)",
                         symbol: "rectangle.3.group",
                         tint: .indigo,
                         duration: 1.4
@@ -1604,6 +1605,111 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
         )
     }
 
+    func flashTileSpacingPreview(spacingPoints: Double) {
+        let snapConfig = ConfigManager.shared.config.windowSnapper
+        var previewGaps = snapConfig.gaps
+        let clamped = GapConfig.clampedGap(spacingPoints)
+        previewGaps.outerMarginPoints = clamped
+        previewGaps.innerGapPoints = clamped
+        let label = GapConfig.spacingPresetLabel(for: spacingPoints)
+        let banner = "Tile Spacing · \(label) (\(Int(round(spacingPoints))) pt)"
+        flashStylePreviewOverlay(gaps: previewGaps, style: snapConfig.overlayStyle, banner: banner)
+    }
+
+    func flashOutlineThicknessPreview(borderWidthPoints: Double) {
+        let snapConfig = ConfigManager.shared.config.windowSnapper
+        var previewStyle = snapConfig.overlayStyle
+        previewStyle.borderWidthPoints = min(max(borderWidthPoints, 1.0), 8.0)
+        let label = OverlayStyleConfig.borderThicknessLabel(for: borderWidthPoints)
+        let banner = "Outline Thickness · \(label) (\(Int(round(borderWidthPoints))) pt)"
+        flashStylePreviewOverlay(gaps: snapConfig.gaps, style: previewStyle, banner: banner)
+    }
+
+    func flashOutlineStylePreview(
+        tintColor: OverlayTintColor? = nil,
+        fillOpacity: Double? = nil
+    ) {
+        let snapConfig = ConfigManager.shared.config.windowSnapper
+        var previewStyle = snapConfig.overlayStyle
+        if let tintColor {
+            previewStyle.tintColor = tintColor
+        }
+        if let fillOpacity {
+            previewStyle.fillOpacity = min(max(fillOpacity, 0.0), 0.35)
+        }
+        let opacityPct = Int(round(previewStyle.fillOpacity * 100))
+        let banner = "Overlay Style · \(previewStyle.tintColor.label) · \(opacityPct)%"
+        flashStylePreviewOverlay(gaps: snapConfig.gaps, style: previewStyle, banner: banner)
+    }
+
+    func flashZoneLabelsPreview(showLabels: Bool) {
+        let snapConfig = ConfigManager.shared.config.windowSnapper
+        var previewStyle = snapConfig.overlayStyle
+        previewStyle.showZoneLabelsAndDimensions = showLabels
+        let banner = "Zone Labels · \(showLabels ? "Shown" : "Hidden")"
+        flashStylePreviewOverlay(
+            gaps: snapConfig.gaps,
+            style: previewStyle,
+            banner: banner,
+            showZoneLabels: showLabels
+        )
+    }
+
+    func flashCenterSizePreview(widthFraction: Double, heightFraction: Double, label: String) {
+        guard !PermissionsManager.isRunningInDiagnosticMode else { return }
+        let snapConfig = ConfigManager.shared.config.windowSnapper
+        displayRegistry.refresh(gaps: snapConfig.gaps)
+        let displays = displayRegistry.connectedDisplays
+        guard !displays.isEmpty else { return }
+
+        overlayController.flashZoneStylePreview(
+            on: displays,
+            zonesProvider: { display in
+                guard let zone = SnapGeometry.resolveUniversalOrBuiltInZone(
+                    id: "universal:center",
+                    usableAXRect: display.usableAX,
+                    primaryScreenHeight: display.primaryScreenHeight,
+                    gaps: snapConfig.gaps,
+                    layoutOverride: nil,
+                    centerWidthFraction: widthFraction,
+                    centerHeightFraction: heightFraction
+                ) else {
+                    return []
+                }
+                return [zone]
+            },
+            bannerText: "Center Window · \(label)",
+            style: snapConfig.overlayStyle,
+            showZoneLabels: snapConfig.overlayStyle.showZoneLabelsAndDimensions
+        )
+    }
+
+    private func flashStylePreviewOverlay(
+        gaps: GapConfig,
+        style: OverlayStyleConfig,
+        banner: String,
+        showZoneLabels: Bool = false
+    ) {
+        guard !PermissionsManager.isRunningInDiagnosticMode else { return }
+        displayRegistry.refresh(gaps: gaps)
+        let displays = displayRegistry.connectedDisplays
+        guard !displays.isEmpty else { return }
+
+        overlayController.flashZoneStylePreview(
+            on: displays,
+            zonesProvider: { display in
+                SnapGeometry.stylePreviewZonesAX(
+                    usableAXRect: display.usableAX,
+                    primaryScreenHeight: display.primaryScreenHeight,
+                    gaps: gaps
+                )
+            },
+            bannerText: banner,
+            style: style,
+            showZoneLabels: showZoneLabels
+        )
+    }
+
     func previewProfile(_ profile: WorkspaceProfile, duration: TimeInterval = 3.0) {
         profileEngine.previewProfile(
             profile,
@@ -1667,14 +1773,24 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
 
     func beginOnScreenLayoutEditor(for display: ConnectedDisplay) {
         let currentLayout = ensureDisplayLayout(for: display.signature)
+        beginOnScreenLayoutEditor(for: display, initialLayout: currentLayout) { [weak self] updatedLayout in
+            self?.saveDisplayLayout(updatedLayout)
+        }
+    }
+
+    func beginOnScreenLayoutEditor(
+        for display: ConnectedDisplay,
+        initialLayout: DisplayLayoutConfig,
+        onCommit: @escaping (DisplayLayoutConfig) -> Void
+    ) {
+        let snapConfig = ConfigManager.shared.config.windowSnapper
         overlayController.beginOnScreenEditor(
             for: display,
-            initialLayout: currentLayout,
-            gaps: ConfigManager.shared.config.windowSnapper.gaps
-        ) { [weak self] updatedLayout in
-            guard let self else { return }
-            self.saveDisplayLayout(updatedLayout)
-        }
+            initialLayout: initialLayout,
+            gaps: snapConfig.gaps,
+            style: snapConfig.overlayStyle,
+            onCommitLayout: onCommit
+        )
     }
 
     @discardableResult

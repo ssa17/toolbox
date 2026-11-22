@@ -89,14 +89,14 @@ This unified renderer powers **four visual preview modes**:
 
 2. **Full-Grid Drag Overlay (`⇧`-Drag):**
    - Holding the configurable Grid Modifier (default `⇧`) while dragging a window illuminates **every zone outline** on the pointer's current display simultaneously—subtle translucent fills, crisp dashed/solid borders, and clean zone badges/numbers.
-   - Moving the pointer highlights the hovered cell; hovering within `12 pt` of a shared divider seam or holding the Span Modifier (default `⌃`) smoothly expands the highlighted outline across the **merged span of adjacent cells** (e.g., spanning columns 1 + 2 on a 3-column monitor). Releasing snaps straight into the highlighted rect.
+   - Moving the pointer highlights the hovered cell; hovering within `12 pt` of a shared divider seam smoothly expands the highlighted outline across the **merged span of adjacent cells** (e.g., spanning columns 1 + 2 on a 3-column monitor). Releasing snaps straight into the highlighted rect.
 
 3. **3-Second On-Screen Preview & Interactive On-Screen Layout Editor:**
    - **3-Second "Preview (3s)" Action:** Clicking **Preview (3s)** in *Display Zones* renders real-scale rectangle outlines directly onto connected monitor(s) for 3 seconds (auto-dismissing without needing a manual Hide action). Each on-screen outline displays its zone badge (`1`, `2`, `3`), name, and live point dimensions.
-   - **"Adjust Dividers on Screen" Mode:** Clicking *Adjust Dividers on Screen* turns the selected display's overlay interactive (`PointerCursorHostingView` inside the `NSPanel`), letting the user drag divider lines at 1:1 scale, click `+ Split` / `Merge`, or draw custom rectangles right on their actual desktop (`Done` floating pill or `Esc` saves and returns to normal click-through mode).
+   - **"Adjust Dividers on Screen" Mode:** Clicking *Adjust Dividers on Screen* turns the selected display's overlay interactive (`PointerCursorHostingView` inside the `NSPanel`) styled with the user's active `OverlayStyleConfig`, letting the user choose a built-in template from the floating toolbar and drag its divider handles at 1:1 scale right on their actual desktop while viewing live percentage ratios and pixel dimensions (`Done` button saves and `Esc` or `Cancel` discards and returns to normal click-through mode).
 
 4. **Workspace Profile Dry-Run Preview:**
-   - Clicking **Preview (3s)** on any Workspace Profile in Settings (or hovering the preview button in the Menu Bar) projects that profile's target rectangle outlines across **all connected displays** simultaneously for 3 seconds.
+   - Clicking **Preview (3s)** on any Workspace Profile in Settings or inside the Profile Draft Editor (or clicking the preview eye button in the Menu Bar) projects that profile's target rectangle outlines across **all connected displays** simultaneously for 3 seconds.
    - Inside each outlined rectangle, Toolbox renders the assigned app's **icon + name**, target zone label, and clear status badges:
      - *Ready* (app running on current Space)
      - *Will launch* (app closed, `launchIfNotRunning = true`)
@@ -104,7 +104,7 @@ This unified renderer powers **four visual preview modes**:
      - *Already placed* (window already sits inside the target frame)
    - Users see the exact multi-monitor arrangement before clicking **Apply**.
 
-**Configurable Overlay Appearance (`OverlayStyleConfig`):** Tucked inside the collapsed *Advanced & Appearance* section on *General & Drag*, users can choose Indigo accent tint vs. Neutral system style, fill opacity (`0.08–0.35`), border width (`1.5–4 pt`), corner radius (defaults to `10 pt` matching macOS window corners), and toggles for zone labels/dimensions and keyboard-snap flashes.
+**Configurable Overlay Appearance & Tile Spacing (`OverlayStyleConfig` & `GapConfig`):** On *General* under *Overlay Appearance & Animation*, selecting any **Outline color**, **fill opacity**, **Outline thickness**, or **Zone labels** setting triggers a brief 1:1 on-screen flash preview (`zoneStyleFlash`) across connected monitors (`tintColor`, `0–32%` opacity, `1–7 pt` border width, zone badges & dimensions), alongside window animation speed. On *Display Zones*, **Drag Controls** configures the single canonical *Reveal grid while dragging* modifier, **Tile Spacing** adjusts uniform outer margins and inner gaps (`0–16 pt`) with an immediate 1:1 on-screen flash preview, and a quick **Reset** button restores customized divider ratios back to the selected template's defaults. On *Shortcuts*, choosing a **Center window size** preset (`Compact`, `Balanced`, `Large`) also triggers a 1:1 on-screen flash preview.
 
 ---
 
@@ -200,7 +200,7 @@ Each `WorkspaceProfile` contains:
      - `autoApply`: Applies the matching profile immediately.
 
 ### 6.2 Creating & Customizing Profiles
-- Users create a blank profile via **New Profile**, choose a starter from **Starter…**, or save any custom display layout directly from **Display Zones → Save as Profile**.
+- Users create a blank profile via **New Profile** or choose a starter from **Starter…**, preview an unsaved draft directly with **Preview (3s)**, and customize the profile's display layout via template cards, **Copy from Display Zones**, or **Adjust Dividers on Screen** inside the Profile Editor.
 - Inside each profile card (and the **Shortcuts → Workspace Profile Shortcuts** section), users can assign an instant global hotkey right alongside **Edit**, **Preview (3s)**, **Apply**, and **Delete**.
 
 ### 6.3 Profile Activation Flow & Feedback
@@ -228,9 +228,9 @@ When applied:
 | `AXWindowController.swift` | Dedicated serial background queue for AX IPC with `AXUIElementSetMessagingTimeout(..., 0.25)`, `kAXStandardWindowSubrole` & `AXFullScreen` filtering, clamping-safe `Size → Position → Size` / `Position → Size → Position` move sequence, min-size readback & clamping, live z-ordered window discovery (`CGWindowListCopyWindowInfo`), and pre-snap frame restoration store. |
 | `WindowDragMonitor.swift` | Dedicated background `Thread` + `CFRunLoop` running a passive `.listenOnly` `CGEventTap` (`leftMouseDown`, `leftMouseDragged`, `leftMouseUp`, `flagsChanged`), re-armed via `PermissionsManager.shouldRearmEventTap`, confirmed-move detection, pass-through suppression, edge/corner + `⇧`-grid + spanning + top-edge bar hit-testing, and immediate restore-size-on-drag-away. |
 | `ZoneOverlayController.swift` | Per-display `NSPanel` overlay renderer powering drag previews, 3-second Display Zone previews, Profile dry-run previews, and the optional Top-Edge Layout Drop Bar. |
-| `ZoneOnScreenEditorView.swift` | Interactive 1:1 on-screen layout canvas (`PointerCursorHostingView`) for dragging dividers, splitting/merging cells, and drawing custom zones directly on any monitor. |
+| `ZoneOnScreenEditorView.swift` | Interactive 1:1 on-screen layout canvas (`PointerCursorHostingView`) for switching templates and dragging divider handles directly on any monitor. |
 | `ProfileEngine.swift` | Profile activation, pre-snap frame capture, `NSWorkspace.openApplication` auto-launch + `AXObserver` (`kAXWindowCreatedNotification`) debounced retry placement, active-profile new-window watcher, Capture Current Workspace builder, and display-topology matcher. |
-| `WindowSnapperSettingsView.swift` | Calm `FeatureSection` / `SettingRow` Settings UI (`ObservableObject` + `@Published`, `.pointerCursor()` on all interactive controls) split into 4 focused sub-tabs: *General & Drag* (with a collapsed *Advanced & Appearance* section), *Display Zones*, *Profiles*, and *Shortcuts*. |
+| `WindowSnapperSettingsView.swift` | Calm `FeatureSection` / `SettingRow` Settings UI (`ObservableObject` + `@Published`, `.pointerCursor()` on all interactive controls) split into 5 focused sub-tabs: *General* (Drag behaviors, Edge/Corner pull & Overlay Appearance/Animation), *Top Edge Panel*, *Display Zones* (per-display grid, Drag Controls, Tile Spacing & templates), *Profiles*, and *Shortcuts*. |
 
 ### 7.2 Critical macOS Implementation Details (Solved Up Front)
 1. **AppKit ↔ AX Coordinate Inversion (Primary Screen Height Invariant):**

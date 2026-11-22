@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import CoreGraphics
 
 enum DockActionMode: String, Codable, CaseIterable, Sendable {
     case hideApp = "hide_app"
@@ -89,6 +90,45 @@ enum DockQuitBehavior: String, Codable, CaseIterable, Sendable {
     }
 }
 
+enum AppTextSize: String, Codable, CaseIterable, Sendable {
+    case small = "small"
+    case standard = "standard"
+    case large = "large"
+    case extraLarge = "extra_large"
+
+    var label: String {
+        switch self {
+        case .small: return "Small"
+        case .standard: return "Standard"
+        case .large: return "Large"
+        case .extraLarge: return "Extra Large"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .small: return "Compact typography for denser layouts."
+        case .standard: return "Default macOS-balanced text sizing."
+        case .large: return "Larger, easier-to-read text across windows, popovers, and HUDs."
+        case .extraLarge: return "Maximum readability across windows, popovers, and HUDs."
+        }
+    }
+
+    var scaleFactor: CGFloat {
+        switch self {
+        case .small: return 0.90
+        case .standard: return 1.0
+        case .large: return 1.15
+        case .extraLarge: return 1.28
+        }
+    }
+
+    func scaledPointSize(_ base: CGFloat) -> CGFloat {
+        guard self != .standard else { return base }
+        return max(8.0, (base * scaleFactor * 2.0).rounded() / 2.0)
+    }
+}
+
 struct GeneralConfig: Codable, Equatable, Sendable {
     static let defaultMenuBarModuleOrder: [String] = [
         "dock_minimize",
@@ -115,6 +155,7 @@ struct GeneralConfig: Codable, Equatable, Sendable {
     var showQuickActionsInMenuBar: Bool = true
     var showQuickCommandsInMenuBar: Bool = true
     var showModuleCardDetails: Bool = true
+    var textSize: AppTextSize = .standard
 
     init() {}
 
@@ -143,6 +184,7 @@ struct GeneralConfig: Codable, Equatable, Sendable {
         showQuickActionsInMenuBar = try c.decodeIfPresent(Bool.self, forKey: .showQuickActionsInMenuBar) ?? true
         showQuickCommandsInMenuBar = try c.decodeIfPresent(Bool.self, forKey: .showQuickCommandsInMenuBar) ?? true
         showModuleCardDetails = try c.decodeIfPresent(Bool.self, forKey: .showModuleCardDetails) ?? true
+        textSize = try c.decodeIfPresent(AppTextSize.self, forKey: .textSize) ?? .standard
     }
 
     func normalizedMenuBarModuleOrder(allModuleIDs: [String] = GeneralConfig.defaultMenuBarModuleOrder) -> [String] {
@@ -1081,6 +1123,27 @@ struct DisplayLayoutConfig: Codable, Equatable, Identifiable, Hashable, Sendable
     var presetKind: DisplayPresetKind {
         DisplayPresetKind(rawValue: presetID) ?? .custom
     }
+
+    var hasCustomDividerProportions: Bool {
+        let base = presetKind.defaultDivision
+        return !Self.normalizedWeightsEqual(division.columnWeights, base.columnWeights)
+            || !Self.normalizedWeightsEqual(division.rowWeights, base.rowWeights)
+    }
+
+    private static func normalizedWeightsEqual(_ lhs: [Double], _ rhs: [Double], tolerance: Double = 0.01) -> Bool {
+        guard lhs.count == rhs.count, !lhs.isEmpty else { return false }
+        let lhsSafe = lhs.map { max(0.05, $0) }
+        let rhsSafe = rhs.map { max(0.05, $0) }
+        let lhsSum = lhsSafe.reduce(0, +)
+        let rhsSum = rhsSafe.reduce(0, +)
+        guard lhsSum > 0, rhsSum > 0 else { return false }
+        for (a, b) in zip(lhsSafe, rhsSafe) {
+            if abs((a / lhsSum) - (b / rhsSum)) > tolerance {
+                return false
+            }
+        }
+        return true
+    }
 }
 
 struct GapConfig: Codable, Equatable, Sendable {
@@ -1217,6 +1280,13 @@ struct OverlayStyleConfig: Codable, Equatable, Sendable {
         try c.encode(cornerRadiusPoints, forKey: .cornerRadiusPoints)
         try c.encode(showZoneLabelsAndDimensions, forKey: .showZoneLabelsAndDimensions)
     }
+
+    static func borderThicknessLabel(for points: Double) -> String {
+        if points <= 1.5 { return "Thin" }
+        if points <= 3.0 { return "Medium" }
+        if points <= 5.5 { return "Thick" }
+        return "Bold"
+    }
 }
 
 enum DragModifierChoice: String, Codable, CaseIterable, Identifiable, Sendable {
@@ -1254,7 +1324,6 @@ struct DragSnapConfig: Codable, Equatable, Sendable {
     var edgeProximityPoints: Double = 12
     var cornerBandPoints: Double = 48
     var gridModifier: DragModifierChoice = .shift
-    var spanModifier: DragModifierChoice = .controlOption
     var restoreSizeOnDragAway: Bool = true
 
     private enum CodingKeys: String, CodingKey {
@@ -1262,7 +1331,6 @@ struct DragSnapConfig: Codable, Equatable, Sendable {
         case edgeProximityPoints
         case cornerBandPoints
         case gridModifier
-        case spanModifier
         case restoreSizeOnDragAway
     }
 
@@ -1271,14 +1339,12 @@ struct DragSnapConfig: Codable, Equatable, Sendable {
         edgeProximityPoints: Double = 12,
         cornerBandPoints: Double = 48,
         gridModifier: DragModifierChoice = .shift,
-        spanModifier: DragModifierChoice = .controlOption,
         restoreSizeOnDragAway: Bool = true
     ) {
         self.enabled = enabled
         self.edgeProximityPoints = min(max(edgeProximityPoints, 0), 32)
         self.cornerBandPoints = min(max(cornerBandPoints, 24), 96)
         self.gridModifier = gridModifier
-        self.spanModifier = spanModifier
         self.restoreSizeOnDragAway = restoreSizeOnDragAway
     }
 
@@ -1289,7 +1355,6 @@ struct DragSnapConfig: Codable, Equatable, Sendable {
             edgeProximityPoints: try c.decodeIfPresent(Double.self, forKey: .edgeProximityPoints) ?? 12,
             cornerBandPoints: try c.decodeIfPresent(Double.self, forKey: .cornerBandPoints) ?? 48,
             gridModifier: try c.decodeIfPresent(DragModifierChoice.self, forKey: .gridModifier) ?? .shift,
-            spanModifier: try c.decodeIfPresent(DragModifierChoice.self, forKey: .spanModifier) ?? .controlOption,
             restoreSizeOnDragAway: try c.decodeIfPresent(Bool.self, forKey: .restoreSizeOnDragAway) ?? true
         )
     }
@@ -2206,6 +2271,8 @@ struct ToolboxConfig: Codable, Equatable, Sendable {
         var rhs = other
         lhs.general.showModuleCardDetails = true
         rhs.general.showModuleCardDetails = true
+        lhs.general.textSize = .standard
+        rhs.general.textSize = .standard
         return lhs == rhs
     }
 }

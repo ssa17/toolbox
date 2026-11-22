@@ -200,24 +200,24 @@ struct ScreenOCRSettingsView: View {
             if module.recentCaptures.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "text.viewfinder")
-                        .font(.title2)
+                        .toolboxFont(.title2)
                         .foregroundStyle(.secondary)
                     Text("No captures yet this session")
-                        .font(.callout.weight(.medium))
+                        .toolboxFont(.callout.weight(.medium))
                         .foregroundStyle(.secondary)
                     if !configManager.config.screenOCR.shortcut.isEmpty {
                         HStack(spacing: 6) {
                             Text("Press")
-                                .font(.caption)
+                                .toolboxFont(.caption)
                                 .foregroundStyle(.secondary)
                             ShortcutPill(text: configManager.config.screenOCR.shortcut.displayString)
                             Text("or Capture Region Now to grab text or a QR code.")
-                                .font(.caption)
+                                .toolboxFont(.caption)
                                 .foregroundStyle(.secondary)
                         }
                     } else {
                         Text("Use Capture Region Now above to grab text or a QR code.")
-                            .font(.caption)
+                            .toolboxFont(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -234,7 +234,7 @@ struct ScreenOCRSettingsView: View {
 
                 HStack(spacing: 8) {
                     Text("Text is processed locally by Apple Vision and the screenshot is deleted right after capture.")
-                        .font(.caption)
+                        .toolboxFont(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                     Spacer()
@@ -262,13 +262,13 @@ struct ScreenOCRSettingsView: View {
                     .fill(module.accentColor.opacity(0.14))
                     .frame(width: 30, height: 30)
                 Image(systemName: capture.isQR ? "qrcode" : "text.viewfinder")
-                    .font(.system(size: 13, weight: .semibold))
+                    .toolboxFont(.system(size: 13, weight: .semibold))
                     .foregroundStyle(accentText)
             }
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(capture.text)
-                    .font(.caption.monospaced())
+                    .toolboxFont(.caption.monospaced())
                     .lineLimit(isExpanded ? nil : 2)
                     .truncationMode(.tail)
                     .fixedSize(horizontal: false, vertical: isExpanded)
@@ -276,7 +276,7 @@ struct ScreenOCRSettingsView: View {
 
                 HStack(spacing: 6) {
                     Text(capture.isQR ? "QR Code" : "\(capture.lineCount) \(capture.lineCount == 1 ? "line" : "lines")")
-                        .font(.caption2.weight(.semibold))
+                        .toolboxFont(.caption2.weight(.semibold))
                         .foregroundStyle(accentText)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1.5)
@@ -284,13 +284,13 @@ struct ScreenOCRSettingsView: View {
                     Text("·")
                         .foregroundStyle(.tertiary)
                     Text(capture.createdAt.formatted(.relative(presentation: .named)))
-                        .font(.caption)
+                        .toolboxFont(.caption)
                         .foregroundStyle(.secondary)
                     if canExpand {
                         Text("·")
                             .foregroundStyle(.tertiary)
                         Text(isExpanded ? "Show less" : "Show more")
-                            .font(.caption2.weight(.medium))
+                            .toolboxFont(.caption2.weight(.medium))
                             .foregroundStyle(accentText)
                     }
                 }

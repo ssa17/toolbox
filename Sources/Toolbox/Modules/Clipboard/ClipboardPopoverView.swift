@@ -243,7 +243,7 @@ struct ClipboardPopoverView: View {
                         sectionHeader(title: "PINNED", count: pinnedEntries.count) {
                             if pinnedEntries.count > 1 {
                                 Text("Drag to reorder")
-                                    .font(.caption2)
+                                    .toolboxFont(.caption2)
                                     .foregroundStyle(.tertiary)
                             }
                         }
@@ -269,7 +269,7 @@ struct ClipboardPopoverView: View {
                                     uiState.pendingClearAll = true
                                 }
                                 .buttonStyle(.plain)
-                                .font(.caption2.weight(.medium))
+                                .toolboxFont(.caption2.weight(.medium))
                                 .foregroundStyle(.secondary)
                                 .help("Clear all unpinned clipboard items")
                                 .focusEffectDisabled()
@@ -308,12 +308,12 @@ struct ClipboardPopoverView: View {
     ) -> some View {
         HStack(spacing: 6) {
             Text(title)
-                .font(.system(size: 10, weight: .semibold))
+                .toolboxFont(.system(size: 11, weight: .semibold))
                 .tracking(0.6)
                 .foregroundStyle(.secondary)
             Text("\(count)")
-                .font(.system(size: 10, weight: .medium, design: .rounded))
-                .foregroundStyle(.tertiary)
+                .toolboxFont(.system(size: 11, weight: .medium, design: .rounded))
+                .foregroundStyle(.secondary)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 1)
                 .background(Color.primary.opacity(0.06), in: Capsule())
@@ -342,7 +342,7 @@ struct ClipboardPopoverView: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .symbolRenderingMode(.hierarchical)
-                        .font(.system(size: 16))
+                        .toolboxFont(.system(size: 16))
                         .foregroundStyle(.secondary)
                         .frame(width: 22, height: 22)
                         .contentShape(Circle())
@@ -362,10 +362,10 @@ struct ClipboardPopoverView: View {
                         VStack(spacing: 8) {
                             Spacer()
                             Image(systemName: "doc.on.clipboard")
-                                .font(.title2)
+                                .toolboxFont(.title2)
                                 .foregroundStyle(.secondary)
                             Text(module.entries.isEmpty ? "Copy something to start building history" : "No matching items")
-                                .font(.callout)
+                                .toolboxFont(.callout)
                                 .foregroundStyle(.secondary)
                             Spacer()
                         }
@@ -392,11 +392,11 @@ struct ClipboardPopoverView: View {
                         ? "\(module.entries.count) saved"
                         : "\(filteredEntries.count) of \(module.entries.count)"
                 )
-                .font(.caption2)
+                .toolboxFont(.caption2)
                 .foregroundStyle(.secondary)
                 Spacer(minLength: 8)
                 Text(footerShortcutsText)
-                    .font(.caption2)
+                    .toolboxFont(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.9)
@@ -551,7 +551,7 @@ struct ClipboardPopoverView: View {
                 if entry.isPinned {
                     if canDragPinned {
                         Image(systemName: "line.3.horizontal")
-                            .font(.system(size: 11, weight: .semibold))
+                            .toolboxFont(.system(size: 11, weight: .semibold))
                             .foregroundStyle(isDragging ? Color.teal : (isHovered ? Color.secondary : Color.secondary.opacity(0.55)))
                             .frame(width: 16, height: 28)
                             .contentShape(Rectangle())
@@ -571,7 +571,7 @@ struct ClipboardPopoverView: View {
                             .accessibilityHidden(true)
                     } else {
                         Image(systemName: "pin.fill")
-                            .font(.system(size: 10, weight: .semibold))
+                            .toolboxFont(.system(size: 10, weight: .semibold))
                             .foregroundStyle(.teal.opacity(0.85))
                             .frame(width: 16, height: 28)
                             .accessibilityHidden(true)
@@ -612,7 +612,7 @@ struct ClipboardPopoverView: View {
                         ) {
                             HStack(spacing: 0) {
                                 Text(Self.formatRowMetadata(for: entry, now: uiState.openedAt))
-                                    .font(.caption2)
+                                    .toolboxFont(.caption2)
                                     .foregroundStyle(.tertiary)
                                     .lineLimit(1)
                                 Spacer(minLength: 6)
@@ -676,7 +676,7 @@ struct ClipboardPopoverView: View {
                 HStack(spacing: 6) {
                     TextField("Label for item…", text: $uiState.renameDraft)
                         .textFieldStyle(.roundedBorder)
-                        .font(.caption)
+                        .toolboxFont(.caption)
                         .focused($focusedRenameID, equals: entry.id)
                         .onSubmit {
                             module.renameEntry(entry, title: uiState.renameDraft)
@@ -687,7 +687,7 @@ struct ClipboardPopoverView: View {
                         uiState.renamingEntryID = nil
                     } label: {
                         Text("Save")
-                            .font(.caption.weight(.semibold))
+                            .toolboxFont(.caption.weight(.semibold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 4)
@@ -813,14 +813,14 @@ struct ClipboardPopoverView: View {
         VStack(alignment: .leading, spacing: 2) {
             if let title = entry.customTitle, !title.isEmpty {
                 Text(title)
-                    .font(.caption.weight(.semibold))
+                    .toolboxFont(.caption.weight(.semibold))
                     .foregroundStyle(.teal)
                     .lineLimit(1)
             }
             Text(entry.text)
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
-                .font(.system(.callout, design: .monospaced))
+                .toolboxFont(.system(.callout, design: .monospaced))
         }
     }
 
@@ -832,7 +832,7 @@ struct ClipboardPopoverView: View {
                     uiState.previewEntryID = nil
                 } label: {
                     Label("Back", systemImage: "chevron.left")
-                        .font(.caption.weight(.semibold))
+                        .toolboxFont(.caption.weight(.semibold))
                         .foregroundStyle(.primary)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
@@ -848,20 +848,20 @@ struct ClipboardPopoverView: View {
 
                 if let title = entry.customTitle, !title.isEmpty {
                     Text(title)
-                        .font(.callout.weight(.semibold))
+                        .toolboxFont(.callout.weight(.semibold))
                         .foregroundStyle(.teal)
                 }
 
                 Spacer()
 
                 Text("\(entry.text.count) chars · \(entry.text.split(separator: "\n", omittingEmptySubsequences: false).count) lines")
-                    .font(.caption2)
+                    .toolboxFont(.caption2)
                     .foregroundStyle(.secondary)
             }
 
             ScrollView {
                 Text(entry.text)
-                    .font(.system(.callout, design: .monospaced))
+                    .toolboxFont(.system(.callout, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)
@@ -873,7 +873,7 @@ struct ClipboardPopoverView: View {
                     module.togglePin(entry)
                 } label: {
                     Label(entry.isPinned ? "Unpin" : "Pin", systemImage: entry.isPinned ? "pin.fill" : "pin")
-                        .font(.caption.weight(.medium))
+                        .toolboxFont(.caption.weight(.medium))
                         .foregroundStyle(entry.isPinned ? .teal : .primary)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
@@ -901,7 +901,7 @@ struct ClipboardPopoverView: View {
                     uiState.renamingEntryID = entry.id
                 } label: {
                     Label(entry.customTitle?.isEmpty == false ? "Rename" : "Name", systemImage: "pencil")
-                        .font(.caption.weight(.medium))
+                        .toolboxFont(.caption.weight(.medium))
                         .foregroundStyle(.primary)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
@@ -920,7 +920,7 @@ struct ClipboardPopoverView: View {
                     uiState.pendingDeleteEntry = entry
                 } label: {
                     Label("Delete", systemImage: "trash")
-                        .font(.caption.weight(.semibold))
+                        .toolboxFont(.caption.weight(.semibold))
                         .foregroundStyle(.red)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
@@ -940,7 +940,7 @@ struct ClipboardPopoverView: View {
                     onSelect(entry)
                 } label: {
                     Text("Paste This Item")
-                        .font(.caption.weight(.semibold))
+                        .toolboxFont(.caption.weight(.semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
@@ -1049,11 +1049,11 @@ struct ClipboardPopoverView: View {
                     Image(systemName: "trash.fill")
                         .foregroundStyle(.red)
                     Text("Delete Clipboard Item?")
-                        .font(.callout.weight(.semibold))
+                        .toolboxFont(.callout.weight(.semibold))
                 }
 
                 Text(entry.customTitle ?? entry.text)
-                    .font(.caption.monospaced())
+                    .toolboxFont(.caption.monospaced())
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .padding(8)
@@ -1066,7 +1066,7 @@ struct ClipboardPopoverView: View {
                         uiState.pendingDeleteEntry = nil
                     } label: {
                         Text("Cancel")
-                            .font(.callout.weight(.medium))
+                            .toolboxFont(.callout.weight(.medium))
                             .foregroundStyle(.primary)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
@@ -1084,7 +1084,7 @@ struct ClipboardPopoverView: View {
                         confirmDelete(entry)
                     } label: {
                         Text("Delete")
-                            .font(.callout.weight(.semibold))
+                            .toolboxFont(.callout.weight(.semibold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 6)
@@ -1120,7 +1120,7 @@ struct ClipboardPopoverView: View {
                     Image(systemName: "trash.fill")
                         .foregroundStyle(.red)
                     Text("Clear All Unpinned Items?")
-                        .font(.callout.weight(.semibold))
+                        .toolboxFont(.callout.weight(.semibold))
                 }
 
                 Text(
@@ -1128,7 +1128,7 @@ struct ClipboardPopoverView: View {
                         ? "This will remove \(unpinnedCount) unpinned clipboard \(unpinnedCount == 1 ? "item" : "items"). Pinned items are kept."
                         : "All items are currently pinned and will be kept."
                 )
-                .font(.caption)
+                .toolboxFont(.caption)
                 .foregroundStyle(.secondary)
 
                 HStack(spacing: 8) {
@@ -1137,7 +1137,7 @@ struct ClipboardPopoverView: View {
                         uiState.pendingClearAll = false
                     } label: {
                         Text("Cancel")
-                            .font(.callout.weight(.medium))
+                            .toolboxFont(.callout.weight(.medium))
                             .foregroundStyle(.primary)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
@@ -1158,7 +1158,7 @@ struct ClipboardPopoverView: View {
                         uiState.selectedEntryID = filteredEntries.first?.id
                     } label: {
                         Text("Clear All")
-                            .font(.callout.weight(.semibold))
+                            .toolboxFont(.callout.weight(.semibold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 6)
@@ -1359,7 +1359,7 @@ private struct ClipboardRowActionButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 12.5, weight: .medium))
+                .toolboxFont(.system(size: 12.5, weight: .medium))
                 .foregroundStyle(foregroundColor)
                 .frame(width: 26, height: 24)
                 .background(pillBackgroundColor, in: RoundedRectangle(cornerRadius: 6))

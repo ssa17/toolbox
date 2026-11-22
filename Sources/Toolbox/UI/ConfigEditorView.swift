@@ -108,7 +108,7 @@ struct ConfigEditorView: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(ToolboxTheme.readableAccentText(for: .red))
                     Text(err)
-                        .font(.caption)
+                        .toolboxFont(.caption)
                         .foregroundStyle(ToolboxTheme.readableAccentText(for: .red))
                     Spacer()
                 }
@@ -119,7 +119,7 @@ struct ConfigEditorView: View {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(ToolboxTheme.readableAccentText(for: .green))
                     Text(status)
-                        .font(.caption)
+                        .toolboxFont(.caption)
                     Spacer()
                 }
                 .padding(10)
@@ -138,7 +138,7 @@ struct ConfigEditorView: View {
 
                     if editorState.mode == .tree {
                         Text("Click any value to edit")
-                            .font(.caption)
+                            .toolboxFont(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -206,10 +206,10 @@ struct ConfigEditorView: View {
                         } else {
                             VStack(spacing: 10) {
                                 Image(systemName: "exclamationmark.triangle")
-                                    .font(.title2)
+                                    .toolboxFont(.title2)
                                     .foregroundStyle(ToolboxTheme.readableAccentText(for: .orange))
                                 Text("JSON has syntax errors. Switch to Raw JSON to fix them.")
-                                    .font(.callout)
+                                    .toolboxFont(.callout)
                                     .foregroundStyle(.secondary)
                                 Button("Switch to Raw JSON") {
                                     editorState.mode = .raw
@@ -268,14 +268,14 @@ struct ConfigEditorView: View {
                             .strokeBorder(ToolboxTheme.accentBlue.opacity(0.26), lineWidth: 1)
                     )
                 Image(systemName: "curlybraces")
-                    .font(.title3.weight(.semibold))
+                    .toolboxFont(.title3.weight(.semibold))
                     .foregroundStyle(ToolboxTheme.accentBlue)
             }
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     Text("JSON Configuration")
-                        .font(.title3.bold())
+                        .toolboxFont(.title3.bold())
                         .lineLimit(1)
                     if editorState.hasUnsavedChanges {
                         StatusBadge(text: "Unsaved changes", color: .orange)
@@ -285,7 +285,7 @@ struct ConfigEditorView: View {
                 }
 
                 Text("Live-synced with \(configManager.configURL.path).")
-                    .font(.caption)
+                    .toolboxFont(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -498,14 +498,14 @@ private struct JSONTreeNodeView: View {
                     } label: {
                         HStack(spacing: 5) {
                             Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                                .font(.system(size: 10, weight: .bold))
+                                .toolboxFont(.system(size: 10, weight: .bold))
                                 .foregroundStyle(levelColor)
                                 .frame(width: 12)
                             Text(formattedLabel)
-                                .font(.system(.callout, design: .monospaced).weight(.semibold))
+                                .toolboxFont(.system(.callout, design: .monospaced).weight(.semibold))
                                 .foregroundStyle(levelColor)
                             Text(":")
-                                .font(.system(.callout, design: .monospaced))
+                                .toolboxFont(.system(.callout, design: .monospaced))
                                 .foregroundStyle(.secondary)
                             containerBadge
                         }
@@ -516,10 +516,10 @@ private struct JSONTreeNodeView: View {
                 } else {
                     Color.clear.frame(width: 12, height: 1)
                     Text(formattedLabel)
-                        .font(.system(.callout, design: .monospaced).weight(.semibold))
+                        .toolboxFont(.system(.callout, design: .monospaced).weight(.semibold))
                         .foregroundStyle(levelColor)
                     Text(":")
-                        .font(.system(.callout, design: .monospaced))
+                        .toolboxFont(.system(.callout, design: .monospaced))
                         .foregroundStyle(.secondary)
                     leafValueView
                 }
@@ -578,14 +578,14 @@ private struct JSONTreeNodeView: View {
     private var containerBadge: some View {
         if let dict = value as? [String: Any] {
             Text(isCollapsed ? "{ \(dict.count) keys }" : "{ \(dict.count) }")
-                .font(.system(.caption2, design: .monospaced))
+                .toolboxFont(.system(.caption2, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 1)
                 .background(levelColor.opacity(0.12), in: Capsule())
         } else if let arr = value as? [Any] {
             Text(isCollapsed ? "[ \(arr.count) items ]" : "[ \(arr.count) ]")
-                .font(.system(.caption2, design: .monospaced))
+                .toolboxFont(.system(.caption2, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 1)
@@ -601,7 +601,7 @@ private struct JSONTreeNodeView: View {
                 updateJSONValue(newValue: !boolVal)
             } label: {
                 Text(boolVal ? "true" : "false")
-                    .font(.system(.callout, design: .monospaced).weight(.semibold))
+                    .toolboxFont(.system(.callout, design: .monospaced).weight(.semibold))
                     .foregroundStyle(JSONDepthPalette.boolColor)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
@@ -614,7 +614,7 @@ private struct JSONTreeNodeView: View {
             HStack(spacing: 6) {
                 TextField("", text: $editorState.editDraft)
                     .textFieldStyle(.roundedBorder)
-                    .font(.system(.caption, design: .monospaced))
+                    .toolboxFont(.system(.caption, design: .monospaced))
                     .frame(minWidth: 140, maxWidth: 320)
                     .onSubmit {
                         commitLeafEdit()
@@ -644,7 +644,7 @@ private struct JSONTreeNodeView: View {
                 editorState.editingPath = path
             } label: {
                 Text(num.stringValue)
-                    .font(.system(.callout, design: .monospaced))
+                    .toolboxFont(.system(.callout, design: .monospaced))
                     .foregroundStyle(JSONDepthPalette.numberColor)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
@@ -659,7 +659,7 @@ private struct JSONTreeNodeView: View {
                 editorState.editingPath = path
             } label: {
                 Text("\"\(str)\"")
-                    .font(.system(.callout, design: .monospaced))
+                    .toolboxFont(.system(.callout, design: .monospaced))
                     .foregroundStyle(JSONDepthPalette.stringColor)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -672,11 +672,11 @@ private struct JSONTreeNodeView: View {
             .pointerCursor()
         } else if value is NSNull {
             Text("null")
-                .font(.system(.callout, design: .monospaced).weight(.semibold))
+                .toolboxFont(.system(.callout, design: .monospaced).weight(.semibold))
                 .foregroundStyle(JSONDepthPalette.boolColor)
         } else {
             Text(String(describing: value))
-                .font(.system(.callout, design: .monospaced))
+                .toolboxFont(.system(.callout, design: .monospaced))
                 .foregroundStyle(.secondary)
         }
     }
@@ -789,6 +789,7 @@ private final class JSONCodeTextView: NSTextView {
 
 private struct SyntaxHighlightedJSONView: NSViewRepresentable {
     @Binding var text: String
+    @Environment(\.toolboxTextSize) private var textSize
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -800,6 +801,7 @@ private struct SyntaxHighlightedJSONView: NSViewRepresentable {
         scrollView.hasHorizontalScroller = false
         scrollView.drawsBackground = false
 
+        let codeFontSize = textSize.scaledPointSize(12.5)
         let textView = JSONCodeTextView()
         textView.isEditable = true
         textView.isSelectable = true
@@ -812,7 +814,7 @@ private struct SyntaxHighlightedJSONView: NSViewRepresentable {
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.drawsBackground = false
         textView.textContainerInset = NSSize(width: 12, height: 12)
-        textView.font = NSFont.monospacedSystemFont(ofSize: 12.5, weight: .regular)
+        textView.font = NSFont.monospacedSystemFont(ofSize: codeFontSize, weight: .regular)
         let defaultParagraph = NSMutableParagraphStyle()
         defaultParagraph.lineSpacing = 2.0
         textView.defaultParagraphStyle = defaultParagraph
@@ -824,19 +826,27 @@ private struct SyntaxHighlightedJSONView: NSViewRepresentable {
 
         scrollView.documentView = textView
         context.coordinator.textView = textView
+        context.coordinator.fontSize = codeFontSize
         context.coordinator.applyHighlightedText(text, force: true)
         return scrollView
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         context.coordinator.parent = self
-        context.coordinator.applyHighlightedText(text, force: false)
+        let codeFontSize = textSize.scaledPointSize(12.5)
+        let fontChanged = context.coordinator.fontSize != codeFontSize
+        if fontChanged {
+            context.coordinator.fontSize = codeFontSize
+            context.coordinator.textView?.font = NSFont.monospacedSystemFont(ofSize: codeFontSize, weight: .regular)
+        }
+        context.coordinator.applyHighlightedText(text, force: fontChanged)
     }
 
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: SyntaxHighlightedJSONView
         weak var textView: NSTextView?
+        var fontSize: CGFloat = 12.5
         private var isUpdating = false
 
         private static let keyRegex = try! NSRegularExpression(pattern: "\"([^\"\\\\]|\\\\.)*\"\\s*(?=:)")
@@ -875,8 +885,8 @@ private struct SyntaxHighlightedJSONView: NSViewRepresentable {
             let source = storage.string
             let nsSource = source as NSString
             let fullRange = NSRange(location: 0, length: nsSource.length)
-            let font = NSFont.monospacedSystemFont(ofSize: 12.5, weight: .regular)
-            let keyFont = NSFont.monospacedSystemFont(ofSize: 12.5, weight: .semibold)
+            let font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            let keyFont = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .semibold)
             let spaceWidth = (" " as NSString).size(withAttributes: [.font: font]).width
             let baseParagraphStyle = NSMutableParagraphStyle()
             baseParagraphStyle.lineSpacing = 2.0

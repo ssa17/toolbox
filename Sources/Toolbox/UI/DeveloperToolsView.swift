@@ -90,21 +90,21 @@ struct DeveloperToolsView: View {
                         .fill(Color.purple.opacity(0.16))
                         .frame(width: 44, height: 44)
                     Image(systemName: section.symbolName)
-                        .font(.title3.weight(.semibold))
+                        .toolboxFont(.title3.weight(.semibold))
                         .foregroundStyle(.purple)
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
                         Text(section.title)
-                            .font(.title3.bold())
+                            .toolboxFont(.title3.bold())
                         StatusBadge(
                             text: developerMode.hasActiveSimulation ? "Simulation Active" : "Developer",
                             color: developerMode.hasActiveSimulation ? .orange : .purple
                         )
                     }
                     Text(section.subtitle)
-                        .font(.callout)
+                        .toolboxFont(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -147,7 +147,7 @@ struct DeveloperToolsView: View {
                     HStack(spacing: 8) {
                         TextField("1.2.0", text: $developerMode.simulatedUpdateVersion)
                             .textFieldStyle(.roundedBorder)
-                            .font(.system(.callout, design: .monospaced))
+                            .toolboxFont(.system(.callout, design: .monospaced))
                             .frame(width: 96)
 
                         Stepper(
@@ -156,7 +156,7 @@ struct DeveloperToolsView: View {
                             step: 0.5
                         ) {
                             Text(String(format: "%.1f MB", developerMode.simulatedUpdateSizeMB))
-                                .font(.caption.monospacedDigit())
+                                .toolboxFont(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
                                 .frame(width: 54, alignment: .trailing)
                         }
@@ -169,7 +169,7 @@ struct DeveloperToolsView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text("Simulate State")
-                            .font(.callout.weight(.medium))
+                            .toolboxFont(.callout.weight(.medium))
                         Spacer()
                         Button("View in Settings →") {
                             MainWindowController.shared.show(destination: .settings)
@@ -207,7 +207,7 @@ struct DeveloperToolsView: View {
                                         .fill(isActive ? Color.white : presetColor(preset))
                                         .frame(width: 6, height: 6)
                                     Text(preset.label)
-                                        .font(.caption.weight(.semibold))
+                                        .toolboxFont(.caption.weight(.semibold))
                                         .lineLimit(1)
                                 }
                                 .frame(maxWidth: .infinity)
@@ -237,7 +237,7 @@ struct DeveloperToolsView: View {
                         updateManager.activeSimulationPreset?.summary
                             ?? "Live state active. Pick any preset above to preview how Settings, the top banner, and the menu bar popover render."
                     )
-                    .font(.caption)
+                    .toolboxFont(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 }
@@ -246,7 +246,7 @@ struct DeveloperToolsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         Text("SETTINGS CARD LIVE PREVIEW")
-                            .font(.system(size: 10, weight: .semibold))
+                            .toolboxFont(.system(size: 10, weight: .semibold))
                             .tracking(0.5)
                             .foregroundStyle(.secondary)
                         Spacer()
@@ -335,7 +335,7 @@ struct DeveloperToolsView: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Jump to Specific Dialog State")
-                        .font(.callout.weight(.medium))
+                        .toolboxFont(.callout.weight(.medium))
 
                     LazyVGrid(
                         columns: [GridItem(.adaptive(minimum: 132), spacing: 8)],
@@ -352,7 +352,7 @@ struct DeveloperToolsView: View {
                                 )
                             } label: {
                                 Text(kind.label)
-                                    .font(.caption.weight(.medium))
+                                    .toolboxFont(.caption.weight(.medium))
                                     .lineLimit(1)
                                     .frame(maxWidth: .infinity)
                                     .padding(.horizontal, 10)
@@ -390,7 +390,7 @@ struct DeveloperToolsView: View {
 
                     if developerMode.selectedReleaseNotesPreset == .custom {
                         TextEditor(text: $developerMode.customReleaseNotesHTML)
-                            .font(.caption.monospaced())
+                            .toolboxFont(.caption.monospaced())
                             .frame(height: 92)
                             .padding(6)
                             .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
@@ -452,9 +452,9 @@ struct DeveloperToolsView: View {
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Sparkle Auto-Check Cycle")
-                                .font(.callout.weight(.medium))
+                                .toolboxFont(.callout.weight(.medium))
                             Text("Last: \(updateManager.formattedLastChecked(relativeTo: context.date)) · Next: \(nextText)")
-                                .font(.caption.monospacedDigit())
+                                .toolboxFont(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
                         }
 
@@ -474,22 +474,22 @@ struct DeveloperToolsView: View {
                             ProgressView()
                                 .controlSize(.small)
                             Text("Running background check…")
-                                .font(.caption.weight(.medium))
+                                .toolboxFont(.caption.weight(.medium))
                                 .foregroundStyle(.blue)
                         } else if let bgAt = updateManager.lastBackgroundCheckAt,
                                   let outcome = updateManager.lastBackgroundCheckOutcome {
                             Image(systemName: "checkmark.circle.fill")
-                                .font(.caption)
+                                .toolboxFont(.caption)
                                 .foregroundStyle(.green)
                             Text("Last background check at \(bgAt.formatted(date: .omitted, time: .standard)): \(outcome)")
-                                .font(.caption.monospacedDigit())
+                                .toolboxFont(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
                         } else {
                             Image(systemName: "clock")
-                                .font(.caption)
+                                .toolboxFont(.caption)
                                 .foregroundStyle(.tertiary)
                             Text("No background check observed yet this session. Schedule in 5s or click Run Background Check.")
-                                .font(.caption)
+                                .toolboxFont(.caption)
                                 .foregroundStyle(.tertiary)
                         }
 
@@ -587,14 +587,14 @@ struct DeveloperToolsView: View {
 
                         if let latest = probe.latestVersion {
                             Text("Latest feed version: v\(latest) (\(probe.itemCount) item\(probe.itemCount == 1 ? "" : "s"))")
-                                .font(.caption.weight(.medium))
+                                .toolboxFont(.caption.weight(.medium))
                             Spacer()
                             Text(probe.isNewerThanCurrent ? "Newer than v\(updateManager.currentVersion)" : "Matches/older than v\(updateManager.currentVersion)")
-                                .font(.caption2.weight(.semibold))
+                                .toolboxFont(.caption2.weight(.semibold))
                                 .foregroundStyle(probe.isNewerThanCurrent ? .blue : .secondary)
                         } else if let err = probe.errorMessage {
                             Text(err)
-                                .font(.caption)
+                                .toolboxFont(.caption)
                                 .foregroundStyle(.orange)
                                 .fixedSize(horizontal: false, vertical: true)
                             Spacer()
@@ -711,7 +711,7 @@ struct DeveloperToolsView: View {
                     HStack(spacing: 8) {
                         TextField("Toast message", text: $developerMode.toastPreviewMessage)
                             .textFieldStyle(.roundedBorder)
-                            .font(.callout)
+                            .toolboxFont(.callout)
 
                         Button("Show Toast") {
                             uiState.cancelToastSequence()
@@ -745,7 +745,7 @@ struct DeveloperToolsView: View {
 
                     HStack(spacing: 8) {
                         Text("Visual Tests")
-                            .font(.caption.weight(.medium))
+                            .toolboxFont(.caption.weight(.medium))
                             .foregroundStyle(.secondary)
                         Spacer(minLength: 8)
                         ForEach(ToastTestScenario.allCases) { scenario in
@@ -847,21 +847,21 @@ struct DeveloperToolsView: View {
                     .fill(module.accentColor.opacity(0.15))
                     .frame(width: 28, height: 28)
                 Image(systemName: module.symbolName)
-                    .font(.caption.weight(.semibold))
+                    .toolboxFont(.caption.weight(.semibold))
                     .foregroundStyle(module.accentColor)
             }
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(module.name)
-                        .font(.callout.weight(.medium))
+                        .toolboxFont(.callout.weight(.medium))
                     StatusBadge(
                         text: status,
                         color: module.isRunning ? .green : (isEnabled ? .orange : .secondary)
                     )
                 }
                 Text("id: \(module.id) · running: \(module.isRunning ? "true" : "false")")
-                    .font(.caption2.monospaced())
+                    .toolboxFont(.caption2.monospaced())
                     .foregroundStyle(.secondary)
             }
 
@@ -942,16 +942,16 @@ struct DeveloperToolsView: View {
 
         return HStack(alignment: .top, spacing: 10) {
             Image(systemName: symbol)
-                .font(.callout)
+                .toolboxFont(.callout)
                 .foregroundStyle(color)
                 .padding(.top, 1)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(item.title)
-                        .font(.callout.weight(.medium))
+                        .toolboxFont(.callout.weight(.medium))
                     Text(item.category.uppercased())
-                        .font(.system(size: 9.5, weight: .semibold))
+                        .toolboxFont(.system(size: 9.5, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1.5)
@@ -959,13 +959,13 @@ struct DeveloperToolsView: View {
                 }
 
                 Text(item.summary)
-                    .font(.caption)
+                    .toolboxFont(.caption)
                     .foregroundStyle(item.severity == .pass ? Color.secondary : color)
                     .fixedSize(horizontal: false, vertical: true)
 
                 if let detail = item.detail, !detail.isEmpty {
                     Text(detail)
-                        .font(.caption2.monospaced())
+                        .toolboxFont(.caption2.monospaced())
                         .foregroundStyle(.tertiary)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1011,7 +1011,7 @@ struct DeveloperToolsView: View {
                 Divider()
                 HStack(alignment: .center, spacing: 12) {
                     Text("Hardened Runtime & Sandbox")
-                        .font(.callout.weight(.medium))
+                        .toolboxFont(.callout.weight(.medium))
                     Spacer(minLength: 12)
                     StatusBadge(
                         text: signing.isHardenedRuntime ? "Hardened Runtime On" : "Hardened Runtime Off",
@@ -1056,7 +1056,7 @@ struct DeveloperToolsView: View {
                     DisclosureGroup(isExpanded: $uiState.isDesignatedRequirementExpanded) {
                         HStack(alignment: .top, spacing: 8) {
                             Text(dr)
-                                .font(.caption2.monospaced())
+                                .toolboxFont(.caption2.monospaced())
                                 .foregroundStyle(.secondary)
                                 .textSelection(.enabled)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -1075,10 +1075,10 @@ struct DeveloperToolsView: View {
                     } label: {
                         HStack {
                             Text("Designated Requirement (TCC Binding)")
-                                .font(.callout.weight(.medium))
+                                .toolboxFont(.callout.weight(.medium))
                             Spacer()
                             Text(uiState.isDesignatedRequirementExpanded ? "Hide" : "Inspect")
-                                .font(.caption)
+                                .toolboxFont(.caption)
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -1109,14 +1109,14 @@ struct DeveloperToolsView: View {
                                     color: probe.accepted ? .green : .orange
                                 )
                                 Text(probe.sourceLabel)
-                                    .font(.caption.weight(.medium))
+                                    .toolboxFont(.caption.weight(.medium))
                                 Spacer()
                                 Text(probe.checkedAt.formatted(date: .omitted, time: .standard))
-                                    .font(.caption2)
+                                    .toolboxFont(.caption2)
                                     .foregroundStyle(.secondary)
                             }
                             Text(probe.rawOutput)
-                                .font(.caption2.monospaced())
+                                .toolboxFont(.caption2.monospaced())
                                 .foregroundStyle(.secondary)
                                 .textSelection(.enabled)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -1280,10 +1280,10 @@ struct DeveloperToolsView: View {
     ) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(label)
-                .font(.callout.weight(.medium))
+                .toolboxFont(.callout.weight(.medium))
             Spacer(minLength: 12)
             Text(value)
-                .font(monospaced ? .caption.monospaced() : .caption)
+                .toolboxFont(monospaced ? .caption.monospaced() : .caption)
                 .foregroundStyle(valueColor)
                 .multilineTextAlignment(.trailing)
                 .lineLimit(allowWrap ? nil : 1)
