@@ -32,6 +32,7 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 - **Dock Click to Minimize** — clearer one-line descriptions for each action on the Dashboard card and detail page
 
 ### Fixed
+- **Status Bar Menu** — toggling individual modules (such as Call Controls, Custom Commands, or Window Snapper) now keeps switches anchored in place while dependent sections and the popover edge smoothly expand or collapse together
 - **Window Snapper** — highlighting text or dragging controls inside a previously snapped window no longer triggers an unsnap move on release, Electron/custom-titlebar window drags stay reliable across rapid grabs, pulling a window down from Maximize or the top edge no longer pops open the Top Edge Panel (it only opens when dragging toward the top edge), and windows maximized via macOS titlebar double-click and snapped windows across Toolbox restarts remember and animate back to their original pre-snap size when pulled away
 - **Window Snapper** — applying a Workspace Profile with **Hide other apps** enabled now also hides Toolbox's window, reopens running apps with no open windows, and tracks multi-app launches until each window's target zone placement is verified
 - **Window Snapper** — Delete/Backspace (and Forward Delete) now reliably cancel keyboard snap preview mode while holding shortcut modifiers without leaking the keypress or firing Restore Window Size

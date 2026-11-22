@@ -1057,6 +1057,199 @@ enum SelfTestRunner {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         menuBar.refreshHostedViewSizeForTesting()
 
+        // Section visibility predicate matrix tests
+        var visConfig = ToolboxConfig()
+        visConfig.general.showQuickActionsInMenuBar = false
+        visConfig.general.showQuickCommandsInMenuBar = true
+        visConfig.callControls.enabled = false
+        visConfig.customCommands.enabled = false
+        visConfig.customCommands.commands = [
+            CustomCommand(
+                id: "cmd-test",
+                name: "Test Command",
+                enabled: true,
+                shortcut: .none,
+                kind: .shell,
+                payload: "echo hi"
+            )
+        ]
+        visConfig.windowSnapper.enabled = false
+        visConfig.windowSnapper.profiles = [
+            WorkspaceProfile(id: "prof-test", name: "Ultra Wide Coding & Documentation Workspace")
+        ]
+        let visAllOff = MenuBarPopoverSectionVisibility.evaluate(for: visConfig)
+        expect(!visAllOff.hasAnyActions && !visAllOff.showGapAfterQuickActions && !visAllOff.showGapAfterQuickCommands, "All sections disabled must report no visible actions or gaps")
+
+        visConfig.general.showQuickActionsInMenuBar = true
+        visConfig.callControls.enabled = true
+        let visQuickAndCall = MenuBarPopoverSectionVisibility.evaluate(for: visConfig)
+        expect(visQuickAndCall.showQuickActions && visQuickAndCall.showCallControlsActions && visQuickAndCall.showCallControlsPill, "Enabled Quick Actions + Call Controls must expose row and pill")
+        expect(visQuickAndCall.hasAnyActions && !visQuickAndCall.showGapAfterQuickActions && !visQuickAndCall.showGapAfterQuickCommands, "Quick Actions alone must not insert trailing section gaps")
+
+        visConfig.general.showQuickActionsInMenuBar = false
+        let visQuickHiddenWithCallOn = MenuBarPopoverSectionVisibility.evaluate(for: visConfig)
+        expect(!visQuickHiddenWithCallOn.showQuickActions && !visQuickHiddenWithCallOn.showCallControlsActions && visQuickHiddenWithCallOn.showCallControlsPill, "Call Controls quick actions must stay hidden when Quick Actions bar is off while keeping row pill")
+
+        visConfig.general.showQuickActionsInMenuBar = true
+        visConfig.customCommands.enabled = true
+        visConfig.windowSnapper.enabled = true
+        let visAllOn = MenuBarPopoverSectionVisibility.evaluate(for: visConfig)
+        expect(visAllOn.showQuickCommands && visAllOn.showWindowProfiles && visAllOn.showGapAfterQuickActions && visAllOn.showGapAfterQuickCommands, "Quick Actions + Quick Commands + Window Profiles must enable both inter-section gaps")
+
+        visConfig.customCommands.commands[0].enabled = false
+        let visInactiveCmd = MenuBarPopoverSectionVisibility.evaluate(for: visConfig)
+        expect(!visInactiveCmd.showQuickCommands && visInactiveCmd.showGapAfterQuickActions && !visInactiveCmd.showGapAfterQuickCommands, "Disabled/empty custom commands must hide Quick Commands and keep Quick Actions -> Profiles gap")
+
+        visConfig.customCommands.commands[0].enabled = true
+        visConfig.general.showQuickActionsInMenuBar = false
+        let visCmdAndProfiles = MenuBarPopoverSectionVisibility.evaluate(for: visConfig)
+        expect(!visCmdAndProfiles.showGapAfterQuickActions && visCmdAndProfiles.showGapAfterQuickCommands, "Quick Commands + Window Profiles without Quick Actions must only enable second gap")
+
+        // EaseInOut curve boundaries & monotonicity
+        expect(abs(MenuBarPopoverLayoutAnimator.easeInOut(0) - 0) < 0.0001, "easeInOut(0) must be 0")
+        expect(abs(MenuBarPopoverLayoutAnimator.easeInOut(0.5) - 0.5) < 0.0001, "easeInOut(0.5) must be 0.5")
+        expect(abs(MenuBarPopoverLayoutAnimator.easeInOut(1) - 1) < 0.0001, "easeInOut(1) must be 1")
+        let e25 = MenuBarPopoverLayoutAnimator.easeInOut(0.25)
+        let e75 = MenuBarPopoverLayoutAnimator.easeInOut(0.75)
+        expect(e25 > 0 && e25 < 0.5 && 0.5 < e75 && e75 < 1.0, "easeInOut must be strictly monotonic on [0, 1]")
+
+        // Live MenuBarController synchronized collapse/expand & top-edge anchoring tests
+        menuBar.hidePopoverForTesting()
+        var animTestConfig = savedMenuBarConfig
+        animTestConfig.general.appEnabled = true
+        animTestConfig.general.showQuickActionsInMenuBar = true
+        animTestConfig.general.showQuickCommandsInMenuBar = true
+        animTestConfig.general.menuBarHiddenModules = ["dock_minimize", "clipboard", "port_killer", "screen_ocr"]
+        animTestConfig.callControls.enabled = true
+        animTestConfig.customCommands.enabled = true
+        animTestConfig.customCommands.commands = [
+            CustomCommand(
+                id: "anim-cmd-1",
+                name: "Run Smoke Test With Very Long Name That Must Truncate Cleanly",
+                enabled: true,
+                shortcut: ShortcutSpec(key: "r", modifiers: [.command, .option]),
+                kind: .shell,
+                payload: "echo ok"
+            )
+        ]
+        animTestConfig.windowSnapper.enabled = true
+        animTestConfig.windowSnapper.profiles = [
+            WorkspaceProfile(
+                id: "anim-prof-1",
+                name: "Ultra Wide Coding & Documentation Workspace",
+                shortcut: ShortcutSpec(key: "1", modifiers: [.command, .option])
+            )
+        ]
+        animTestConfig.windowSnapper.activeProfileID = "anim-prof-1"
+        ConfigManager.shared.config = animTestConfig
+        menuBar.layoutAnimatorForTesting.reduceMotionOverrideForTesting = false
+        menuBar.showPopoverForTesting()
+
+        let initialTopY = menuBar.popoverPanelForTesting?.frame.maxY ?? 0
+        let expandedHeight = menuBar.popoverPanelForTesting?.frame.height ?? 0
+        expect(expandedHeight > 300, "Expanded menu bar popover must have non-trivial height (got \(expandedHeight))")
+
+        // Toggle Window Snapper OFF while popover is open
+        ConfigManager.shared.config.windowSnapper.enabled = false
+        expect(menuBar.layoutAnimatorForTesting.isAnimating, "Toggling Window Snapper off while open must start layout animation")
+        let frame0TopY = menuBar.popoverPanelForTesting?.frame.maxY ?? 0
+        let frame0Height = menuBar.popoverPanelForTesting?.frame.height ?? 0
+        expect(abs(frame0TopY - initialTopY) <= 0.5, "Frame 0 topY must stay anchored on toggle (expected \(initialTopY), got \(frame0TopY))")
+        expect(abs(frame0Height - expandedHeight) <= 1.0, "Frame 0 height must stay at expanded height before stepping (expected \(expandedHeight), got \(frame0Height))")
+
+        menuBar.stepLayoutAnimationForTesting(fraction: 0.25)
+        let top25 = menuBar.popoverPanelForTesting?.frame.maxY ?? 0
+        let h25 = menuBar.popoverPanelForTesting?.frame.height ?? 0
+        menuBar.stepLayoutAnimationForTesting(fraction: 0.50)
+        let top50 = menuBar.popoverPanelForTesting?.frame.maxY ?? 0
+        let h50 = menuBar.popoverPanelForTesting?.frame.height ?? 0
+        menuBar.stepLayoutAnimationForTesting(fraction: 0.75)
+        let top75 = menuBar.popoverPanelForTesting?.frame.maxY ?? 0
+        let h75 = menuBar.popoverPanelForTesting?.frame.height ?? 0
+        menuBar.stepLayoutAnimationForTesting(fraction: 1.0)
+        let top100 = menuBar.popoverPanelForTesting?.frame.maxY ?? 0
+        let h100 = menuBar.popoverPanelForTesting?.frame.height ?? 0
+
+        expect(
+            abs(top25 - initialTopY) <= 0.5 && abs(top50 - initialTopY) <= 0.5 && abs(top75 - initialTopY) <= 0.5 && abs(top100 - initialTopY) <= 0.5,
+            "Popover top edge must remain locked within 0.5pt across collapse steps (initial=\(initialTopY), steps=\([top25, top50, top75, top100]))"
+        )
+        expect(
+            expandedHeight > h25 && h25 > h50 && h50 > h75 && h75 > h100,
+            "Popover height must shrink strictly monotonically during collapse without RunLoop delay (heights=\([expandedHeight, h25, h50, h75, h100]))"
+        )
+
+        // Mid-flight reversal test: toggle ON -> step 0.5 -> toggle OFF immediately -> step 1.0
+        ConfigManager.shared.config.windowSnapper.enabled = true
+        menuBar.stepLayoutAnimationForTesting(fraction: 0.50)
+        let midReversalProgress = menuBar.layoutAnimatorForTesting.progress.windowProfiles
+        expect(abs(midReversalProgress - 0.5) < 0.05, "Midpoint progress must be near 0.5 (got \(midReversalProgress))")
+        ConfigManager.shared.config.windowSnapper.enabled = false
+        let afterFlipProgress = menuBar.layoutAnimatorForTesting.progress.windowProfiles
+        expect(abs(afterFlipProgress - midReversalProgress) < 0.01, "Reversing mid-flight must not jump progress (before=\(midReversalProgress), after=\(afterFlipProgress))")
+        menuBar.stepLayoutAnimationForTesting(fraction: 1.0)
+        let revFinalTopY = menuBar.popoverPanelForTesting?.frame.maxY ?? 0
+        let revFinalHeight = menuBar.popoverPanelForTesting?.frame.height ?? 0
+        expect(abs(revFinalTopY - initialTopY) <= 0.5, "Top edge must stay anchored after mid-flight reversal")
+        expect(abs(revFinalHeight - h100) <= 0.5, "Mid-flight reversal back to OFF must settle at collapsed height \(h100) (got \(revFinalHeight))")
+
+        // Toggle Call Controls OFF -> ON while open
+        let baselineCollapsedPointers = menuBar.pointerCursorViewCountForTesting
+        ConfigManager.shared.config.callControls.enabled = false
+        menuBar.stepLayoutAnimationForTesting(fraction: 0.50)
+        let callOffTop50 = menuBar.popoverPanelForTesting?.frame.maxY ?? 0
+        let callOffH50 = menuBar.popoverPanelForTesting?.frame.height ?? 0
+        menuBar.stepLayoutAnimationForTesting(fraction: 1.0)
+        let callOffTop100 = menuBar.popoverPanelForTesting?.frame.maxY ?? 0
+        let callOffH100 = menuBar.popoverPanelForTesting?.frame.height ?? 0
+        let callOffPointers = menuBar.pointerCursorViewCountForTesting
+        expect(abs(callOffTop50 - initialTopY) <= 0.5 && abs(callOffTop100 - initialTopY) <= 0.5, "Top edge must stay locked when Call Controls toggles OFF")
+        expect(h100 > callOffH50 && callOffH50 > callOffH100, "Call Controls OFF must smoothly shrink height (h100=\(h100), h50=\(callOffH50), end=\(callOffH100))")
+        expect(callOffPointers < baselineCollapsedPointers, "Collapsing Call Controls must drop its quick action & pill pointer overlays")
+
+        ConfigManager.shared.config.callControls.enabled = true
+        menuBar.stepLayoutAnimationForTesting(fraction: 0.50)
+        let callOnTop50 = menuBar.popoverPanelForTesting?.frame.maxY ?? 0
+        let callOnH50 = menuBar.popoverPanelForTesting?.frame.height ?? 0
+        menuBar.stepLayoutAnimationForTesting(fraction: 1.0)
+        let callOnTop100 = menuBar.popoverPanelForTesting?.frame.maxY ?? 0
+        let callOnH100 = menuBar.popoverPanelForTesting?.frame.height ?? 0
+        let callOnPointers = menuBar.pointerCursorViewCountForTesting
+        expect(abs(callOnTop50 - initialTopY) <= 0.5 && abs(callOnTop100 - initialTopY) <= 0.5, "Top edge must stay locked when Call Controls toggles ON")
+        expect(callOffH100 < callOnH50 && callOnH50 < callOnH100 && abs(callOnH100 - h100) <= 0.5, "Call Controls ON must smoothly restore height")
+        expect(callOnPointers == baselineCollapsedPointers, "Restoring Call Controls must restore exact pointer cursor overlay count")
+
+        // Toggle Custom Commands OFF -> ON while open
+        ConfigManager.shared.config.customCommands.enabled = false
+        menuBar.stepLayoutAnimationForTesting(fraction: 0.50)
+        let cmdOffTop50 = menuBar.popoverPanelForTesting?.frame.maxY ?? 0
+        let cmdOffH50 = menuBar.popoverPanelForTesting?.frame.height ?? 0
+        menuBar.stepLayoutAnimationForTesting(fraction: 1.0)
+        let cmdOffTop100 = menuBar.popoverPanelForTesting?.frame.maxY ?? 0
+        let cmdOffH100 = menuBar.popoverPanelForTesting?.frame.height ?? 0
+        let cmdOffPointers = menuBar.pointerCursorViewCountForTesting
+        expect(abs(cmdOffTop50 - initialTopY) <= 0.5 && abs(cmdOffTop100 - initialTopY) <= 0.5, "Top edge must stay locked when Custom Commands toggles OFF")
+        expect(h100 > cmdOffH50 && cmdOffH50 > cmdOffH100, "Custom Commands OFF must smoothly shrink height")
+        expect(cmdOffPointers < baselineCollapsedPointers, "Collapsing Quick Commands must drop its pointer cursor overlays")
+
+        ConfigManager.shared.config.customCommands.enabled = true
+        menuBar.stepLayoutAnimationForTesting(fraction: 0.50)
+        let cmdOnTop50 = menuBar.popoverPanelForTesting?.frame.maxY ?? 0
+        let cmdOnH50 = menuBar.popoverPanelForTesting?.frame.height ?? 0
+        menuBar.stepLayoutAnimationForTesting(fraction: 1.0)
+        let cmdOnTop100 = menuBar.popoverPanelForTesting?.frame.maxY ?? 0
+        let cmdOnH100 = menuBar.popoverPanelForTesting?.frame.height ?? 0
+        let cmdOnPointers = menuBar.pointerCursorViewCountForTesting
+        expect(abs(cmdOnTop50 - initialTopY) <= 0.5 && abs(cmdOnTop100 - initialTopY) <= 0.5, "Top edge must stay locked when Custom Commands toggles ON")
+        expect(cmdOffH100 < cmdOnH50 && cmdOnH50 < cmdOnH100 && abs(cmdOnH100 - h100) <= 0.5, "Custom Commands ON must smoothly restore height")
+        expect(cmdOnPointers == baselineCollapsedPointers, "Restoring Quick Commands must restore exact pointer cursor overlay count")
+
+        menuBar.layoutAnimatorForTesting.reduceMotionOverrideForTesting = nil
+        ConfigManager.shared.config = savedMenuBarConfig
+        registry.reloadAll(with: savedMenuBarConfig)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        menuBar.refreshHostedViewSizeForTesting()
+
         final class PopoverCloseObserverState: @unchecked Sendable {
             var didPost = false
         }
@@ -1085,6 +1278,18 @@ enum SelfTestRunner {
             fallbackVisibleFrame: primaryScreen.visibleFrame
         )
         expect(secondaryScreen.frame.contains(originOnSecondDisplay), "Menu bar click on secondary display must open popover on secondary display even if button.window frame is still on primary display (got \(originOnSecondDisplay))")
+
+        let originWithUnpositionedButton = MenuBarController.popoverOrigin(
+            size: NSSize(width: 340, height: 470),
+            cursorPoint: NSPoint(x: 900, y: 1100),
+            buttonScreenRect: NSRect(x: 0, y: 0, width: 24, height: 22),
+            screenFrames: [primaryScreen],
+            fallbackVisibleFrame: primaryScreen.visibleFrame
+        )
+        expect(
+            originWithUnpositionedButton.y > primaryScreen.visibleFrame.minY + 100,
+            "Unpositioned status button rect at (0, 0) must not pin popover to bottom of screen (got \(originWithUnpositionedButton))"
+        )
 
         let win = MainWindowController.shared.ensureWindow()
         win.layoutIfNeeded()
