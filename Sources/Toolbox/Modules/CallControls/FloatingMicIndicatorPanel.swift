@@ -23,7 +23,7 @@ private struct FloatingPillAnchor: Equatable {
     var pinTrailing: Bool
 }
 
-private final class FloatingPillNSPanel: NSPanel {
+private final class FloatingPillNSPanel: PointerCursorNSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
@@ -478,28 +478,30 @@ private final class PillDragNSView: NSView, HoverCursorProviderView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let hoverTrackingArea {
-            removeTrackingArea(hoverTrackingArea)
+        if hoverTrackingArea == nil || cursorTrackingArea == nil {
+            if let hoverTrackingArea {
+                removeTrackingArea(hoverTrackingArea)
+            }
+            if let cursorTrackingArea {
+                removeTrackingArea(cursorTrackingArea)
+            }
+            let hoverArea = NSTrackingArea(
+                rect: bounds,
+                options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            )
+            let cursorArea = NSTrackingArea(
+                rect: bounds,
+                options: [.cursorUpdate, .activeInActiveApp, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            )
+            addTrackingArea(hoverArea)
+            addTrackingArea(cursorArea)
+            self.hoverTrackingArea = hoverArea
+            self.cursorTrackingArea = cursorArea
         }
-        if let cursorTrackingArea {
-            removeTrackingArea(cursorTrackingArea)
-        }
-        let hoverArea = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        let cursorArea = NSTrackingArea(
-            rect: bounds,
-            options: [.cursorUpdate, .activeInActiveApp, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(hoverArea)
-        addTrackingArea(cursorArea)
-        self.hoverTrackingArea = hoverArea
-        self.cursorTrackingArea = cursorArea
     }
 
     override func mouseEntered(with event: NSEvent) {

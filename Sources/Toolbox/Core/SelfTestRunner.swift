@@ -54,9 +54,10 @@ enum SelfTestRunner {
         testWindowSnapperMinSizeClampingAndDragLogic()
         testWindowSnapperDisplayRegistryAndUndoStack()
         testWindowSnapperConfigHotKeysProfilesAndLifecycle()
+        testWindowDragMonitorEndToEndLifecycle()
 
         if failures.isEmpty {
-            print("All 40 self-test suites passed.")
+            print("All 41 self-test suites passed.")
             return 0
         } else {
             for f in failures {
@@ -1088,6 +1089,22 @@ enum SelfTestRunner {
         let win = MainWindowController.shared.ensureWindow()
         win.layoutIfNeeded()
         expect(win.acceptsMouseMovedEvents, "Dashboard NSWindow must accept mouse moved events so hover cursors reset outside clickable items")
+        expect(
+            win.contentView is PointerCursorHostingView<MainSplitView>,
+            "Main window must use PointerCursorHostingView so SwiftUI hover and click state updates never revert pointingHand to arrow"
+        )
+        expect(
+            PointerCursorNSView.isManagedCursorWindow(win),
+            "Main window must be recognized as a managed cursor window"
+        )
+        let menuPopoverPanel = MenuBarController()
+        _ = menuPopoverPanel.pointerCursorViewCountForTesting
+        if let popPanel = menuPopoverPanel.popoverPanelForTesting {
+            expect(
+                popPanel is PointerCursorNSPanel && PointerCursorNSView.isManagedCursorWindow(popPanel),
+                "Menu bar popover panel at .popUpMenu level must use PointerCursorNSPanel and be managed by PointerCursorNSView"
+            )
+        }
         if let rootView = win.contentView?.superview ?? win.contentView {
             let contentTop = win.contentLayoutRect.maxY
             let windowTop = rootView.bounds.maxY
@@ -2443,11 +2460,19 @@ enum SelfTestRunner {
         let pointerView = PointerCursorNSView()
         pointerView.frame = NSRect(x: 0, y: 0, width: 80, height: 28)
         pointerView.updateTrackingAreas()
-        expect(pointerView.trackingAreas.count == 2, "PointerCursorNSView should install 2 distinct tracking areas (found \(pointerView.trackingAreas.count))")
-        for area in pointerView.trackingAreas {
+        let initialTrackingAreas = pointerView.trackingAreas
+        expect(initialTrackingAreas.count == 2, "PointerCursorNSView should install 2 distinct tracking areas (found \(initialTrackingAreas.count))")
+        for area in initialTrackingAreas {
             let hasIllegalCombo = area.options.contains(.cursorUpdate) && area.options.contains(.activeAlways)
             expect(!hasIllegalCombo, "PointerCursorNSView must never combine .cursorUpdate with .activeAlways")
         }
+        pointerView.updateTrackingAreas()
+        expect(
+            pointerView.trackingAreas.count == 2
+                && pointerView.trackingAreas[0] === initialTrackingAreas[0]
+                && pointerView.trackingAreas[1] === initialTrackingAreas[1],
+            "PointerCursorNSView.updateTrackingAreas() must retain existing .inVisibleRect tracking areas rather than recreating them on every layout pass"
+        )
     }
 
     private static func testCallControlsTypingMicStateMachine() {
@@ -4609,7 +4634,85 @@ enum SelfTestRunner {
                 initialFrameAX: initialWin,
                 currentFrameAX: initialWin
             ) == .pending,
-            "Unchanged frame (text selection / canvas drag) must stay pending"
+            "Unchanged frame with zero pointer movement must stay pending"
+        )
+        expect(
+            WindowDragMonitor.evaluateConfirmedWindowDrag(
+                initialFrameAX: initialWin,
+                currentFrameAX: initialWin,
+                pointerDistance: 28
+            ) == .pending,
+            "Unchanged frame after >= 18pt pointer movement must remain pending so delayed Electron/custom-titlebar drags can confirm once the window moves"
+        )
+        expect(
+            !MainWindowController.shared.ensureWindow().isMovableByWindowBackground,
+            "ToolboxWindow must keep isMovableByWindowBackground=false so text selection never moves the window"
+        )
+        let snappedFrameForRestoreTest = CGRect(x: 0, y: 25, width: 720, height: 875)
+        let preSnapFrameForRestoreTest = CGRect(x: 200, y: 150, width: 900, height: 600)
+        expect(
+            WindowDragMonitor.shouldTriggerMidDragSizeRestore(
+                currentFrameAX: snappedFrameForRestoreTest,
+                preSnapFrameAX: preSnapFrameForRestoreTest,
+                dragDistance: 6
+            ),
+            "Confirmed drag >= 3pt away from a differently sized snapped frame must trigger mid-drag animated size restore"
+        )
+        expect(
+            !WindowDragMonitor.shouldTriggerMidDragSizeRestore(
+                currentFrameAX: snappedFrameForRestoreTest,
+                preSnapFrameAX: preSnapFrameForRestoreTest,
+                dragDistance: 2.5
+            ),
+            "Drag distance < 3pt must not trigger mid-drag size restore yet"
+        )
+        expect(
+            !WindowDragMonitor.shouldTriggerMidDragSizeRestore(
+                currentFrameAX: CGRect(x: 0, y: 25, width: 902, height: 598),
+                preSnapFrameAX: preSnapFrameForRestoreTest,
+                dragDistance: 12
+            ),
+            "Window already within 4pt of pre-snap size must skip mid-drag size restore"
+        )
+        expect(
+            !WindowDragMonitor.shouldReleaseTopPullAwaySuppression(
+                downPointAX: CGPoint(x: 600, y: 30),
+                pointerAX: CGPoint(x: 620, y: 33),
+                velocityY: 120,
+                usableMinY: 25,
+                topTriggerBand: 18
+            ),
+            "Diagonal downward pull away from top edge must keep top-edge suppression active"
+        )
+        expect(
+            !WindowDragMonitor.shouldReleaseTopPullAwaySuppression(
+                downPointAX: CGPoint(x: 600, y: 30),
+                pointerAX: CGPoint(x: 625, y: 30),
+                velocityY: 0,
+                usableMinY: 25,
+                topTriggerBand: 18
+            ),
+            "Horizontal drag inside top band must not prematurely activate Top Edge Panel"
+        )
+        expect(
+            WindowDragMonitor.shouldReleaseTopPullAwaySuppression(
+                downPointAX: CGPoint(x: 600, y: 30),
+                pointerAX: CGPoint(x: 600, y: 55),
+                velocityY: 150,
+                usableMinY: 25,
+                topTriggerBand: 18
+            ),
+            "Pulling clearly below top trigger band must release top pull-away suppression"
+        )
+        expect(
+            WindowDragMonitor.shouldReleaseTopPullAwaySuppression(
+                downPointAX: CGPoint(x: 600, y: 36),
+                pointerAX: CGPoint(x: 600, y: 31),
+                velocityY: -90,
+                usableMinY: 25,
+                topTriggerBand: 18
+            ),
+            "Intentionally pushing upward toward the top edge must release top pull-away suppression"
         )
 
         // 3. Inter-display pass-through suppression across shared seams vs outer boundaries
@@ -5161,12 +5264,40 @@ enum SelfTestRunner {
         roundTripCfg.windowSnapper.overlayStyle.borderWidthPoints = 3.0
         roundTripCfg.windowSnapper.hotKeys = .rectangleStyle
         roundTripCfg.windowSnapper.profiles = WorkspaceProfile.defaultTemplates
+        roundTripCfg.windowSnapper.restorePreviousWorkspaceOnShortcutToggle = false
+        expect(
+            ToolboxConfig().windowSnapper.restorePreviousWorkspaceOnShortcutToggle,
+            "WindowSnapperConfig.restorePreviousWorkspaceOnShortcutToggle must default to true"
+        )
         if let encoded = try? JSONEncoder().encode(roundTripCfg),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: encoded) {
             expect(decoded.windowSnapper == roundTripCfg.windowSnapper, "WindowSnapperConfig Codable round-trip mismatch")
+            expect(
+                !decoded.windowSnapper.restorePreviousWorkspaceOnShortcutToggle,
+                "restorePreviousWorkspaceOnShortcutToggle=false must round-trip cleanly"
+            )
         } else {
             failures.append("WindowSnapperConfig Codable round-trip failed")
         }
+
+        expect(
+            DisplayPresetKind.builtInTemplates.contains(.maximized)
+                && !DisplayPresetKind.topEdgeSlotTemplates.contains(.maximized),
+            "DisplayPresetKind.maximized must appear in builtInTemplates and be excluded from topEdgeSlotTemplates"
+        )
+        let maximizedTemplateZones = SnapGeometry.resolveTemplateZones(
+            preset: .maximized,
+            usableAXRect: CGRect(x: 0, y: 25, width: 1440, height: 875),
+            primaryScreenHeight: 900,
+            gaps: GapConfig()
+        )
+        expect(
+            maximizedTemplateZones.count == 1
+                && maximizedTemplateZones[0].id == "cell:0:0"
+                && maximizedTemplateZones[0].name == "Maximized"
+                && maximizedTemplateZones[0].frameInAX == CGRect(x: 0, y: 25, width: 1440, height: 875),
+            "DisplayPresetKind.maximized must resolve to a single full usable-rect zone named Maximized"
+        )
 
         // 2. Sequoia native tiling preference parser & flash auto-hide regression check
         let allOnConflict = SnapGeometry.evaluateSequoiaTilingConflict(
@@ -5309,6 +5440,75 @@ enum SelfTestRunner {
         expect(mainItems.first { $0.appName == "Notes" }?.status == .willLaunch, "Closed Notes with launchIfNotRunning must report .willLaunch")
         expect(mainItems.first { $0.appName == "Terminal" }?.status == .mainDisplayFallback, "Unplugged external monitor rule must report .mainDisplayFallback")
 
+        expect(
+            ProfileEngine.isWindowFramePositionedCorrectly(
+                actualFrameAX: leftZone.frameInAX,
+                targetFrameAX: leftZone.frameInAX,
+                usableAXRect: mainDisp.usableAX
+            ),
+            "isWindowFramePositionedCorrectly must return true when frame matches target zone"
+        )
+        expect(
+            !ProfileEngine.isWindowFramePositionedCorrectly(
+                actualFrameAX: CGRect(x: 100, y: 100, width: 400, height: 300),
+                targetFrameAX: leftZone.frameInAX,
+                usableAXRect: mainDisp.usableAX
+            ),
+            "isWindowFramePositionedCorrectly must return false when app window has not filled target zone"
+        )
+        let minSizeClampTarget = CGRect(x: 1000, y: 25, width: 440, height: 875)
+        let minSizeClampedActual = CGRect(x: 840, y: 25, width: 600, height: 875)
+        expect(
+            ProfileEngine.isWindowFramePositionedCorrectly(
+                actualFrameAX: minSizeClampedActual,
+                targetFrameAX: minSizeClampTarget,
+                minSize: CGSize(width: 600, height: 400),
+                usableAXRect: mainDisp.usableAX
+            ),
+            "isWindowFramePositionedCorrectly must treat min-size clamped frame as positioned"
+        )
+
+        let testProfileEngine = ProfileEngine(axController: AXWindowController())
+        var toggleTestCfg = WindowSnapperConfig()
+        toggleTestCfg.activeProfileID = profile.id
+        toggleTestCfg.restorePreviousWorkspaceOnShortcutToggle = true
+        expect(
+            !testProfileEngine.canRestorePreviousWorkspace(forProfileID: profile.id, config: toggleTestCfg),
+            "canRestorePreviousWorkspace must be false when no restore snapshot is stored"
+        )
+        testProfileEngine.seedRestoreSnapshotForTesting(
+            WorkspaceProfileRestoreSnapshot(
+                profileID: profile.id,
+                profileName: profile.name,
+                previousActiveProfileID: nil,
+                previousDisplayLayouts: [],
+                preProfileWindows: [],
+                preProfileElementsByUndoID: [:],
+                unminimizedElements: [],
+                unhiddenBundleIDs: [],
+                appsHiddenByProfile: [],
+                newlyLaunchedBundleIDs: [],
+                wasToolboxMainWindowVisible: false,
+                previouslyFrontmostBundleID: nil
+            )
+        )
+        expect(
+            testProfileEngine.canRestorePreviousWorkspace(forProfileID: profile.id, config: toggleTestCfg),
+            "canRestorePreviousWorkspace must be true when profile matches activeProfileID and toggle setting is enabled"
+        )
+        toggleTestCfg.restorePreviousWorkspaceOnShortcutToggle = false
+        expect(
+            !testProfileEngine.canRestorePreviousWorkspace(forProfileID: profile.id, config: toggleTestCfg),
+            "canRestorePreviousWorkspace must be false when restorePreviousWorkspaceOnShortcutToggle is disabled"
+        )
+        toggleTestCfg.restorePreviousWorkspaceOnShortcutToggle = true
+        toggleTestCfg.activeProfileID = "different-profile-id"
+        expect(
+            !testProfileEngine.canRestorePreviousWorkspace(forProfileID: profile.id, config: toggleTestCfg),
+            "canRestorePreviousWorkspace must be false for a different active profile"
+        )
+        testProfileEngine.seedRestoreSnapshotForTesting(nil)
+
         let selfPID = ProcessInfo.processInfo.processIdentifier
         let selfBox = AXElementBox(AXUIElementCreateApplication(selfPID))
         let remoteBox = AXElementBox(AXUIElementCreateApplication(selfPID + 50000))
@@ -5358,25 +5558,6 @@ enum SelfTestRunner {
         expect(!mod.isRunning, "WindowSnapperModule.stop() must clear isRunning")
         expect(!hk.isRegistered(name: WindowSnapperHotKeyAction.maximize.registrationName), "WindowSnapperModule.stop() must unregister all window_snapper.* hotkeys")
         expect(!mod.dragMonitor.isTapInstalled, "WindowSnapperModule.stop() must uninstall drag event tap")
-
-        // 6. Overlay flash auto-hide regression test (flashZone must dismiss overlay instead of leaving it stuck)
-        ZoneOverlayController.shared.hideAllPreviews()
-        ZoneOverlayController.shared.flashZone(
-            leftZone,
-            on: mainDisp,
-            style: OverlayStyleConfig(),
-            duration: 0.03
-        )
-        expect(
-            ZoneOverlayController.shared.anyPassivePanelIsVisibleForTesting(),
-            "flashZone must display passive overlay panel immediately"
-        )
-        RunLoop.main.run(until: Date().addingTimeInterval(0.09))
-        expect(
-            !ZoneOverlayController.shared.anyPassivePanelIsVisibleForTesting(),
-            "flashZone must auto-hide overlay panel after duration expires"
-        )
-        ZoneOverlayController.shared.hideAllPreviews()
 
         // 7. Top Edge Panel slot config, legacy migration, picker hit-testing, app card sizing & glass pane state
         var panelCfg = TopEdgePanelConfig()
@@ -5869,5 +6050,290 @@ enum SelfTestRunner {
 
         wsCfg.enabled = false
         _ = wsCfg
+    }
+
+    private static func testWindowDragMonitorEndToEndLifecycle() {
+        DisplayRegistry.shared.refresh()
+        let usable = DisplayRegistry.shared.mainDisplay()?.usableAX ?? CGRect(x: 0, y: 25, width: 1440, height: 875)
+        let originalFrame = CGRect(
+            x: usable.minX + 120,
+            y: usable.minY + 120,
+            width: max(400, round(usable.width * 0.45)),
+            height: max(300, round(usable.height * 0.55))
+        )
+        let leftHalfFrame = CGRect(
+            x: usable.minX,
+            y: usable.minY,
+            width: round(usable.width * 0.5),
+            height: usable.height
+        )
+        let fakePID: pid_t = ProcessInfo.processInfo.processIdentifier + 50001
+        let fakeBox = AXElementBox(AXUIElementCreateApplication(fakePID))
+
+        let makeWindow: (Int, CGRect) -> DiscoveredAXWindow = { winNum, frame in
+            DiscoveredAXWindow(
+                pid: fakePID,
+                windowNumber: winNum,
+                bundleIdentifier: "com.example.testapp",
+                appName: "TestApp",
+                title: "Document",
+                frameAX: frame,
+                isFullscreen: false,
+                isMinimized: false,
+                elementBox: fakeBox
+            )
+        }
+
+        var store = PreSnapFrameStore()
+        let axController = AXWindowController()
+        let monitor = WindowDragMonitor(axController: axController)
+        var cfg = WindowSnapperConfig()
+        cfg.enabled = true
+        cfg.drag.enabled = true
+        cfg.windowAnimationSpeed = .smooth
+        cfg.topEdgePanel.enabled = true
+        cfg.topEdgePanel.triggerDistancePoints = 44
+        monitor.updateConfig(cfg)
+
+        var midDragRestores: [(size: CGSize, speed: WindowAnimationSpeed)] = []
+        var unsnapCommits: [CGSize] = []
+        monitor.preSnapLookup = { win in
+            store.lookupOriginalFrameIfSnapped(for: win)
+        }
+        monitor.onMidDragResizeRequestedForTesting = { size, speed in
+            midDragRestores.append((size, speed))
+        }
+        monitor.onUnsnapCommitted = { _, preSnapRect, _, _ in
+            unsnapCommits.append(preSnapRect.size)
+        }
+        monitor.onExternalMaximizeDetected = { winNum, pid, bundleID, preFrame, postFrame in
+            let dummy = makeWindow(winNum ?? 0, preFrame)
+            let effectiveOriginal = store.lookupOriginalFrameIfSnapped(for: dummy, currentSizeAX: preFrame.size) ?? preFrame
+            store.recordSnap(
+                pid: pid,
+                windowNumber: winNum,
+                bundleIdentifier: bundleID,
+                preSnapFrameAX: effectiveOriginal,
+                appliedFrameAX: postFrame
+            )
+        }
+        monitor.onExternalUnmaximizeDetected = { winNum, pid, _ in
+            store.clearRecord(pid: pid, windowNumber: winNum, sizeAX: nil)
+        }
+
+        // 1. Pulling a Toolbox-snapped window off Left Half triggers animated mid-drag size restore
+        let leftWin = makeWindow(990001, leftHalfFrame)
+        store.recordSnap(window: leftWin, preSnapFrameAX: originalFrame, appliedFrameAX: leftHalfFrame)
+        let leftGrabStart = CGPoint(x: leftHalfFrame.midX, y: usable.minY + 120)
+        monitor.beginSimulatedDragSessionForTesting(
+            downPointAX: leftGrabStart,
+            window: leftWin,
+            initialFrameAX: leftHalfFrame,
+            timestamp: 1.0
+        )
+        let leftStep = monitor.advanceSimulatedDragForTesting(
+            pointerAX: CGPoint(x: leftGrabStart.x + 24, y: leftGrabStart.y + 40),
+            liveWindowFrameAX: leftHalfFrame.offsetBy(dx: 24, dy: 40),
+            timestamp: 1.05
+        )
+        expect(
+            leftStep.confirmation == .confirmedMove
+                && midDragRestores.count == 1
+                && midDragRestores.first?.size == originalFrame.size
+                && midDragRestores.first?.speed == .smooth,
+            "Pulling a snapped window off Left Half must confirm move and request animated mid-drag resize back to pre-snap size"
+        )
+        monitor.finishSimulatedDragForTesting(
+            releasePointAX: CGPoint(x: leftGrabStart.x + 80, y: leftGrabStart.y + 80),
+            timestamp: 1.15
+        )
+        expect(unsnapCommits.count == 1, "Releasing unsnapped window outside zones must commit unsnap")
+
+        // 2. Pulling a Toolbox-maximized window down from the top edge animates size restore & keeps Top Edge Panel closed
+        midDragRestores.removeAll()
+        let maxWin = makeWindow(990002, usable)
+        store.recordSnap(window: maxWin, preSnapFrameAX: originalFrame, appliedFrameAX: usable)
+        let topGrabStart = CGPoint(x: usable.midX, y: usable.minY + 10)
+        monitor.beginSimulatedDragSessionForTesting(
+            downPointAX: topGrabStart,
+            window: maxWin,
+            initialFrameAX: usable,
+            timestamp: 2.0
+        )
+        let maxPull1 = monitor.advanceSimulatedDragForTesting(
+            pointerAX: CGPoint(x: usable.midX + 6, y: usable.minY + 16),
+            liveWindowFrameAX: usable.offsetBy(dx: 6, dy: 6),
+            timestamp: 2.03
+        )
+        expect(
+            maxPull1.confirmation == .confirmedMove
+                && !maxPull1.topPanelVisible
+                && midDragRestores.count == 1
+                && midDragRestores.first?.size == originalFrame.size,
+            "Pulling down from Maximize must animate back to original size without opening the Top Edge Panel"
+        )
+        let maxPull2 = monitor.advanceSimulatedDragForTesting(
+            pointerAX: CGPoint(x: usable.midX + 18, y: usable.minY + 28),
+            liveWindowFrameAX: usable.offsetBy(dx: 18, dy: 18),
+            timestamp: 2.06
+        )
+        expect(
+            !maxPull2.topPanelVisible,
+            "Continuing downward pull from Maximize inside top band must keep Top Edge Panel suppressed"
+        )
+        monitor.finishSimulatedDragForTesting(
+            releasePointAX: CGPoint(x: usable.midX + 30, y: usable.minY + 160),
+            timestamp: 2.16
+        )
+
+        // 3. Double-clicking titlebar to maximize records pre-zoom size, and pulling off restores it
+        midDragRestores.removeAll()
+        let zoomWinNum = 990003
+        monitor.handleExternalZoomTransition(
+            windowNumber: zoomWinNum,
+            pid: fakePID,
+            bundleIdentifier: "com.example.testapp",
+            preClickFrameAX: originalFrame,
+            postClickFrameAX: usable,
+            displayUsableAX: usable
+        )
+        let zoomedWin = makeWindow(zoomWinNum, usable)
+        expect(
+            store.lookupOriginalFrameIfSnapped(for: zoomedWin) == originalFrame,
+            "Double-click maximize transition must store original pre-zoom frame in PreSnapFrameStore"
+        )
+        monitor.beginSimulatedDragSessionForTesting(
+            downPointAX: CGPoint(x: usable.midX, y: usable.minY + 10),
+            window: zoomedWin,
+            initialFrameAX: usable,
+            timestamp: 3.0
+        )
+        let zoomedPull = monitor.advanceSimulatedDragForTesting(
+            pointerAX: CGPoint(x: usable.midX + 12, y: usable.minY + 22),
+            liveWindowFrameAX: usable.offsetBy(dx: 12, dy: 12),
+            timestamp: 3.05
+        )
+        expect(
+            zoomedPull.confirmation == .confirmedMove
+                && !zoomedPull.topPanelVisible
+                && midDragRestores.count == 1
+                && midDragRestores.first?.size == originalFrame.size,
+            "Dragging away from macOS double-click maximize must animate back to pre-zoom size without opening Top Edge Panel"
+        )
+        monitor.finishSimulatedDragForTesting(
+            releasePointAX: CGPoint(x: usable.midX + 40, y: usable.minY + 180),
+            timestamp: 3.15
+        )
+
+        // 4. Double-clicking again to un-maximize clears PreSnapFrameStore record
+        monitor.handleExternalZoomTransition(
+            windowNumber: zoomWinNum,
+            pid: fakePID,
+            bundleIdentifier: "com.example.testapp",
+            preClickFrameAX: usable,
+            postClickFrameAX: originalFrame,
+            displayUsableAX: usable
+        )
+        expect(
+            store.lookupOriginalFrameIfSnapped(for: zoomedWin) == nil,
+            "Double-click un-maximize transition must clear stored pre-snap record"
+        )
+
+        // 5. Delayed Electron/custom-titlebar drag confirms once window moves after 30pt pointer lead
+        midDragRestores.removeAll()
+        let delayedWin = makeWindow(990004, leftHalfFrame)
+        store.recordSnap(window: delayedWin, preSnapFrameAX: originalFrame, appliedFrameAX: leftHalfFrame)
+        let delayedGrab = CGPoint(x: leftHalfFrame.midX, y: usable.minY + 16)
+        monitor.beginSimulatedDragSessionForTesting(
+            downPointAX: delayedGrab,
+            window: delayedWin,
+            initialFrameAX: leftHalfFrame,
+            timestamp: 4.0
+        )
+        let leadPhase = monitor.advanceSimulatedDragForTesting(
+            pointerAX: CGPoint(x: delayedGrab.x + 30, y: delayedGrab.y + 10),
+            liveWindowFrameAX: leftHalfFrame,
+            timestamp: 4.02
+        )
+        expect(
+            leadPhase.confirmation == .pending,
+            "Delayed Electron drag with 30pt pointer lead before window moves must remain pending"
+        )
+        let catchUpPhase = monitor.advanceSimulatedDragForTesting(
+            pointerAX: CGPoint(x: delayedGrab.x + 35, y: delayedGrab.y + 15),
+            liveWindowFrameAX: leftHalfFrame.offsetBy(dx: 5, dy: 5),
+            timestamp: 4.05
+        )
+        expect(
+            catchUpPhase.confirmation == .confirmedMove
+                && midDragRestores.count == 1
+                && midDragRestores.first?.size == originalFrame.size,
+            "Delayed Electron drag must confirm and trigger mid-drag restore as soon as window moves"
+        )
+        monitor.finishSimulatedDragForTesting(
+            releasePointAX: CGPoint(x: usable.midX, y: usable.midY),
+            timestamp: 4.15
+        )
+
+        // 6. Text selection inside snapped window triggers neither mid-drag resize nor unsnap commit
+        midDragRestores.removeAll()
+        unsnapCommits.removeAll()
+        let selectionWin = makeWindow(990005, leftHalfFrame)
+        store.recordSnap(window: selectionWin, preSnapFrameAX: originalFrame, appliedFrameAX: leftHalfFrame)
+        let selectStart = CGPoint(x: leftHalfFrame.midX, y: usable.midY)
+        monitor.beginSimulatedDragSessionForTesting(
+            downPointAX: selectStart,
+            window: selectionWin,
+            initialFrameAX: leftHalfFrame,
+            timestamp: 5.0
+        )
+        let selectEnd = monitor.advanceSimulatedDragForTesting(
+            pointerAX: CGPoint(x: selectStart.x + 80, y: selectStart.y + 20),
+            liveWindowFrameAX: leftHalfFrame,
+            timestamp: 5.10
+        )
+        expect(
+            selectEnd.confirmation == .pending && midDragRestores.isEmpty,
+            "Text selection inside snapped window must not trigger mid-drag size restore"
+        )
+        monitor.finishSimulatedDragForTesting(
+            releasePointAX: CGPoint(x: selectStart.x + 80, y: selectStart.y + 20),
+            timestamp: 5.15
+        )
+        expect(
+            unsnapCommits.isEmpty,
+            "Releasing text selection inside snapped window must never trigger unsnap commit"
+        )
+
+        // 7. PreSnapFrameStore JSON save/load persistence preserves live PIDs and prunes dead PIDs
+        let tmpStoreURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("toolbox-presnap-test-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: tmpStoreURL) }
+        var persistedStore = PreSnapFrameStore()
+        let liveWin = makeWindow(990006, leftHalfFrame)
+        let deadPID: pid_t = fakePID + 999
+        let deadWin = DiscoveredAXWindow(
+            pid: deadPID,
+            windowNumber: 990007,
+            bundleIdentifier: "com.example.dead",
+            appName: "DeadApp",
+            title: "Gone",
+            frameAX: leftHalfFrame,
+            isFullscreen: false,
+            isMinimized: false,
+            elementBox: fakeBox
+        )
+        persistedStore.recordSnap(window: liveWin, preSnapFrameAX: originalFrame, appliedFrameAX: leftHalfFrame)
+        persistedStore.recordSnap(window: deadWin, preSnapFrameAX: originalFrame, appliedFrameAX: leftHalfFrame)
+        persistedStore.save(to: tmpStoreURL)
+        let reloadedStore = PreSnapFrameStore.load(from: tmpStoreURL, livePIDs: [fakePID])
+        expect(
+            reloadedStore.lookupOriginalFrameIfSnapped(for: liveWin) == originalFrame
+                && reloadedStore.lookupOriginalFrameIfSnapped(for: deadWin) == nil,
+            "PreSnapFrameStore persistence must survive restart for live PIDs and prune dead PIDs"
+        )
+
+        ZoneOverlayController.shared.hideDragOverlays()
+        ZoneOverlayController.shared.hideAllPreviews()
     }
 }

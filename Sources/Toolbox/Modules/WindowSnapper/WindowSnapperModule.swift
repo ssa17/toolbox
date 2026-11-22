@@ -337,6 +337,9 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
     )
 
     private var config = WindowSnapperConfig()
+    private let preSnapStoreURL: URL = ConfigManager.shared.configURL
+        .deletingLastPathComponent()
+        .appendingPathComponent("pre_snap_frames.json")
     private var preSnapStore = PreSnapFrameStore()
     private var lastDirectionalSnap: (pid: pid_t, title: String, action: SnapDirectionAction, stepIndex: Int, timestamp: Date)?
     private var pendingKeyboardSnap: PendingKeyboardSnapSession?
@@ -352,6 +355,9 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
     private var lastKeyboardPreviewCancelUptime: TimeInterval = 0
 
     init() {
+        let livePIDs = Set(NSWorkspace.shared.runningApplications.map(\.processIdentifier))
+        self.preSnapStore = PreSnapFrameStore.load(from: preSnapStoreURL, livePIDs: livePIDs)
+
         keyboardPreviewTap.onCancelKeyPressed = { [weak self] in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
@@ -442,6 +448,35 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
                 releasePointAX: releasePointAX,
                 horizontalGrabRatio: grabRatioX
             )
+        }
+        dragMonitor.onExternalMaximizeDetected = { [weak self] windowNumber, pid, bundleID, preClickFrameAX, postClickFrameAX in
+            guard let self else { return }
+            let dummy = DiscoveredAXWindow(
+                pid: pid,
+                windowNumber: windowNumber,
+                bundleIdentifier: bundleID,
+                appName: "",
+                title: "",
+                frameAX: preClickFrameAX,
+                isFullscreen: false,
+                isMinimized: false,
+                elementBox: AXElementBox(AXWindowController.applicationElement(for: pid), selfWindowNumber: windowNumber)
+            )
+            let effectiveOriginal = self.preSnapStore.lookupOriginalFrameIfSnapped(for: dummy, currentSizeAX: preClickFrameAX.size)
+                ?? preClickFrameAX
+            self.preSnapStore.recordSnap(
+                pid: pid,
+                windowNumber: windowNumber,
+                bundleIdentifier: bundleID,
+                preSnapFrameAX: effectiveOriginal,
+                appliedFrameAX: postClickFrameAX
+            )
+            self.persistPreSnapStore()
+        }
+        dragMonitor.onExternalUnmaximizeDetected = { [weak self] windowNumber, pid, _ in
+            guard let self else { return }
+            self.preSnapStore.clearRecord(pid: pid, windowNumber: windowNumber, sizeAX: nil)
+            self.persistPreSnapStore()
         }
         displayRegistry.onDisplaysReconfigured = { [weak self] connected, _ in
             guard let self else { return }
@@ -619,7 +654,7 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
                       let currentProfile = ConfigManager.shared.config.windowSnapper.profiles.first(where: { $0.id == profileID }) else {
                     return
                 }
-                self.applyProfile(currentProfile)
+                self.triggerProfileShortcut(currentProfile)
             }
         }
 
@@ -1205,6 +1240,7 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
             ) { [weak self] execResult in
                 guard let self, execResult != nil else { return }
                 self.preSnapStore.clearRecord(for: win)
+                self.persistPreSnapStore()
                 if self.config.showSnapHUDToasts {
                     HUDToast.shared.show(
                         title: "Restored \(win.appName)",
@@ -1239,6 +1275,11 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
                 appliedFrameAX: item.afterFrameAX
             )
         }
+        persistPreSnapStore()
+    }
+
+    private func persistPreSnapStore() {
+        preSnapStore.save(to: preSnapStoreURL)
     }
 
     private func restoreWindowOnDragAwayRelease(
@@ -1252,6 +1293,7 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
             ?? displayRegistry.display(containingAXRect: window.frameAX)
             ?? displayRegistry.mainDisplay() else {
             preSnapStore.clearRecord(for: window)
+            persistPreSnapStore()
             return
         }
 
@@ -1269,6 +1311,7 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
                     self.axController.moveWindowPosition(window.elementBox, toAXOrigin: alignedOrigin)
                 }
                 self.preSnapStore.clearRecord(for: window)
+                self.persistPreSnapStore()
                 return
             }
 
@@ -1316,6 +1359,7 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
                             ) { _ in }
                         }
                         self.preSnapStore.clearRecord(for: window)
+                        self.persistPreSnapStore()
                         DeveloperEventLog.shared.record(
                             .windowSnapper,
                             "Restored \(window.appName) pre-snap size",
@@ -1351,6 +1395,7 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
                 preSnapFrameAX: effectiveInitialFrame,
                 appliedFrameAX: execResult.appliedFrameAX
             )
+            self.persistPreSnapStore()
 
             if execResult.clampedForMinSize {
                 let minDesc = execResult.minSizeReported.map { "\(Int($0.width))x\(Int($0.height))" } ?? "app limit"
@@ -1383,10 +1428,6 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
                         duration: 1.4
                     )
                 }
-            }
-
-            if isKeyboardSnap && shouldFlashOverlay && self.config.overlayStyle.flashOnKeyboardSnap {
-                self.overlayController.flashZone(targetZone, on: targetDisplay, style: self.config.overlayStyle)
             }
 
             let announcement = "\(window.appName) snapped to \(targetZone.name)"
@@ -1575,6 +1616,14 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
         glassPaneController.dismiss()
         guard ensureAccessibilityForAction() else { return }
         profileEngine.applyProfile(profile) { [weak self] batch in
+            self?.recordBatchInPreSnapStore(batch)
+        }
+    }
+
+    func triggerProfileShortcut(_ profile: WorkspaceProfile) {
+        glassPaneController.dismiss()
+        guard ensureAccessibilityForAction() else { return }
+        profileEngine.toggleOrApplyProfile(profile) { [weak self] batch in
             self?.recordBatchInPreSnapStore(batch)
         }
     }

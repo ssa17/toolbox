@@ -244,6 +244,7 @@ internal final class ToolboxWindow: NSWindow {
             break
         }
         if event.type == .leftMouseDown,
+           contentLayoutRect.contains(event.locationInWindow),
            let textView = firstResponder as? NSTextView {
             let ptInTextView = textView.convert(event.locationInWindow, from: nil)
             if !textView.bounds.contains(ptInTextView) {
@@ -265,6 +266,13 @@ internal final class ToolboxWindow: NSWindow {
         default:
             break
         }
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        if PointerCursorNSView.handleCursorUpdate(in: self) {
+            return
+        }
+        super.cursorUpdate(with: event)
     }
 
     override func swipe(with event: NSEvent) {
@@ -325,7 +333,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         if let window { return window }
 
         let rootView = MainSplitView(navState: navState)
-        let hosting = NSHostingView(rootView: rootView)
+        let hosting = PointerCursorHostingView(rootView: rootView)
         // Prevent SwiftUI's ScrollView from overriding NSWindow's minimum size constraints.
         hosting.sizingOptions = []
 
@@ -340,6 +348,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         ToolboxTheme.applyDarkAppearance(to: win)
         win.isReleasedWhenClosed = false
         win.titlebarAppearsTransparent = false
+        win.isMovableByWindowBackground = false
         win.acceptsMouseMovedEvents = true
         win.delegate = self
         win.contentView = hosting

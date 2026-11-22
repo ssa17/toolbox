@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-private final class MenuBarPopoverNSPanel: NSPanel {
+private final class MenuBarPopoverNSPanel: PointerCursorNSPanel {
     // The menu bar popover has no text inputs; refusing key/main status keeps it from
     // flipping NSApp.isActive or raising an open background Dashboard window on another screen.
     override var canBecomeKey: Bool { false }

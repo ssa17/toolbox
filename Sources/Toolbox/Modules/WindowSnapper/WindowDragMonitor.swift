@@ -75,9 +75,9 @@ final class WindowDragTap: @unchecked Sendable {
     private var tapThread: Thread?
     private var tapExitSemaphore: DispatchSemaphore?
 
-    var onMouseDown: (@Sendable (CGPoint, CGEventFlags, TimeInterval) -> Void)?
+    var onMouseDown: (@Sendable (CGPoint, CGEventFlags, TimeInterval, CGWindowLayerZeroEntry?, Int) -> Void)?
     var onMouseDragged: (@Sendable (CGPoint, CGEventFlags, TimeInterval) -> Void)?
-    var onMouseUp: (@Sendable (CGPoint, CGEventFlags, TimeInterval) -> Void)?
+    var onMouseUp: (@Sendable (CGPoint, CGEventFlags, TimeInterval, Int) -> Void)?
     var onFlagsChanged: (@Sendable (CGEventFlags) -> Void)?
 
     deinit {
@@ -221,14 +221,16 @@ final class WindowDragTap: @unchecked Sendable {
         let location = event.location
         let flags = event.flags
         let now = ProcessInfo.processInfo.systemUptime
+        let clickCount = Int(event.getIntegerValueField(.mouseEventClickState))
 
         switch type {
         case .leftMouseDown:
-            onMouseDown?(location, flags, now)
+            let initialEntry = AXWindowController.topmostLayerZeroEntry(atAXPoint: location)
+            onMouseDown?(location, flags, now, initialEntry, clickCount)
         case .leftMouseDragged:
             onMouseDragged?(location, flags, now)
         case .leftMouseUp:
-            onMouseUp?(location, flags, now)
+            onMouseUp?(location, flags, now, clickCount)
         case .flagsChanged:
             onFlagsChanged?(flags)
         default:
@@ -267,6 +269,8 @@ final class WindowDragMonitor {
         var initialAXFrameAtMouseDownAX: CGRect? = nil
         var initialGrabRatioX: CGFloat = 0.5
         var preSnapOriginalFrameAX: CGRect? = nil
+        var downClickCount: Int = 1
+        var preDoubleClickFrameAX: CGRect? = nil
         var spanAnchorCoord: GridCellCoord? = nil
         var activeTargetZone: ResolvedZone? = nil
         var activeTargetDisplay: ConnectedDisplay? = nil
@@ -290,11 +294,15 @@ final class WindowDragMonitor {
 
     private var config: WindowSnapperConfig = WindowSnapperConfig()
     private var session: ActiveDragSession?
+    private var lastSingleClickSnapshot: (windowNumber: Int, pid: pid_t, frameAX: CGRect, timestamp: TimeInterval)?
     private var escKeyMonitor: Any?
 
     var preSnapLookup: ((DiscoveredAXWindow) -> CGRect?)?
     var onSnapCommitted: ((DiscoveredAXWindow, ResolvedZone, ConnectedDisplay, TopEdgeTemplateSnapContext?) -> Void)?
     var onUnsnapCommitted: ((DiscoveredAXWindow, CGRect, CGPoint, CGFloat) -> Void)?
+    var onExternalMaximizeDetected: ((Int?, pid_t, String, CGRect, CGRect) -> Void)?
+    var onExternalUnmaximizeDetected: ((Int?, pid_t, CGSize) -> Void)?
+    var onMidDragResizeRequestedForTesting: ((CGSize, WindowAnimationSpeed) -> Void)?
     var onShouldIgnoreMouseDownAtAXPoint: ((CGPoint) -> Bool)?
     var onExternalMouseDownOrDragBegan: (() -> Void)?
 
@@ -308,11 +316,17 @@ final class WindowDragMonitor {
         self.overlayController = overlayController
 
         let coalescer = self.dragCoalescer
-        tap.onMouseDown = { [weak self] pt, flags, ts in
+        tap.onMouseDown = { [weak self] pt, flags, ts, entry, clickCount in
             coalescer.clearPendingDrag()
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    self?.handleMouseDown(atAXPoint: pt, flags: flags, timestamp: ts)
+                    self?.handleMouseDown(
+                        atAXPoint: pt,
+                        flags: flags,
+                        timestamp: ts,
+                        initialCGEntry: entry,
+                        clickCount: clickCount
+                    )
                 }
             }
         }
@@ -321,11 +335,11 @@ final class WindowDragMonitor {
                 self?.handleMouseDragged(toAXPoint: cPt, flags: cFlags, timestamp: cTs)
             }
         }
-        tap.onMouseUp = { [weak self] pt, flags, ts in
+        tap.onMouseUp = { [weak self] pt, flags, ts, clickCount in
             coalescer.clearPendingDrag()
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    self?.handleMouseUp(atAXPoint: pt, flags: flags, timestamp: ts)
+                    self?.handleMouseUp(atAXPoint: pt, flags: flags, timestamp: ts, clickCount: clickCount)
                 }
             }
         }
@@ -360,6 +374,7 @@ final class WindowDragMonitor {
         dragCoalescer.clearPendingDrag()
         removeEscMonitor()
         session = nil
+        lastSingleClickSnapshot = nil
         tap.uninstall()
         overlayController.hideDragOverlays()
     }
@@ -370,7 +385,8 @@ final class WindowDragMonitor {
         initialFrameAX: CGRect,
         currentFrameAX: CGRect,
         positionTolerance: CGFloat = 2.5,
-        sizeTolerance: CGFloat = 2.0
+        sizeTolerance: CGFloat = 2.0,
+        pointerDistance: CGFloat = 0
     ) -> DragMoveConfirmation {
         if abs(currentFrameAX.width - initialFrameAX.width) > sizeTolerance
             || abs(currentFrameAX.height - initialFrameAX.height) > sizeTolerance {
@@ -432,6 +448,42 @@ final class WindowDragMonitor {
         return false
     }
 
+    static func shouldTriggerMidDragSizeRestore(
+        currentFrameAX: CGRect,
+        preSnapFrameAX: CGRect,
+        dragDistance: CGFloat,
+        tolerance: CGFloat = 4
+    ) -> Bool {
+        guard dragDistance >= 3 else { return false }
+        let alreadyAtPreSnapSize = abs(currentFrameAX.width - preSnapFrameAX.width) <= tolerance
+            && abs(currentFrameAX.height - preSnapFrameAX.height) <= tolerance
+        return !alreadyAtPreSnapSize
+    }
+
+    static func shouldReleaseTopPullAwaySuppression(
+        downPointAX: CGPoint,
+        pointerAX: CGPoint,
+        velocityY: CGFloat,
+        usableMinY: CGFloat,
+        topTriggerBand: CGFloat
+    ) -> Bool {
+        if pointerAX.y > usableMinY + topTriggerBand + 8 {
+            return true
+        }
+        let pushedUpward = pointerAX.y < downPointAX.y - 3
+            || (downPointAX.y <= usableMinY + 4 && pointerAX.y <= downPointAX.y - 1)
+        return velocityY <= 20 && pushedUpward
+    }
+
+    static func isFrameMaximizedLike(
+        _ frameAX: CGRect,
+        in usableAX: CGRect,
+        tolerance: CGFloat = 24
+    ) -> Bool {
+        abs(frameAX.width - usableAX.width) <= tolerance
+            && abs(frameAX.height - usableAX.height) <= tolerance
+    }
+
     static func restoredDragOrigin(
         pointerAX: CGPoint,
         initialFrameAX: CGRect,
@@ -481,7 +533,13 @@ final class WindowDragMonitor {
 
     // MARK: - Event Handling
 
-    private func handleMouseDown(atAXPoint point: CGPoint, flags: CGEventFlags, timestamp: TimeInterval) {
+    private func handleMouseDown(
+        atAXPoint point: CGPoint,
+        flags: CGEventFlags,
+        timestamp: TimeInterval,
+        initialCGEntry: CGWindowLayerZeroEntry? = nil,
+        clickCount: Int = 1
+    ) {
         removeEscMonitor()
         if onShouldIgnoreMouseDownAtAXPoint?(point) == true {
             session = nil
@@ -498,9 +556,30 @@ final class WindowDragMonitor {
         }
 
         let effectiveFlags = liveModifierFlags(fallback: flags)
-        let initialEntry = AXWindowController.topmostLayerZeroEntry(atAXPoint: point)
+        let resolvedInitialEntry = initialCGEntry ?? AXWindowController.topmostLayerZeroEntry(atAXPoint: point)
+
+        var preDoubleClickFrame: CGRect? = nil
+        if clickCount <= 1 {
+            if let entry = resolvedInitialEntry {
+                lastSingleClickSnapshot = (
+                    windowNumber: entry.windowNumber,
+                    pid: entry.ownerPID,
+                    frameAX: entry.boundsAX,
+                    timestamp: timestamp
+                )
+            } else {
+                lastSingleClickSnapshot = nil
+            }
+        } else if let snap = lastSingleClickSnapshot,
+                  timestamp - snap.timestamp <= 1.2,
+                  (resolvedInitialEntry == nil
+                      || resolvedInitialEntry?.windowNumber == snap.windowNumber
+                      || resolvedInitialEntry?.ownerPID == snap.pid) {
+            preDoubleClickFrame = snap.frameAX
+        }
+
         let grabRatio: CGFloat = {
-            guard let bounds = initialEntry?.boundsAX, bounds.width > 1 else { return 0.5 }
+            guard let bounds = resolvedInitialEntry?.boundsAX, bounds.width > 1 else { return 0.5 }
             return min(max((point.x - bounds.minX) / bounds.width, 0.08), 0.92)
         }()
 
@@ -509,16 +588,18 @@ final class WindowDragMonitor {
             lastPointAX: point,
             lastTimestamp: timestamp,
             flags: effectiveFlags,
-            initialCGEntryAtMouseDown: initialEntry,
-            initialCGFrameAtMouseDownAX: initialEntry?.boundsAX,
-            initialGrabRatioX: grabRatio
+            initialCGEntryAtMouseDown: resolvedInitialEntry,
+            initialCGFrameAtMouseDownAX: resolvedInitialEntry?.boundsAX,
+            initialGrabRatioX: grabRatio,
+            downClickCount: clickCount,
+            preDoubleClickFrameAX: preDoubleClickFrame
         )
         let ignored = Set(config.ignoredBundleIDs)
         let selfPID = ProcessInfo.processInfo.processIdentifier
-        if initialEntry?.ownerPID == selfPID {
+        if resolvedInitialEntry?.ownerPID == selfPID {
             newSession.lookupCompleted = true
             if let found = AXWindowController.inspectSelfWindowMainActor(
-                windowNumber: initialEntry?.windowNumber,
+                windowNumber: resolvedInitialEntry?.windowNumber,
                 atAXPoint: point,
                 ignoredBundleIDs: ignored
             ) {
@@ -534,7 +615,7 @@ final class WindowDragMonitor {
         session = newSession
 
         axController.inspectWindow(
-            forCGEntry: initialEntry,
+            forCGEntry: resolvedInitialEntry,
             fallbackAXPoint: point,
             ignoredBundleIDs: ignored
         ) { [weak self] found in
@@ -563,7 +644,7 @@ final class WindowDragMonitor {
     }
 
     private func populateResolvedWindow(_ current: inout ActiveDragSession, found: DiscoveredAXWindow) {
-        current.initialAXFrameAtMouseDownAX = found.frameAX
+        current.initialAXFrameAtMouseDownAX = current.initialCGFrameAtMouseDownAX ?? found.frameAX
         if current.initialCGFrameAtMouseDownAX == nil, let winNum = found.windowNumber {
             current.initialCGFrameAtMouseDownAX = AXWindowController.layerZeroWindowBounds(windowNumber: winNum)
         }
@@ -588,22 +669,35 @@ final class WindowDragMonitor {
         current.window = lookupWindow
         current.preSnapOriginalFrameAX = preSnapLookup?(lookupWindow) ?? preSnapLookup?(found)
 
-        if current.preSnapOriginalFrameAX != nil,
-           let downDisplay = displayRegistry.display(containingAXPoint: current.downPointAX) {
+        if let downDisplay = displayRegistry.display(containingAXPoint: current.downPointAX) {
             let topTriggerBand = max(2, CGFloat(config.topEdgePanel.triggerDistancePoints))
             current.startedInTopSnapBand = current.downPointAX.y
-                <= downDisplay.usableAX.minY + topTriggerBand
+                <= downDisplay.usableAX.minY + topTriggerBand + 4
         }
 
         if current.confirmation == .pending {
-            if let cgInit = current.initialCGFrameAtMouseDownAX,
-               let winNum = lookupWindow.windowNumber ?? current.initialCGEntryAtMouseDown?.windowNumber,
-               let cgNow = AXWindowController.layerZeroWindowBounds(windowNumber: winNum) {
-                current.confirmation = Self.evaluateConfirmedWindowDrag(
+            let pointerDist = hypot(
+                current.lastPointAX.x - current.downPointAX.x,
+                current.lastPointAX.y - current.downPointAX.y
+            )
+            if let cgInit = current.initialCGFrameAtMouseDownAX {
+                let axCheck = Self.evaluateConfirmedWindowDrag(
                     initialFrameAX: cgInit,
-                    currentFrameAX: cgNow,
-                    positionTolerance: 2.0
+                    currentFrameAX: found.frameAX,
+                    positionTolerance: 2.0,
+                    pointerDistance: pointerDist
                 )
+                if axCheck == .confirmedMove || axCheck == .rejectedResizeOrSelection {
+                    current.confirmation = axCheck
+                } else if let winNum = lookupWindow.windowNumber ?? current.initialCGEntryAtMouseDown?.windowNumber,
+                          let cgNow = AXWindowController.layerZeroWindowBounds(windowNumber: winNum) {
+                    current.confirmation = Self.evaluateConfirmedWindowDrag(
+                        initialFrameAX: cgInit,
+                        currentFrameAX: cgNow,
+                        positionTolerance: 2.0,
+                        pointerDistance: pointerDist
+                    )
+                }
             }
         }
     }
@@ -616,6 +710,10 @@ final class WindowDragMonitor {
         flags: CGEventFlags,
         timestamp: TimeInterval
     ) -> DragMoveConfirmation? {
+        let pointerDist = hypot(
+            pointerAX.x - current.downPointAX.x,
+            pointerAX.y - current.downPointAX.y
+        )
         if draggedWindow.elementBox.isSelfProcess {
             guard let liveSelfFrame = AXWindowController.readSelfWindowFrameMainActor(windowNumber: draggedWindow.elementBox.selfWindowNumber) else {
                 return nil
@@ -624,7 +722,8 @@ final class WindowDragMonitor {
             let check = Self.evaluateConfirmedWindowDrag(
                 initialFrameAX: baseAX,
                 currentFrameAX: liveSelfFrame,
-                positionTolerance: 2.0
+                positionTolerance: 2.0,
+                pointerDistance: pointerDist
             )
             current.confirmation = check
             if check == .confirmedMove {
@@ -643,7 +742,8 @@ final class WindowDragMonitor {
             let check = Self.evaluateConfirmedWindowDrag(
                 initialFrameAX: cgInit,
                 currentFrameAX: cgLive,
-                positionTolerance: 2.0
+                positionTolerance: 2.0,
+                pointerDistance: pointerDist
             )
             current.confirmation = check
             if check == .confirmedMove {
@@ -684,7 +784,8 @@ final class WindowDragMonitor {
             let pointerMoved = hypot(point.x - current.downPointAX.x, point.y - current.downPointAX.y)
             guard pointerMoved >= 2 else { return }
 
-            if current.lastPendingConfirmPollTime == 0 || (timestamp - current.lastPendingConfirmPollTime) >= 0.016 {
+            let pollInterval: TimeInterval = pointerMoved >= 24 ? 0.040 : 0.016
+            if current.lastPendingConfirmPollTime == 0 || (timestamp - current.lastPendingConfirmPollTime) >= pollInterval {
                 current.lastPendingConfirmPollTime = timestamp
                 if tryConfirmPendingDragSynchronously(
                     &current,
@@ -716,10 +817,12 @@ final class WindowDragMonitor {
                         return
                     }
                     let baseInitial = s.initialAXFrameAtMouseDownAX ?? draggedWindow.frameAX
+                    let livePointerMoved = hypot(s.lastPointAX.x - s.downPointAX.x, s.lastPointAX.y - s.downPointAX.y)
                     let check = Self.evaluateConfirmedWindowDrag(
                         initialFrameAX: baseInitial,
                         currentFrameAX: liveFrame,
-                        positionTolerance: 2.0
+                        positionTolerance: 2.0,
+                        pointerDistance: livePointerMoved
                     )
                     s.confirmation = check
                     if check == .confirmedMove {
@@ -764,17 +867,85 @@ final class WindowDragMonitor {
         current.didRestorePreSnapSize = true
 
         let refFrame = current.initialReferenceFrameAX ?? window.frameAX
-        let alreadyAtPreSnapSize = abs(refFrame.width - preSnapRect.width) <= 4
-            && abs(refFrame.height - preSnapRect.height) <= 4
-        guard !alreadyAtPreSnapSize else {
+        guard Self.shouldTriggerMidDragSizeRestore(
+            currentFrameAX: refFrame,
+            preSnapFrameAX: preSnapRect,
+            dragDistance: dragDist
+        ) else {
             return
         }
 
+        onMidDragResizeRequestedForTesting?(preSnapRect.size, config.windowAnimationSpeed)
         axController.resizeWindowSize(
             window.elementBox,
             toAXSize: preSnapRect.size,
             animationSpeed: config.windowAnimationSpeed
         )
+    }
+
+    internal func handleExternalZoomTransition(
+        windowNumber: Int?,
+        pid: pid_t,
+        bundleIdentifier: String,
+        preClickFrameAX: CGRect,
+        postClickFrameAX: CGRect,
+        displayUsableAX: CGRect
+    ) {
+        let wasMaximized = Self.isFrameMaximizedLike(preClickFrameAX, in: displayUsableAX)
+        let isNowMaximized = Self.isFrameMaximizedLike(postClickFrameAX, in: displayUsableAX)
+        if !wasMaximized && isNowMaximized {
+            onExternalMaximizeDetected?(windowNumber, pid, bundleIdentifier, preClickFrameAX, postClickFrameAX)
+        } else if wasMaximized && !isNowMaximized {
+            onExternalUnmaximizeDetected?(windowNumber, pid, postClickFrameAX.size)
+        }
+    }
+
+    private func scheduleExternalZoomDetectionIfNeeded(
+        for finished: ActiveDragSession,
+        atAXPoint point: CGPoint
+    ) {
+        guard let winNum = finished.window?.windowNumber ?? finished.initialCGEntryAtMouseDown?.windowNumber,
+              let pid = finished.window?.pid ?? finished.initialCGEntryAtMouseDown?.ownerPID,
+              let preClickFrame = finished.preDoubleClickFrameAX ?? finished.initialReferenceFrameAX else {
+            return
+        }
+        displayRegistry.refresh(gaps: config.gaps)
+        guard let display = displayRegistry.display(containingAXPoint: point)
+            ?? displayRegistry.display(containingAXRect: preClickFrame) else {
+            return
+        }
+        let usableAX = display.usableAX
+        let bundleID = finished.window?.bundleIdentifier
+            ?? NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
+            ?? ""
+
+        let evaluateNow: () -> Bool = { [weak self] in
+            guard let self,
+                  let postFrame = AXWindowController.layerZeroWindowBounds(windowNumber: winNum) else {
+                return false
+            }
+            let sizeChanged = abs(postFrame.width - preClickFrame.width) > 12
+                || abs(postFrame.height - preClickFrame.height) > 12
+            guard sizeChanged else { return false }
+            self.handleExternalZoomTransition(
+                windowNumber: winNum,
+                pid: pid,
+                bundleIdentifier: bundleID,
+                preClickFrameAX: preClickFrame,
+                postClickFrameAX: postFrame,
+                displayUsableAX: usableAX
+            )
+            return true
+        }
+
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            guard self != nil else { return }
+            if evaluateNow() { return }
+            try? await Task.sleep(nanoseconds: 220_000_000)
+            guard self != nil else { return }
+            _ = evaluateNow()
+        }
     }
 
     private func handleFlagsChanged(_ flags: CGEventFlags) {
@@ -807,23 +978,50 @@ final class WindowDragMonitor {
         session = current
     }
 
-    private func handleMouseUp(atAXPoint point: CGPoint, flags: CGEventFlags, timestamp: TimeInterval) {
+    private func handleMouseUp(
+        atAXPoint point: CGPoint,
+        flags: CGEventFlags,
+        timestamp: TimeInterval,
+        clickCount: Int = 1
+    ) {
         removeEscMonitor()
-        guard let finished = session else {
+        guard var finished = session else {
             overlayController.hideDragOverlays()
             return
         }
         session = nil
+
+        if finished.confirmation == .pending,
+           finished.lookupCompleted,
+           let draggedWindow = finished.window {
+            let effectiveFlags = liveModifierFlags(fallback: flags)
+            finished.lastPointAX = point
+            finished.lastTimestamp = timestamp
+            finished.flags = effectiveFlags
+            _ = tryConfirmPendingDragSynchronously(
+                &finished,
+                window: draggedWindow,
+                pointerAX: point,
+                flags: effectiveFlags,
+                timestamp: timestamp
+            )
+        }
+
         overlayController.hideDragOverlays()
 
+        if max(clickCount, finished.downClickCount) >= 2,
+           !finished.cancelledByEscape,
+           finished.confirmation != .confirmedMove {
+            scheduleExternalZoomDetectionIfNeeded(for: finished, atAXPoint: point)
+        }
+
         guard !finished.cancelledByEscape,
-              finished.confirmation != .rejectedResizeOrSelection,
+              finished.confirmation == .confirmedMove,
               let draggedWindow = finished.window else {
             return
         }
 
-        if finished.confirmation == .confirmedMove,
-           let targetZone = finished.activeTargetZone,
+        if let targetZone = finished.activeTargetZone,
            let targetDisplay = finished.activeTargetDisplay {
             let committedWindow = DiscoveredAXWindow(
                 pid: draggedWindow.pid,
@@ -853,12 +1051,9 @@ final class WindowDragMonitor {
             return
         }
 
-        if finished.activeTargetZone == nil {
-            let dragDistance = hypot(point.x - finished.downPointAX.x, point.y - finished.downPointAX.y)
-            if (finished.confirmation == .confirmedMove || dragDistance >= 3),
-               let preSnapRect = finished.preSnapOriginalFrameAX ?? preSnapLookup?(draggedWindow) {
-                onUnsnapCommitted?(draggedWindow, preSnapRect, point, finished.initialGrabRatioX)
-            }
+        if finished.activeTargetZone == nil,
+           let preSnapRect = finished.preSnapOriginalFrameAX ?? preSnapLookup?(draggedWindow) {
+            onUnsnapCommitted?(draggedWindow, preSnapRect, point, finished.initialGrabRatioX)
         }
     }
 
@@ -951,9 +1146,13 @@ final class WindowDragMonitor {
 
         let topTriggerBand = max(2, CGFloat(config.topEdgePanel.triggerDistancePoints))
         if current.startedInTopSnapBand && !current.hasExitedInitialTopSnapBand {
-            let exitedDownward = pointerAX.y > display.usableAX.minY + topTriggerBand + 8
-            let draggedBackUp = pointerAX.y < current.downPointAX.y - 6
-            if exitedDownward || draggedBackUp {
+            if Self.shouldReleaseTopPullAwaySuppression(
+                downPointAX: current.downPointAX,
+                pointerAX: pointerAX,
+                velocityY: current.velocityY,
+                usableMinY: display.usableAX.minY,
+                topTriggerBand: topTriggerBand
+            ) {
                 current.hasExitedInitialTopSnapBand = true
             }
         }
@@ -1001,8 +1200,10 @@ final class WindowDragMonitor {
                 display: display,
                 layout: pickerLayout
             )
+            let movingAwayFromTop = !current.topPanelVisible && current.velocityY > 80
+            let shouldOpenFromTrigger = inTrigger && !movingAwayFromTop
 
-            if inTrigger || inKeepAlive {
+            if shouldOpenFromTrigger || inKeepAlive {
                 current.topPanelVisible = true
                 current.topPanelDisplayID = display.displayID
                 current.activeTargetDisplay = display
@@ -1113,5 +1314,81 @@ final class WindowDragMonitor {
             NSEvent.removeMonitor(escKeyMonitor)
             self.escKeyMonitor = nil
         }
+    }
+
+    // MARK: - Testing Support
+
+    internal func beginSimulatedDragSessionForTesting(
+        downPointAX: CGPoint,
+        window: DiscoveredAXWindow,
+        initialFrameAX: CGRect,
+        flags: CGEventFlags = [],
+        timestamp: TimeInterval = 1.0
+    ) {
+        var s = ActiveDragSession(
+            downPointAX: downPointAX,
+            lastPointAX: downPointAX,
+            lastTimestamp: timestamp,
+            flags: flags,
+            initialCGFrameAtMouseDownAX: initialFrameAX,
+            initialAXFrameAtMouseDownAX: initialFrameAX
+        )
+        s.lookupCompleted = true
+        populateResolvedWindow(&s, found: window)
+        session = s
+    }
+
+    @discardableResult
+    internal func advanceSimulatedDragForTesting(
+        pointerAX: CGPoint,
+        liveWindowFrameAX: CGRect,
+        flags: CGEventFlags = [],
+        timestamp: TimeInterval
+    ) -> (confirmation: DragMoveConfirmation, topPanelVisible: Bool) {
+        guard var current = session, let draggedWindow = current.window else {
+            return (.rejectedResizeOrSelection, false)
+        }
+        if current.cancelledByEscape || current.confirmation == .rejectedResizeOrSelection {
+            return (current.confirmation, current.topPanelVisible)
+        }
+        let dt = max(0.004, timestamp - current.lastTimestamp)
+        let instVX = (pointerAX.x - current.lastPointAX.x) / CGFloat(dt)
+        let instVY = (pointerAX.y - current.lastPointAX.y) / CGFloat(dt)
+        current.velocityX = current.velocityX * 0.4 + instVX * 0.6
+        current.velocityY = current.velocityY * 0.4 + instVY * 0.6
+        current.lastPointAX = pointerAX
+        current.lastTimestamp = timestamp
+        current.flags = flags
+
+        if current.confirmation == .pending {
+            let pointerMoved = hypot(pointerAX.x - current.downPointAX.x, pointerAX.y - current.downPointAX.y)
+            let baseAX = current.initialReferenceFrameAX ?? draggedWindow.frameAX
+            let check = Self.evaluateConfirmedWindowDrag(
+                initialFrameAX: baseAX,
+                currentFrameAX: liveWindowFrameAX,
+                positionTolerance: 2.0,
+                pointerDistance: pointerMoved
+            )
+            current.confirmation = check
+            if check == .confirmedMove {
+                attemptMidDragSizeRestoreIfNeeded(&current, window: draggedWindow, pointerAX: pointerAX, timestamp: timestamp)
+                evaluateDragTarget(for: &current, window: draggedWindow, pointerAX: pointerAX, flags: flags)
+            } else if check == .rejectedResizeOrSelection {
+                overlayController.hideDragOverlays()
+            }
+        } else if current.confirmation == .confirmedMove {
+            attemptMidDragSizeRestoreIfNeeded(&current, window: draggedWindow, pointerAX: pointerAX, timestamp: timestamp)
+            evaluateDragTarget(for: &current, window: draggedWindow, pointerAX: pointerAX, flags: flags)
+        }
+        session = current
+        return (current.confirmation, current.topPanelVisible)
+    }
+
+    internal func finishSimulatedDragForTesting(
+        releasePointAX: CGPoint,
+        flags: CGEventFlags = [],
+        timestamp: TimeInterval
+    ) {
+        handleMouseUp(atAXPoint: releasePointAX, flags: flags, timestamp: timestamp, clickCount: 1)
     }
 }

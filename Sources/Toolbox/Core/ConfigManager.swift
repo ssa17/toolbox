@@ -801,6 +801,8 @@ struct DisplayDivision: Codable, Equatable, Hashable, Sendable {
 }
 
 enum DisplayPresetKind: String, Codable, CaseIterable, Identifiable, Sendable {
+    // 1 Window
+    case maximized = "maximized"
     // 2 Windows
     case halves = "halves"
     case asymmetric = "asymmetric"
@@ -823,14 +825,21 @@ enum DisplayPresetKind: String, Codable, CaseIterable, Identifiable, Sendable {
 
     static var builtInTemplates: [DisplayPresetKind] {
         [
+            .maximized,
             .halves, .asymmetric, .asymmetricRight, .verticalStack2,
             .leftMainRightStack, .leftStackRightMain, .thirds, .ultrawideFocus, .verticalStack3,
             .quarters, .fourColumns, .sixths
         ]
     }
 
+    static var topEdgeSlotTemplates: [DisplayPresetKind] {
+        builtInTemplates.filter { $0 != .maximized }
+    }
+
     var zoneCount: Int {
         switch self {
+        case .maximized:
+            return 1
         case .halves, .asymmetric, .asymmetricRight, .verticalStack2:
             return 2
         case .leftMainRightStack, .leftStackRightMain, .thirds, .ultrawideFocus, .verticalStack3:
@@ -846,6 +855,7 @@ enum DisplayPresetKind: String, Codable, CaseIterable, Identifiable, Sendable {
 
     var label: String {
         switch self {
+        case .maximized: return "Maximized"
         case .halves: return "Side by Side"
         case .asymmetric: return "Focus Left"
         case .asymmetricRight: return "Focus Right"
@@ -864,6 +874,7 @@ enum DisplayPresetKind: String, Codable, CaseIterable, Identifiable, Sendable {
 
     var shortBadge: String {
         switch self {
+        case .maximized: return "Full Screen"
         case .halves: return "50 / 50"
         case .asymmetric: return "67 / 33"
         case .asymmetricRight: return "33 / 67"
@@ -882,6 +893,7 @@ enum DisplayPresetKind: String, Codable, CaseIterable, Identifiable, Sendable {
 
     var defaultDivision: DisplayDivision {
         switch self {
+        case .maximized: return DisplayDivision(columnWeights: [1.0], rowWeights: [1.0])
         case .halves: return DisplayDivision(columnWeights: [1.0, 1.0], rowWeights: [1.0])
         case .asymmetric: return DisplayDivision(columnWeights: [2.0, 1.0], rowWeights: [1.0])
         case .asymmetricRight: return DisplayDivision(columnWeights: [1.0, 2.0], rowWeights: [1.0])
@@ -900,6 +912,10 @@ enum DisplayPresetKind: String, Codable, CaseIterable, Identifiable, Sendable {
 
     var templatePreviewRects: [NormalizedRect] {
         switch self {
+        case .maximized:
+            return [
+                NormalizedRect(x: 0.0, y: 0.0, width: 1.0, height: 1.0)
+            ]
         case .halves:
             return [
                 NormalizedRect(x: 0.0, y: 0.0, width: 0.5, height: 1.0),
@@ -1144,7 +1160,6 @@ struct OverlayStyleConfig: Codable, Equatable, Sendable {
     var borderWidthPoints: Double = 2.0
     var cornerRadiusPoints: Double = 10.0
     var showZoneLabelsAndDimensions: Bool = true
-    var flashOnKeyboardSnap: Bool = true
 
     var useAccentTint: Bool {
         get { tintColor != .neutral }
@@ -1158,7 +1173,6 @@ struct OverlayStyleConfig: Codable, Equatable, Sendable {
         case borderWidthPoints
         case cornerRadiusPoints
         case showZoneLabelsAndDimensions
-        case flashOnKeyboardSnap
     }
 
     init(
@@ -1166,15 +1180,13 @@ struct OverlayStyleConfig: Codable, Equatable, Sendable {
         fillOpacity: Double = 0.16,
         borderWidthPoints: Double = 2.0,
         cornerRadiusPoints: Double = 10.0,
-        showZoneLabelsAndDimensions: Bool = true,
-        flashOnKeyboardSnap: Bool = true
+        showZoneLabelsAndDimensions: Bool = true
     ) {
         self.tintColor = tintColor
         self.fillOpacity = min(max(fillOpacity, 0.0), 0.35)
         self.borderWidthPoints = min(max(borderWidthPoints, 1.0), 8.0)
         self.cornerRadiusPoints = min(max(cornerRadiusPoints, 0.0), 20.0)
         self.showZoneLabelsAndDimensions = showZoneLabelsAndDimensions
-        self.flashOnKeyboardSnap = flashOnKeyboardSnap
     }
 
     init(from decoder: Decoder) throws {
@@ -1192,8 +1204,7 @@ struct OverlayStyleConfig: Codable, Equatable, Sendable {
             fillOpacity: try c.decodeIfPresent(Double.self, forKey: .fillOpacity) ?? 0.16,
             borderWidthPoints: try c.decodeIfPresent(Double.self, forKey: .borderWidthPoints) ?? 2.0,
             cornerRadiusPoints: try c.decodeIfPresent(Double.self, forKey: .cornerRadiusPoints) ?? 10.0,
-            showZoneLabelsAndDimensions: try c.decodeIfPresent(Bool.self, forKey: .showZoneLabelsAndDimensions) ?? true,
-            flashOnKeyboardSnap: try c.decodeIfPresent(Bool.self, forKey: .flashOnKeyboardSnap) ?? true
+            showZoneLabelsAndDimensions: try c.decodeIfPresent(Bool.self, forKey: .showZoneLabelsAndDimensions) ?? true
         )
     }
 
@@ -1205,7 +1216,6 @@ struct OverlayStyleConfig: Codable, Equatable, Sendable {
         try c.encode(borderWidthPoints, forKey: .borderWidthPoints)
         try c.encode(cornerRadiusPoints, forKey: .cornerRadiusPoints)
         try c.encode(showZoneLabelsAndDimensions, forKey: .showZoneLabelsAndDimensions)
-        try c.encode(flashOnKeyboardSnap, forKey: .flashOnKeyboardSnap)
     }
 }
 
@@ -1992,6 +2002,7 @@ struct WindowSnapperConfig: Codable, Equatable, Sendable {
     var displayLayouts: [DisplayLayoutConfig] = []
     var profiles: [WorkspaceProfile] = []
     var activeProfileID: String? = nil
+    var restorePreviousWorkspaceOnShortcutToggle: Bool = true
 
     var animateWindowTransitions: Bool {
         get { windowAnimationSpeed.isAnimated }
@@ -2022,6 +2033,7 @@ struct WindowSnapperConfig: Codable, Equatable, Sendable {
         case displayLayouts
         case profiles
         case activeProfileID
+        case restorePreviousWorkspaceOnShortcutToggle
     }
 
     init() {}
@@ -2063,6 +2075,7 @@ struct WindowSnapperConfig: Codable, Equatable, Sendable {
         displayLayouts = try c.decodeIfPresent([DisplayLayoutConfig].self, forKey: .displayLayouts) ?? []
         profiles = try c.decodeIfPresent([WorkspaceProfile].self, forKey: .profiles) ?? []
         activeProfileID = try c.decodeIfPresent(String.self, forKey: .activeProfileID)
+        restorePreviousWorkspaceOnShortcutToggle = try c.decodeIfPresent(Bool.self, forKey: .restorePreviousWorkspaceOnShortcutToggle) ?? true
     }
 
     func encode(to encoder: Encoder) throws {
@@ -2085,6 +2098,7 @@ struct WindowSnapperConfig: Codable, Equatable, Sendable {
         try c.encode(displayLayouts, forKey: .displayLayouts)
         try c.encode(profiles, forKey: .profiles)
         try c.encodeIfPresent(activeProfileID, forKey: .activeProfileID)
+        try c.encode(restorePreviousWorkspaceOnShortcutToggle, forKey: .restorePreviousWorkspaceOnShortcutToggle)
     }
 
     static func clampedUndoDepth(_ depth: Int) -> Int {

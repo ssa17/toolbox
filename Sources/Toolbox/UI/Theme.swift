@@ -172,12 +172,40 @@ final class PointerCursorNSView: NSView {
     static var activeDragCursor: NSCursor?
 
     static func forcePointingHandCursor() {
-        // AppKit short-circuits NSCursor.pointingHand.set() if NSCursor.current is already pointingHand,
-        // even when WindowServer/AppKit reset the actual system cursor to arrow after a click.
-        if NSCursor.currentSystem?.hotSpot != NSCursor.pointingHand.hotSpot {
-            NSCursor.arrow.set()
-        }
         NSCursor.pointingHand.set()
+    }
+
+    static func isManagedCursorWindow(_ window: NSWindow) -> Bool {
+        guard !window.ignoresMouseEvents else { return false }
+        let className = NSStringFromClass(type(of: window))
+        if className.contains("MenuWindow") || className.contains("CarbonMenu") {
+            return false
+        }
+        return window.level.rawValue <= NSWindow.Level.popUpMenu.rawValue
+    }
+
+    @discardableResult
+    static func handleCursorUpdate(in window: NSWindow) -> Bool {
+        if let dragCursor = activeDragCursor {
+            dragCursor.set()
+            return true
+        }
+        guard window.isVisible,
+              isManagedCursorWindow(window),
+              let rootView = window.contentView?.superview ?? window.contentView else {
+            return false
+        }
+        let pt = window.convertPoint(fromScreen: NSEvent.mouseLocation)
+        guard rootView.bounds.contains(pt) else { return false }
+        if containsPointerCursorView(in: rootView, atWindowPoint: pt) {
+            forcePointingHandCursor()
+            return true
+        }
+        if let custom = customHoverCursor(in: rootView, atWindowPoint: pt) {
+            custom.set()
+            return true
+        }
+        return false
     }
 
     static func isPoint(_ ptInWindow: NSPoint, inside view: NSView) -> Bool {
@@ -225,25 +253,48 @@ final class PointerCursorNSView: NSView {
         return nil
     }
 
-    static func syncCursor(in window: NSWindow) {
-        // NSMenu popups manage their own 40ms cursor sync loop via MenuBarController.
-        guard window.isVisible else {
-            if let dragCursor = activeDragCursor {
-                dragCursor.set()
-                return
+    private static func topmostManagedWindow(atScreenPoint mouse: NSPoint) -> NSWindow? {
+        var candidates: [NSWindow] = []
+        var seen = Set<ObjectIdentifier>()
+        for win in NSApp.orderedWindows + NSApp.windows {
+            if let sheet = win.attachedSheet,
+               sheet.isVisible,
+               isManagedCursorWindow(sheet),
+               sheet.frame.contains(mouse),
+               seen.insert(ObjectIdentifier(sheet)).inserted {
+                candidates.append(sheet)
             }
-            if NSCursor.currentSystem?.hotSpot == NSCursor.pointingHand.hotSpot {
-                NSCursor.arrow.set()
+            if win.isVisible,
+               isManagedCursorWindow(win),
+               win.frame.contains(mouse),
+               seen.insert(ObjectIdentifier(win)).inserted {
+                candidates.append(win)
             }
-            return
         }
+        return candidates.max { lhs, rhs in
+            lhs.level.rawValue < rhs.level.rawValue
+        }
+    }
+
+    static func syncCursor(in window: NSWindow) {
         if let dragCursor = activeDragCursor {
             dragCursor.set()
             return
         }
-        guard window.level.rawValue < NSWindow.Level.popUpMenu.rawValue,
-              let rootView = window.contentView?.superview ?? window.contentView else { return }
-        let ptInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
+        guard window.isVisible else {
+            syncVisibleWindowUnderMouseOrResetCursor()
+            return
+        }
+        guard isManagedCursorWindow(window) else { return }
+        let mouse = NSEvent.mouseLocation
+        if let topWindow = topmostManagedWindow(atScreenPoint: mouse),
+           topWindow !== window,
+           topWindow.level.rawValue > window.level.rawValue {
+            syncCursor(in: topWindow)
+            return
+        }
+        guard let rootView = window.contentView?.superview ?? window.contentView else { return }
+        let ptInWindow = window.convertPoint(fromScreen: mouse)
         guard rootView.bounds.contains(ptInWindow) else { return }
         if containsPointerCursorView(in: rootView, atWindowPoint: ptInWindow) {
             forcePointingHandCursor()
@@ -265,7 +316,7 @@ final class PointerCursorNSView: NSView {
         }
     }
 
-    /// Syncs the hover cursor against whichever visible non-popup window currently contains the pointer,
+    /// Syncs the hover cursor against whichever visible managed window currently contains the pointer,
     /// or resets a stale pointing-hand cursor back to `.arrow`. Safe to call after a sheet/window deallocates.
     static func syncVisibleWindowUnderMouseOrResetCursor() {
         if let dragCursor = activeDragCursor {
@@ -273,27 +324,7 @@ final class PointerCursorNSView: NSView {
             return
         }
         let mouse = NSEvent.mouseLocation
-        let candidate: NSWindow? = {
-            if let key = NSApp.keyWindow,
-               key.isVisible,
-               key.level.rawValue < NSWindow.Level.popUpMenu.rawValue,
-               key.frame.contains(mouse) {
-                return key
-            }
-            if let ordered = NSApp.orderedWindows.first(where: {
-                $0.isVisible &&
-                $0.level.rawValue < NSWindow.Level.popUpMenu.rawValue &&
-                $0.frame.contains(mouse)
-            }) {
-                return ordered
-            }
-            return NSApp.windows.first(where: {
-                $0.isVisible &&
-                $0.level.rawValue < NSWindow.Level.popUpMenu.rawValue &&
-                $0.frame.contains(mouse)
-            })
-        }()
-        if let candidate {
+        if let candidate = topmostManagedWindow(atScreenPoint: mouse) {
             syncCursor(in: candidate)
         } else if NSCursor.currentSystem?.hotSpot == NSCursor.pointingHand.hotSpot {
             NSCursor.arrow.set()
@@ -305,8 +336,8 @@ final class PointerCursorNSView: NSView {
         localEventMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.leftMouseDown, .leftMouseUp, .mouseMoved, .cursorUpdate]
         ) { event in
-            guard let window = event.window ?? NSApp.keyWindow,
-                  window.level.rawValue < NSWindow.Level.popUpMenu.rawValue else {
+            guard let window = event.window ?? topmostManagedWindow(atScreenPoint: NSEvent.mouseLocation) ?? NSApp.keyWindow,
+                  isManagedCursorWindow(window) else {
                 return event
             }
             switch event.type {
@@ -334,17 +365,9 @@ final class PointerCursorNSView: NSView {
                 syncCursor(in: window)
                 return event
             case .cursorUpdate:
-                if let dragCursor = activeDragCursor {
-                    dragCursor.set()
+                if handleCursorUpdate(in: window) {
+                    // Prevent NSTitlebarContainerView / NSButton / NSHostingView cursorUpdate from overwriting pointingHand.
                     return nil
-                }
-                if let rootView = window.contentView?.superview ?? window.contentView {
-                    let ptInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
-                    if containsPointerCursorView(in: rootView, atWindowPoint: ptInWindow) {
-                        forcePointingHandCursor()
-                        // Prevent NSTitlebarContainerView / NSButton cursorUpdate from overwriting pointingHand.
-                        return nil
-                    }
                 }
                 if NSCursor.currentSystem?.hotSpot == NSCursor.pointingHand.hotSpot {
                     NSCursor.arrow.set()
@@ -374,11 +397,10 @@ final class PointerCursorNSView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if let window {
-            if window.level.rawValue < NSWindow.Level.popUpMenu.rawValue {
+            if Self.isManagedCursorWindow(window) {
                 window.acceptsMouseMovedEvents = true
             }
             Self.ensureLocalEventMonitor()
-            window.invalidateCursorRects(for: self)
         }
     }
 
@@ -386,7 +408,7 @@ final class PointerCursorNSView: NSView {
         let changed = bounds.size != newSize
         super.setFrameSize(newSize)
         if changed {
-            window?.invalidateCursorRects(for: self)
+            reapplyCursorIfHovered()
         }
     }
 
@@ -402,30 +424,35 @@ final class PointerCursorNSView: NSView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let hoverTrackingArea {
-            removeTrackingArea(hoverTrackingArea)
+        if hoverTrackingArea == nil || cursorTrackingArea == nil {
+            if let hoverTrackingArea {
+                removeTrackingArea(hoverTrackingArea)
+            }
+            if let cursorTrackingArea {
+                removeTrackingArea(cursorTrackingArea)
+            }
+            // Per AppKit NSTrackingArea.h, .activeAlways cannot be paired with .cursorUpdate;
+            // split hover tracking (.activeAlways) from active-app cursor updates (.cursorUpdate).
+            // Because both use .inVisibleRect, AppKit updates their geometry automatically without
+            // needing to remove and re-add them on every layout pass (which would otherwise trigger
+            // _NSTrackingAreaAKManager.displayCycleUpdateStructuralRegions cursor resets).
+            let hoverArea = NSTrackingArea(
+                rect: bounds,
+                options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            )
+            let cursorArea = NSTrackingArea(
+                rect: bounds,
+                options: [.cursorUpdate, .activeInActiveApp, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            )
+            addTrackingArea(hoverArea)
+            addTrackingArea(cursorArea)
+            self.hoverTrackingArea = hoverArea
+            self.cursorTrackingArea = cursorArea
         }
-        if let cursorTrackingArea {
-            removeTrackingArea(cursorTrackingArea)
-        }
-        // Per AppKit NSTrackingArea.h, .activeAlways cannot be paired with .cursorUpdate;
-        // split hover tracking (.activeAlways) from active-app cursor updates (.cursorUpdate).
-        let hoverArea = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        let cursorArea = NSTrackingArea(
-            rect: bounds,
-            options: [.cursorUpdate, .activeInActiveApp, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(hoverArea)
-        addTrackingArea(cursorArea)
-        self.hoverTrackingArea = hoverArea
-        self.cursorTrackingArea = cursorArea
         reapplyCursorIfHovered()
     }
 
@@ -514,7 +541,7 @@ final class PointerCursorNSView: NSView {
     }
 }
 
-/// `NSHostingView` subclass for popovers and panels using `.pointerCursor()`.
+/// `NSHostingView` subclass for windows, popovers, and panels using `.pointerCursor()`.
 /// Prevents AppKit `cursorUpdate(with:)` and SwiftUI `layout()` passes from
 /// reverting the cursor to `.arrow` while hovering a `.pointerCursor()` control.
 final class PointerCursorHostingView<Content: View>: NSHostingView<Content> {
@@ -531,21 +558,8 @@ final class PointerCursorHostingView<Content: View>: NSHostingView<Content> {
     }
 
     override func cursorUpdate(with event: NSEvent) {
-        if let dragCursor = PointerCursorNSView.activeDragCursor {
-            dragCursor.set()
+        if let window, PointerCursorNSView.handleCursorUpdate(in: window) {
             return
-        }
-        if let window, window.isVisible {
-            let pt = window.convertPoint(fromScreen: NSEvent.mouseLocation)
-            if Self.shouldUsePointingHand(in: window, atWindowPoint: pt) {
-                PointerCursorNSView.forcePointingHandCursor()
-                return
-            }
-            if let rootView = window.contentView?.superview ?? window.contentView,
-               let custom = PointerCursorNSView.customHoverCursor(in: rootView, atWindowPoint: pt) {
-                custom.set()
-                return
-            }
         }
         super.cursorUpdate(with: event)
     }
@@ -553,9 +567,20 @@ final class PointerCursorHostingView<Content: View>: NSHostingView<Content> {
     override func layout() {
         super.layout()
         if let window, window.isVisible {
-            window.invalidateCursorRects(for: self)
             PointerCursorNSView.syncCursor(in: window)
         }
+    }
+}
+
+/// Base `NSPanel` for non-activating popovers and floating panels that intercepts
+/// responder-chain `cursorUpdate(with:)` events (including from `.fullSizeContentView`
+/// titlebar containers and visual-effect chrome views) before AppKit resets `.pointingHand` to `.arrow`.
+class PointerCursorNSPanel: NSPanel {
+    override func cursorUpdate(with event: NSEvent) {
+        if PointerCursorNSView.handleCursorUpdate(in: self) {
+            return
+        }
+        super.cursorUpdate(with: event)
     }
 }
 

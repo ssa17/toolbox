@@ -65,6 +65,7 @@ enum WindowSnapperShortcutCategory: String, CaseIterable, Identifiable {
 
 enum ProfileTemplateFilterCount: String, CaseIterable, Identifiable {
     case all = "all"
+    case one = "1"
     case two = "2"
     case three = "3"
     case fourOrSix = "4_6"
@@ -74,6 +75,7 @@ enum ProfileTemplateFilterCount: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .all: return "All Templates"
+        case .one: return "1 App"
         case .two: return "2 Apps"
         case .three: return "3 Apps"
         case .fourOrSix: return "4 & 6 Apps"
@@ -83,6 +85,7 @@ enum ProfileTemplateFilterCount: String, CaseIterable, Identifiable {
     func matches(_ preset: DisplayPresetKind) -> Bool {
         switch self {
         case .all: return preset != .custom
+        case .one: return preset.zoneCount == 1
         case .two: return preset.zoneCount == 2
         case .three: return preset.zoneCount == 3
         case .fourOrSix: return preset.zoneCount >= 4
@@ -613,18 +616,13 @@ struct WindowSnapperSettingsView: View {
                 Divider()
 
                 SettingRow(
-                    "Zone labels & keyboard flash",
-                    subtitle: "Show zone dimensions inside previews and briefly flash target outlines on keyboard snaps."
+                    "Zone labels",
+                    subtitle: "Show zone dimensions inside previews."
                 ) {
-                    HStack(spacing: 16) {
-                        Toggle("Labels & Dimensions", isOn: $configManager.config.windowSnapper.overlayStyle.showZoneLabelsAndDimensions)
-                            .font(.caption.weight(.medium))
-                            .pointerCursor()
-
-                        Toggle("Flash on Key Snap", isOn: $configManager.config.windowSnapper.overlayStyle.flashOnKeyboardSnap)
-                            .font(.caption.weight(.medium))
-                            .pointerCursor()
-                    }
+                    Toggle("", isOn: $configManager.config.windowSnapper.overlayStyle.showZoneLabelsAndDimensions)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .pointerCursor()
                 }
             }
         }
@@ -931,7 +929,7 @@ struct WindowSnapperSettingsView: View {
                     .foregroundStyle(.secondary)
 
                 ToolboxAdaptiveCardGrid(wideColumns: 4, narrowColumns: 2, wideMinWidth: 500, spacing: 8) {
-                    ForEach(DisplayPresetKind.builtInTemplates) { preset in
+                    ForEach(DisplayPresetKind.topEdgeSlotTemplates) { preset in
                         let assignedIdx = panelCfg.slotIndex(for: preset)
                         let isAssignedToSelected = assignedIdx == selectedSlotIndex
                         let otherSlotLabel: String? = assignedIdx.flatMap { idx in
@@ -1244,8 +1242,8 @@ struct WindowSnapperSettingsView: View {
                 subtitle: "Choose how many windows appear on \(display.signature.localizedName) using a ready-made template."
             ) {
                 templateGroupBlock(
-                    title: "2 Windows on Screen",
-                    presets: [.halves, .asymmetric, .asymmetricRight, .verticalStack2],
+                    title: "1 & 2 Windows on Screen",
+                    presets: [.maximized, .halves, .asymmetric, .asymmetricRight, .verticalStack2],
                     selectedPresetID: currentLayout.presetID
                 ) { preset in
                     var updated = currentLayout
@@ -2165,6 +2163,10 @@ struct WindowSnapperSettingsView: View {
 
             Divider()
 
+            restoreProfileShortcutSettingRow
+
+            Divider()
+
             SettingRow(
                 "App launching & focus behavior",
                 subtitle: "Automatically launch closed apps when applying, or hide unlisted windows."
@@ -2667,6 +2669,10 @@ struct WindowSnapperSettingsView: View {
             "Workspace Profile Shortcuts",
             subtitle: "Bind global shortcuts to apply saved workspace profiles in one keystroke."
         ) {
+            restoreProfileShortcutSettingRow
+
+            Divider()
+
             if cfg.profiles.isEmpty {
                 Text("No workspace profiles saved yet. Create a profile in the Profiles tab to assign a shortcut.")
                     .font(.caption)
@@ -2722,6 +2728,18 @@ struct WindowSnapperSettingsView: View {
     }
 
     // MARK: - Helpers
+
+    private var restoreProfileShortcutSettingRow: some View {
+        SettingRow(
+            "Press shortcut again to restore previous layout",
+            subtitle: "First shortcut press opens this workspace; pressing the same shortcut a second time returns windows and hidden apps to how they were before."
+        ) {
+            Toggle("", isOn: $configManager.config.windowSnapper.restorePreviousWorkspaceOnShortcutToggle)
+                .labelsHidden()
+                .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
+                .pointerCursor()
+        }
+    }
 
     private var runningRegularApps: [NSRunningApplication] {
         let selfBundleID = Bundle.main.bundleIdentifier

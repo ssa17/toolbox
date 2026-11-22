@@ -2,10 +2,40 @@ import AppKit
 import ApplicationServices
 import Foundation
 
+struct ProfileRulePlacementEntry: Equatable, Sendable {
+    let rule: ProfileAppRule
+    let targetDisplay: ConnectedDisplay
+    let zone: ResolvedZone
+    var isAppOpen: Bool
+    var hasWindow: Bool
+    var isPositioned: Bool
+    var consecutiveVerifiedHits: Int = 0
+    var snapAttempts: Int = 0
+    var didTriggerLaunchOrReopen: Bool = false
+    var didRetryActivateReopen: Bool = false
+    var lastClampedFramesByIndex: [Int: CGRect] = [:]
+}
+
+struct WorkspaceProfileRestoreSnapshot: Sendable {
+    let profileID: String
+    let profileName: String
+    let previousActiveProfileID: String?
+    let previousDisplayLayouts: [DisplayLayoutConfig]
+    var preProfileWindows: [WindowSnapUndoItem]
+    var preProfileElementsByUndoID: [String: AXElementBox]
+    var unminimizedElements: [AXElementBox]
+    var unhiddenBundleIDs: Set<String>
+    var appsHiddenByProfile: Set<String>
+    var newlyLaunchedBundleIDs: Set<String>
+    let wasToolboxMainWindowVisible: Bool
+    let previouslyFrontmostBundleID: String?
+}
+
 @MainActor
 final class ProfileEngine: ObservableObject {
     @Published private(set) var isApplyingProfile: Bool = false
     @Published private(set) var suggestedTopologyProfileID: String? = nil
+    @Published private(set) var activeRulePlacements: [String: ProfileRulePlacementEntry] = [:]
 
     private let axController: AXWindowController
     private let displayRegistry: DisplayRegistry
@@ -17,6 +47,9 @@ final class ProfileEngine: ObservableObject {
     private var workspaceLaunchObserver: NSObjectProtocol?
     private var activeWatchedRulesByBundleID: [String: (profile: WorkspaceProfile, rule: ProfileAppRule, config: WindowSnapperConfig)] = [:]
     private var lastAutoTriggeredTopologyKey: String?
+    private var placementTrackerTask: Task<Void, Never>?
+    private var applyGeneration: UInt64 = 0
+    private(set) var lastRestoreSnapshot: WorkspaceProfileRestoreSnapshot?
 
     init(
         axController: AXWindowController,
@@ -29,6 +62,12 @@ final class ProfileEngine: ObservableObject {
     }
 
     func stopAllWatchers() {
+        applyGeneration &+= 1
+        isApplyingProfile = false
+        placementTrackerTask?.cancel()
+        placementTrackerTask = nil
+        activeRulePlacements.removeAll()
+        lastRestoreSnapshot = nil
         for (_, task) in launchTimeoutTasks {
             task.cancel()
         }
@@ -52,7 +91,39 @@ final class ProfileEngine: ObservableObject {
         }
     }
 
-    // MARK: - Pure Resolution & Dry-Run Preview
+    // MARK: - Pure Resolution, Verification & Dry-Run Preview
+
+    static func framesMatchWithinTolerance(_ lhs: CGRect, _ rhs: CGRect, tolerance: CGFloat = 14) -> Bool {
+        abs(lhs.minX - rhs.minX) <= tolerance
+            && abs(lhs.minY - rhs.minY) <= tolerance
+            && abs(lhs.width - rhs.width) <= tolerance
+            && abs(lhs.height - rhs.height) <= tolerance
+    }
+
+    static func isWindowFramePositionedCorrectly(
+        actualFrameAX: CGRect,
+        targetFrameAX: CGRect,
+        minSize: CGSize? = nil,
+        lastClampedFrameAX: CGRect? = nil,
+        usableAXRect: CGRect,
+        tolerance: CGFloat = 14
+    ) -> Bool {
+        if framesMatchWithinTolerance(actualFrameAX, targetFrameAX, tolerance: tolerance) {
+            return true
+        }
+        if let lastClampedFrameAX,
+           framesMatchWithinTolerance(actualFrameAX, lastClampedFrameAX, tolerance: tolerance) {
+            return true
+        }
+        if let warning = SnapGeometry.evaluateMinSizeFit(
+            targetFrameAX: targetFrameAX,
+            minSize: minSize,
+            usableAXRect: usableAXRect
+        ), framesMatchWithinTolerance(actualFrameAX, warning.clampedFrameAX, tolerance: tolerance) {
+            return true
+        }
+        return false
+    }
 
     static func resolveTargetDisplay(
         for target: ProfileTargetDisplay,
@@ -228,10 +299,12 @@ final class ProfileEngine: ObservableObject {
             if resolvedTarget.usedFallback {
                 status = .mainDisplayFallback
             } else if let firstWin = matchingWindows.first {
-                let alreadyFits = abs(firstWin.frameAX.minX - zone.frameInAX.minX) <= 14
-                    && abs(firstWin.frameAX.minY - zone.frameInAX.minY) <= 14
-                    && abs(firstWin.frameAX.width - zone.frameInAX.width) <= 14
-                    && abs(firstWin.frameAX.height - zone.frameInAX.height) <= 14
+                let alreadyFits = isWindowFramePositionedCorrectly(
+                    actualFrameAX: firstWin.frameAX,
+                    targetFrameAX: zone.frameInAX,
+                    minSize: firstWin.minSize,
+                    usableAXRect: resolvedTarget.display.usableAX
+                )
                 status = alreadyFits ? .alreadyPlaced : .ready
             } else if isRunning {
                 status = .ready
@@ -252,6 +325,139 @@ final class ProfileEngine: ObservableObject {
         }
 
         return result
+    }
+
+    // MARK: - Shortcut Toggle & Previous Workspace Restore
+
+    func seedRestoreSnapshotForTesting(_ snapshot: WorkspaceProfileRestoreSnapshot?) {
+        lastRestoreSnapshot = snapshot
+    }
+
+    func canRestorePreviousWorkspace(forProfileID profileID: String, config: WindowSnapperConfig) -> Bool {
+        config.restorePreviousWorkspaceOnShortcutToggle
+            && config.activeProfileID == profileID
+            && lastRestoreSnapshot?.profileID == profileID
+    }
+
+    func toggleOrApplyProfile(
+        _ profile: WorkspaceProfile,
+        onPushUndoBatch: @escaping (WindowSnapUndoBatch) -> Void
+    ) {
+        let cfg = ConfigManager.shared.config.windowSnapper
+        if canRestorePreviousWorkspace(forProfileID: profile.id, config: cfg) {
+            restorePreviousWorkspace()
+        } else {
+            applyProfile(profile, onPushUndoBatch: onPushUndoBatch)
+        }
+    }
+
+    func restorePreviousWorkspace(completion: (@MainActor () -> Void)? = nil) {
+        guard let snapshot = lastRestoreSnapshot else {
+            completion?()
+            return
+        }
+        lastRestoreSnapshot = nil
+        applyGeneration &+= 1
+        isApplyingProfile = false
+        placementTrackerTask?.cancel()
+        placementTrackerTask = nil
+        activeRulePlacements.removeAll()
+        stopActiveRuleWatchers()
+        overlayController.hideAllPreviews()
+
+        var cfg = ConfigManager.shared.config.windowSnapper
+        cfg.activeProfileID = snapshot.previousActiveProfileID
+        cfg.displayLayouts = snapshot.previousDisplayLayouts
+        ConfigManager.shared.config.windowSnapper = cfg
+
+        displayRegistry.refresh(gaps: cfg.gaps)
+        let displays = displayRegistry.connectedDisplays
+
+        for bid in snapshot.appsHiddenByProfile {
+            for app in NSWorkspace.shared.runningApplications where !app.isTerminated
+                && (app.bundleIdentifier?.caseInsensitiveCompare(bid) == .orderedSame) {
+                if app.isHidden {
+                    _ = app.unhide()
+                }
+            }
+        }
+
+        let restoreBatch = WindowSnapUndoBatch(
+            title: "Restore pre-\(snapshot.profileName)",
+            isProfileBatch: true,
+            items: snapshot.preProfileWindows
+        )
+
+        axController.restoreUndoBatch(
+            restoreBatch,
+            displays: displays,
+            overrideElements: snapshot.preProfileElementsByUndoID
+        ) { [weak self] restoredCount in
+            guard let self else {
+                completion?()
+                return
+            }
+
+            let finalizeVisibilityAndFocus: @MainActor () -> Void = {
+                for bid in snapshot.unhiddenBundleIDs.union(snapshot.newlyLaunchedBundleIDs) {
+                    for app in NSWorkspace.shared.runningApplications where !app.isTerminated
+                        && (app.bundleIdentifier?.caseInsensitiveCompare(bid) == .orderedSame) {
+                        _ = app.hide()
+                    }
+                }
+
+                if snapshot.wasToolboxMainWindowVisible,
+                   !PermissionsManager.isRunningInDiagnosticMode,
+                   let mainWin = MainWindowController.shared.currentWindow {
+                    if mainWin.isMiniaturized {
+                        mainWin.deminiaturize(nil)
+                    }
+                    mainWin.makeKeyAndOrderFront(nil)
+                }
+
+                if !PermissionsManager.isRunningInDiagnosticMode,
+                   let prevFrontBID = snapshot.previouslyFrontmostBundleID {
+                    let selfID = Bundle.main.bundleIdentifier?.lowercased() ?? ""
+                    if prevFrontBID.lowercased() == selfID {
+                        if snapshot.wasToolboxMainWindowVisible {
+                            NSApp.activate(ignoringOtherApps: true)
+                        }
+                    } else if let prevApp = NSWorkspace.shared.runningApplications.first(where: {
+                        !$0.isTerminated && ($0.bundleIdentifier?.caseInsensitiveCompare(prevFrontBID) == .orderedSame)
+                    }) {
+                        if NSApp.isActive {
+                            NSApp.yieldActivation(to: prevApp)
+                        }
+                        _ = prevApp.activate()
+                    }
+                }
+
+                DeveloperEventLog.shared.record(
+                    .windowSnapper,
+                    "Restored workspace before '\(snapshot.profileName)'",
+                    detail: "windows restored: \(restoredCount)"
+                )
+
+                if cfg.showSnapHUDToasts {
+                    HUDToast.shared.show(
+                        title: "Restored previous layout",
+                        symbol: "arrow.uturn.backward.circle",
+                        tint: .indigo
+                    )
+                }
+
+                self.syncActiveProfileWatchers(config: ConfigManager.shared.config)
+                completion?()
+            }
+
+            if !snapshot.unminimizedElements.isEmpty {
+                self.axController.minimizeElements(snapshot.unminimizedElements) {
+                    finalizeVisibilityAndFocus()
+                }
+            } else {
+                finalizeVisibilityAndFocus()
+            }
+        }
     }
 
     // MARK: - Live Preview & Apply
@@ -303,74 +509,208 @@ final class ProfileEngine: ObservableObject {
         suggestedTopologyProfileID = nil
         isApplyingProfile = true
 
-        var cfg = ConfigManager.shared.config.windowSnapper
-        cfg.activeProfileID = profile.id
+        placementTrackerTask?.cancel()
+        placementTrackerTask = nil
+        activeRulePlacements.removeAll()
+        applyGeneration &+= 1
+        let gen = applyGeneration
 
-        // Merge any display layout overrides from the profile into active displayLayouts
-        for overrideLayout in profile.displayLayoutOverrides {
-            if let existingIdx = cfg.displayLayouts.firstIndex(where: {
-                DisplayRegistry.matchDisplay(for: overrideLayout.display, among: [$0.display]) != nil
-            }) {
-                cfg.displayLayouts[existingIdx].presetID = overrideLayout.presetID
-                cfg.displayLayouts[existingIdx].division = overrideLayout.division
-                cfg.displayLayouts[existingIdx].customZones = overrideLayout.customZones
-                cfg.displayLayouts[existingIdx].outerMarginPoints = overrideLayout.outerMarginPoints
-                cfg.displayLayouts[existingIdx].innerGapPoints = overrideLayout.innerGapPoints
-            } else {
-                cfg.displayLayouts.append(overrideLayout)
-            }
-        }
-        ConfigManager.shared.config.windowSnapper = cfg
-
-        displayRegistry.refresh(gaps: cfg.gaps)
+        let initialCfg = ConfigManager.shared.config.windowSnapper
+        displayRegistry.refresh(gaps: initialCfg.gaps)
         let displays = displayRegistry.connectedDisplays
-        let ignored = Set(cfg.ignoredBundleIDs)
+        let ignored = Set(initialCfg.ignoredBundleIDs)
 
-        // Unhide / unminimize target apps before scanning windows so restored windows are placed too
-        var restoredAnyWindowOrApp = false
-        if profile.unminimizeAndUnhideApps {
-            for rule in profile.appRules where rule.enabled {
-                for app in NSWorkspace.shared.runningApplications where !app.isTerminated
-                    && (app.bundleIdentifier?.caseInsensitiveCompare(rule.bundleIdentifier) == .orderedSame) {
-                    if app.isHidden {
-                        _ = app.unhide()
-                        restoredAnyWindowOrApp = true
+        let previousActiveProfileID = initialCfg.activeProfileID
+        let previousDisplayLayouts = initialCfg.displayLayouts
+        let previouslyFrontmostBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let selfID = Bundle.main.bundleIdentifier?.lowercased() ?? ""
+        let wasToolboxMainWindowVisible = !PermissionsManager.isRunningInDiagnosticMode
+            && (MainWindowController.shared.currentWindow?.isVisible == true)
+        let selfVisibleWindows = AXWindowController.standardSelfWindowsMainActor()
+
+        let enabledRules = profile.appRules.filter(\.enabled)
+        let targetBundleIDs = Set(enabledRules.map { $0.bundleIdentifier.lowercased() })
+        let targetPIDs = NSWorkspace.shared.runningApplications
+            .filter { !$0.isTerminated && targetBundleIDs.contains(($0.bundleIdentifier ?? "").lowercased()) }
+            .map(\.processIdentifier)
+
+        // Phase A: Capture pre-profile window frames before hiding/unhiding or moving anything
+        axController.inspectAllVisibleStandardWindows(ignoredBundleIDs: ignored) { [weak self] preVisibleWindows in
+            guard let self, self.applyGeneration == gen else { return }
+
+            self.axController.windowsForApps(pids: targetPIDs) { [weak self] preTargetByPID in
+                guard let self, self.applyGeneration == gen else { return }
+
+                var snapshotWindows: [DiscoveredAXWindow] = preVisibleWindows
+                for (_, wins) in preTargetByPID {
+                    for win in wins {
+                        let alreadySeen = snapshotWindows.contains { existing in
+                            if let w1 = existing.windowNumber, let w2 = win.windowNumber, w1 == w2 {
+                                return true
+                            }
+                            return existing.pid == win.pid && CFEqual(existing.elementBox.element, win.elementBox.element)
+                        }
+                        if !alreadySeen {
+                            snapshotWindows.append(win)
+                        }
                     }
-                    let allAppWins = axController.windowsForAppSync(pid: app.processIdentifier, app: app)
-                    for win in allAppWins where win.isMinimized {
-                        _ = AXUIElementSetAttributeValue(win.elementBox.element, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
-                        restoredAnyWindowOrApp = true
+                }
+                if targetBundleIDs.contains(selfID) {
+                    for win in selfVisibleWindows {
+                        let alreadySeen = snapshotWindows.contains { $0.pid == win.pid && $0.windowNumber == win.windowNumber }
+                        if !alreadySeen {
+                            snapshotWindows.append(win)
+                        }
+                    }
+                }
+
+                var preItems: [WindowSnapUndoItem] = []
+                var preElements: [String: AXElementBox] = [:]
+                for win in snapshotWindows {
+                    let item = WindowSnapUndoItem(
+                        pid: win.pid,
+                        windowNumber: win.windowNumber,
+                        bundleIdentifier: win.bundleIdentifier,
+                        appName: win.appName,
+                        windowTitle: win.title,
+                        initialFrameAX: win.frameAX,
+                        afterFrameAX: win.frameAX,
+                        displaySignature: self.displayRegistry.display(containingAXRect: win.frameAX)?.signature,
+                        zoneName: "Pre-Profile"
+                    )
+                    preItems.append(item)
+                    preElements[item.id] = win.elementBox
+                }
+
+                var snapshot = WorkspaceProfileRestoreSnapshot(
+                    profileID: profile.id,
+                    profileName: profile.name,
+                    previousActiveProfileID: previousActiveProfileID,
+                    previousDisplayLayouts: previousDisplayLayouts,
+                    preProfileWindows: preItems,
+                    preProfileElementsByUndoID: preElements,
+                    unminimizedElements: [],
+                    unhiddenBundleIDs: [],
+                    appsHiddenByProfile: [],
+                    newlyLaunchedBundleIDs: [],
+                    wasToolboxMainWindowVisible: wasToolboxMainWindowVisible,
+                    previouslyFrontmostBundleID: previouslyFrontmostBundleID
+                )
+
+                // Phase B: Update config, unhide/unminimize target apps, and hide unlisted apps (including Toolbox)
+                var cfg = ConfigManager.shared.config.windowSnapper
+                cfg.activeProfileID = profile.id
+                for overrideLayout in profile.displayLayoutOverrides {
+                    if let existingIdx = cfg.displayLayouts.firstIndex(where: {
+                        DisplayRegistry.matchDisplay(for: overrideLayout.display, among: [$0.display]) != nil
+                    }) {
+                        cfg.displayLayouts[existingIdx].presetID = overrideLayout.presetID
+                        cfg.displayLayouts[existingIdx].division = overrideLayout.division
+                        cfg.displayLayouts[existingIdx].customZones = overrideLayout.customZones
+                        cfg.displayLayouts[existingIdx].outerMarginPoints = overrideLayout.outerMarginPoints
+                        cfg.displayLayouts[existingIdx].innerGapPoints = overrideLayout.innerGapPoints
+                    } else {
+                        cfg.displayLayouts.append(overrideLayout)
+                    }
+                }
+                ConfigManager.shared.config.windowSnapper = cfg
+
+                var restoredAnyAppOrWindow = false
+                if profile.unminimizeAndUnhideApps {
+                    for app in NSWorkspace.shared.runningApplications where !app.isTerminated {
+                        let bid = (app.bundleIdentifier ?? "").lowercased()
+                        if targetBundleIDs.contains(bid), app.isHidden {
+                            _ = app.unhide()
+                            snapshot.unhiddenBundleIDs.insert(bid)
+                            restoredAnyAppOrWindow = true
+                        }
+                    }
+                }
+
+                if profile.hideUnlistedApps {
+                    for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular && !app.isTerminated {
+                        let bid = app.bundleIdentifier?.lowercased() ?? ""
+                        if bid.isEmpty || bid == "com.apple.finder" || bid == selfID {
+                            continue
+                        }
+                        if !targetBundleIDs.contains(bid) && !app.isHidden {
+                            snapshot.appsHiddenByProfile.insert(bid)
+                            _ = app.hide()
+                        }
+                    }
+
+                    if !targetBundleIDs.contains(selfID) && !PermissionsManager.isRunningInDiagnosticMode {
+                        for win in NSApp.windows where !(win is NSPanel) && win.styleMask.contains(.titled) && win.isVisible {
+                            win.orderOut(nil)
+                        }
+                    }
+                }
+
+                self.axController.unminimizeAndFetchWindowsForApps(
+                    pids: targetPIDs,
+                    unminimize: profile.unminimizeAndUnhideApps
+                ) { [weak self] unminimizedElements, _ in
+                    guard let self, self.applyGeneration == gen else { return }
+                    if !unminimizedElements.isEmpty {
+                        snapshot.unminimizedElements = unminimizedElements
+                        restoredAnyAppOrWindow = true
+                    }
+                    self.lastRestoreSnapshot = snapshot
+
+                    let runPlacementPass: @MainActor () -> Void = { [weak self] in
+                        self?.performInitialPlacementAndStartTracker(
+                            generation: gen,
+                            profile: profile,
+                            displays: displays,
+                            config: cfg,
+                            ignoredBundleIDs: ignored,
+                            onPushUndoBatch: onPushUndoBatch
+                        )
+                    }
+
+                    if restoredAnyAppOrWindow {
+                        Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 140_000_000)
+                            guard self.applyGeneration == gen else { return }
+                            runPlacementPass()
+                        }
+                    } else {
+                        runPlacementPass()
                     }
                 }
             }
         }
+    }
 
-        // Hide unlisted regular apps if configured
-        if profile.hideUnlistedApps {
-            let listedIDs = Set(profile.appRules.filter(\.enabled).map { $0.bundleIdentifier.lowercased() })
-            let selfID = Bundle.main.bundleIdentifier?.lowercased()
-            for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular && !app.isTerminated {
-                let bid = app.bundleIdentifier?.lowercased() ?? ""
-                if bid.isEmpty || bid == "com.apple.finder" || bid == selfID {
-                    continue
-                }
-                if !listedIDs.contains(bid) {
-                    _ = app.hide()
-                }
-            }
-        }
+    private func performInitialPlacementAndStartTracker(
+        generation gen: UInt64,
+        profile: WorkspaceProfile,
+        displays: [ConnectedDisplay],
+        config cfg: WindowSnapperConfig,
+        ignoredBundleIDs ignored: Set<String>,
+        onPushUndoBatch: @escaping (WindowSnapUndoBatch) -> Void
+    ) {
+        guard applyGeneration == gen else { return }
 
-        let scanAndPlace: @MainActor () -> Void = { [weak self] in
-            guard let self else { return }
-            self.axController.inspectAllVisibleStandardWindows(ignoredBundleIDs: ignored) { [weak self] visibleWindows in
-                guard let self else { return }
+        let enabledRules = profile.appRules.filter(\.enabled)
+        let targetBundleIDs = Set(enabledRules.map { $0.bundleIdentifier.lowercased() })
+        let targetPIDs = NSWorkspace.shared.runningApplications
+            .filter { !$0.isTerminated && targetBundleIDs.contains(($0.bundleIdentifier ?? "").lowercased()) }
+            .map(\.processIdentifier)
+
+        axController.inspectAllVisibleStandardWindows(ignoredBundleIDs: ignored) { [weak self] visibleWindows in
+            guard let self, self.applyGeneration == gen else { return }
+
+            self.axController.windowsForApps(pids: targetPIDs) { [weak self] axWindowsByPID in
+                guard let self, self.applyGeneration == gen else { return }
 
                 var undoItems: [WindowSnapUndoItem] = []
                 var placedCount = 0
                 var launchingNames: [String] = []
                 let group = DispatchGroup()
+                var firstPlacedApp: NSRunningApplication?
 
-                for rule in profile.appRules where rule.enabled {
+                for rule in enabledRules {
                     guard let resolvedTarget = Self.resolveTargetDisplay(
                         for: rule.targetDisplay,
                         fallback: profile.disconnectedFallback,
@@ -388,14 +728,41 @@ final class ProfileEngine: ObservableObject {
                     let runningMatches = NSWorkspace.shared.runningApplications.filter {
                         !$0.isTerminated && ($0.bundleIdentifier?.caseInsensitiveCompare(rule.bundleIdentifier) == .orderedSame)
                     }
+                    let isAppRunning = !runningMatches.isEmpty
 
-                    let selected = Self.selectWindows(for: rule, from: visibleWindows)
+                    var candidateWindows = visibleWindows.filter {
+                        $0.bundleIdentifier.caseInsensitiveCompare(rule.bundleIdentifier) == .orderedSame
+                    }
+                    if candidateWindows.isEmpty {
+                        for app in runningMatches {
+                            let fallbackWins = (axWindowsByPID[app.processIdentifier] ?? []).filter {
+                                !$0.isFullscreen && !$0.isMinimized && $0.frameAX.width >= 100 && $0.frameAX.height >= 80
+                            }
+                            candidateWindows.append(contentsOf: fallbackWins)
+                        }
+                    }
+
+                    let selected = Self.selectWindows(for: rule, from: candidateWindows)
                     if !selected.isEmpty {
+                        if firstPlacedApp == nil, let app = runningMatches.first {
+                            firstPlacedApp = app
+                        }
                         let frames = Self.tiledFrames(
                             count: selected.count,
                             inside: zone.frameInAX,
                             innerGap: CGFloat(cfg.gaps.innerGapPoints)
                         )
+                        self.activeRulePlacements[rule.id] = ProfileRulePlacementEntry(
+                            rule: rule,
+                            targetDisplay: resolvedTarget.display,
+                            zone: zone,
+                            isAppOpen: true,
+                            hasWindow: true,
+                            isPositioned: false,
+                            consecutiveVerifiedHits: 0,
+                            snapAttempts: 1
+                        )
+
                         for (idx, win) in selected.enumerated() {
                             let targetFrame = frames[idx]
                             let sourceDisp = self.displayRegistry.display(containingAXRect: win.frameAX)
@@ -406,8 +773,8 @@ final class ProfileEngine: ObservableObject {
                                 usableAXRect: resolvedTarget.display.usableAX,
                                 sourceDisplayFrameAX: sourceDisp?.frameAX,
                                 targetDisplayFrameAX: resolvedTarget.display.frameAX
-                            ) { execResult in
-                                if let execResult {
+                            ) { [weak self] execResult in
+                                if let self, let execResult {
                                     let undoItem = WindowSnapUndoItem(
                                         pid: win.pid,
                                         windowNumber: win.windowNumber,
@@ -422,23 +789,59 @@ final class ProfileEngine: ObservableObject {
                                     self.axController.cacheElement(win.elementBox, forUndoItemID: undoItem.id)
                                     undoItems.append(undoItem)
                                     placedCount += 1
+
+                                    if self.applyGeneration == gen, execResult.clampedForMinSize {
+                                        self.activeRulePlacements[rule.id]?.lastClampedFramesByIndex[idx] = execResult.appliedFrameAX
+                                    }
+                                    if self.applyGeneration == gen,
+                                       Self.isWindowFramePositionedCorrectly(
+                                           actualFrameAX: execResult.appliedFrameAX,
+                                           targetFrameAX: targetFrame,
+                                           minSize: win.minSize,
+                                           lastClampedFrameAX: execResult.clampedForMinSize ? execResult.appliedFrameAX : nil,
+                                           usableAXRect: resolvedTarget.display.usableAX
+                                       ) {
+                                        self.activeRulePlacements[rule.id]?.isPositioned = true
+                                    }
                                 }
                                 group.leave()
                             }
                         }
-                    } else if runningMatches.isEmpty && rule.launchIfNotRunning {
+                    } else if candidateWindows.isEmpty && rule.launchIfNotRunning {
+                        let lowerBID = rule.bundleIdentifier.lowercased()
+                        if !isAppRunning {
+                            self.lastRestoreSnapshot?.newlyLaunchedBundleIDs.insert(lowerBID)
+                        }
                         launchingNames.append(rule.appName)
-                        self.launchAndPlaceApp(
+                        self.activeRulePlacements[rule.id] = ProfileRulePlacementEntry(
                             rule: rule,
-                            zone: zone,
                             targetDisplay: resolvedTarget.display,
-                            config: cfg
+                            zone: zone,
+                            isAppOpen: isAppRunning,
+                            hasWindow: false,
+                            isPositioned: false,
+                            consecutiveVerifiedHits: 0,
+                            snapAttempts: 0,
+                            didTriggerLaunchOrReopen: true
+                        )
+                        self.launchOrReopenApp(bundleIdentifier: rule.bundleIdentifier)
+                    } else {
+                        self.activeRulePlacements[rule.id] = ProfileRulePlacementEntry(
+                            rule: rule,
+                            targetDisplay: resolvedTarget.display,
+                            zone: zone,
+                            isAppOpen: isAppRunning,
+                            hasWindow: !candidateWindows.isEmpty,
+                            isPositioned: false,
+                            consecutiveVerifiedHits: 2
                         )
                     }
                 }
 
-                group.notify(queue: .main) {
+                group.notify(queue: .main) { [weak self] in
+                    guard let self, self.applyGeneration == gen else { return }
                     self.isApplyingProfile = false
+
                     if !undoItems.isEmpty {
                         let batch = WindowSnapUndoBatch(
                             title: "Profile '\(profile.name)'",
@@ -448,6 +851,16 @@ final class ProfileEngine: ObservableObject {
                         onPushUndoBatch(batch)
                     }
 
+                    if !PermissionsManager.isRunningInDiagnosticMode,
+                       (profile.hideUnlistedApps || NSApp.isActive) {
+                        if let app = firstPlacedApp {
+                            if NSApp.isActive {
+                                NSApp.yieldActivation(to: app)
+                            }
+                            _ = app.activate()
+                        }
+                    }
+
                     DeveloperEventLog.shared.record(
                         .windowSnapper,
                         "Applied profile '\(profile.name)'",
@@ -455,7 +868,7 @@ final class ProfileEngine: ObservableObject {
                     )
 
                     if cfg.showSnapHUDToasts {
-                        if profile.appRules.filter(\.enabled).isEmpty {
+                        if enabledRules.isEmpty {
                             HUDToast.shared.show(
                                 title: "Applied layout '\(profile.name)'",
                                 symbol: "rectangle.3.group",
@@ -464,7 +877,7 @@ final class ProfileEngine: ObservableObject {
                         } else {
                             let launchSuffix = launchingNames.isEmpty
                                 ? ""
-                                : ", launching \(launchingNames.joined(separator: ", "))"
+                                : ", opening \(launchingNames.joined(separator: ", "))"
                             HUDToast.shared.show(
                                 title: "Applied '\(profile.name)' · \(placedCount) placed\(launchSuffix)",
                                 symbol: "rectangle.3.group",
@@ -474,137 +887,202 @@ final class ProfileEngine: ObservableObject {
                     }
 
                     self.syncActiveProfileWatchers(config: ConfigManager.shared.config)
+                    self.startPlacementReconciliationLoop(generation: gen, config: cfg)
                 }
             }
         }
-
-        if restoredAnyWindowOrApp {
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 140_000_000)
-                scanAndPlace()
-            }
-        } else {
-            scanAndPlace()
-        }
     }
 
-    // MARK: - App Launch + AXObserver Retry Placement (Electron/Chrome safe)
+    // MARK: - App Launch / Reopen + Placement Verification Tracker
 
-    private func launchAndPlaceApp(
-        rule: ProfileAppRule,
-        zone: ResolvedZone,
-        targetDisplay: ConnectedDisplay,
-        config: WindowSnapperConfig
-    ) {
-        guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: rule.bundleIdentifier) else {
+    private func launchOrReopenApp(bundleIdentifier: String) {
+        guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) else {
             return
         }
         let openConfig = NSWorkspace.OpenConfiguration()
-        openConfig.activates = false
+        openConfig.activates = true
         openConfig.addsToRecentItems = false
-
-        NSWorkspace.shared.openApplication(at: appURL, configuration: openConfig) { [weak self] app, error in
-            guard error == nil, let app else { return }
-            Task { @MainActor [weak self] in
-                self?.observeLaunchedAppForPlacement(
-                    app: app,
-                    rule: rule,
-                    zone: zone,
-                    targetDisplay: targetDisplay
-                )
-            }
-        }
+        NSWorkspace.shared.openApplication(at: appURL, configuration: openConfig) { _, _ in }
     }
 
-    private func observeLaunchedAppForPlacement(
-        app: NSRunningApplication,
-        rule: ProfileAppRule,
-        zone: ResolvedZone,
-        targetDisplay: ConnectedDisplay
+    private func startPlacementReconciliationLoop(
+        generation gen: UInt64,
+        config cfg: WindowSnapperConfig
     ) {
-        let pid = app.processIdentifier
-        let taskKey = "\(rule.id):\(pid)"
-        launchTimeoutTasks[taskKey]?.cancel()
+        placementTrackerTask?.cancel()
+        guard PermissionsManager.isProcessTrusted() else { return }
 
-        // Install AXObserver for kAXWindowCreatedNotification
-        if PermissionsManager.isProcessTrusted() {
-            let appAX = AXWindowController.applicationElement(for: pid)
-            var obs: AXObserver?
-            let callback: AXObserverCallback = { _, element, _, userInfo in
-                guard let userInfo else { return }
-                let ctx = Unmanaged<LaunchObserverBox>.fromOpaque(userInfo).takeUnretainedValue()
-                let elBox = AXElementBox(element)
-                Task { @MainActor in
-                    ctx.onWindowCreated(elBox)
-                }
-            }
-            if AXObserverCreate(pid, callback, &obs) == .success, let observer = obs {
-                let box = LaunchObserverBox { [weak self] elBox in
-                    self?.tryPlaceLaunchedElement(elBox, pid: pid, rule: rule, zone: zone, targetDisplay: targetDisplay, taskKey: taskKey)
-                }
-                objc_setAssociatedObject(observer, &LaunchObserverBox.assocKey, box, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-                let boxPtr = Unmanaged.passUnretained(box).toOpaque()
-                _ = AXObserverAddNotification(observer, appAX, kAXWindowCreatedNotification as CFString, boxPtr)
-                CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
-                launchObservers[pid] = observer
-            }
-        }
+        placementTrackerTask = Task { @MainActor [weak self] in
+            let maxTicks = 36
+            let intervalNs: UInt64 = 220_000_000
 
-        // Exponential backoff poller (50ms, 150ms, 350ms, 750ms, 1.5s, 2.5s up to 8s) handles Electron/Chrome windows
-        launchTimeoutTasks[taskKey] = Task { @MainActor [weak self] in
-            let delaysMs: [UInt64] = [50, 150, 350, 750, 1500, 2200, 2500]
-            for delay in delaysMs {
-                try? await Task.sleep(nanoseconds: delay * 1_000_000)
-                guard !Task.isCancelled, let self, !app.isTerminated else { return }
-                let windows = self.axController.windowsForAppSync(pid: pid, app: app)
-                if let valid = windows.first(where: { !$0.isFullscreen && !$0.isMinimized && $0.frameAX.width >= 100 && $0.frameAX.height >= 80 }) {
-                    self.axController.snapWindow(
-                        valid,
-                        toAXFrame: zone.frameInAX,
-                        usableAXRect: targetDisplay.usableAX,
-                        sourceDisplayFrameAX: nil,
-                        targetDisplayFrameAX: targetDisplay.frameAX
-                    ) { _ in }
-                    self.cleanupLaunchObserver(pid: pid, taskKey: taskKey)
+            for tick in 0..<maxTicks {
+                try? await Task.sleep(nanoseconds: intervalNs)
+                guard !Task.isCancelled, let self, self.applyGeneration == gen else { return }
+
+                let pendingRuleIDs = self.activeRulePlacements.compactMap { ruleID, entry -> String? in
+                    if entry.consecutiveVerifiedHits >= 2 { return nil }
+                    if !entry.isAppOpen && !entry.rule.launchIfNotRunning { return nil }
+                    return ruleID
+                }
+                if pendingRuleIDs.isEmpty {
                     return
                 }
+
+                var targetPIDs: [pid_t] = []
+                var runningByRuleID: [String: [NSRunningApplication]] = [:]
+                for ruleID in pendingRuleIDs {
+                    guard let entry = self.activeRulePlacements[ruleID] else { continue }
+                    let matches = NSWorkspace.shared.runningApplications.filter {
+                        !$0.isTerminated && ($0.bundleIdentifier?.caseInsensitiveCompare(entry.rule.bundleIdentifier) == .orderedSame)
+                    }
+                    runningByRuleID[ruleID] = matches
+                    for app in matches {
+                        targetPIDs.append(app.processIdentifier)
+                    }
+                }
+
+                let axWindowsByPID: [pid_t: [DiscoveredAXWindow]] = await withCheckedContinuation { continuation in
+                    self.axController.windowsForApps(pids: targetPIDs) { result in
+                        continuation.resume(returning: result)
+                    }
+                }
+                guard !Task.isCancelled, self.applyGeneration == gen else { return }
+
+                for ruleID in pendingRuleIDs {
+                    guard var entry = self.activeRulePlacements[ruleID] else { continue }
+                    let runningApps = runningByRuleID[ruleID] ?? []
+                    entry.isAppOpen = !runningApps.isEmpty
+
+                    guard !runningApps.isEmpty else {
+                        self.activeRulePlacements[ruleID] = entry
+                        continue
+                    }
+
+                    var candidateWindows: [DiscoveredAXWindow] = []
+                    for app in runningApps {
+                        let wins = (axWindowsByPID[app.processIdentifier] ?? []).filter {
+                            !$0.isFullscreen && !$0.isMinimized && $0.frameAX.width >= 100 && $0.frameAX.height >= 80
+                        }
+                        candidateWindows.append(contentsOf: wins)
+                    }
+
+                    let selected = Self.selectWindows(for: entry.rule, from: candidateWindows)
+                    if selected.isEmpty {
+                        entry.hasWindow = !candidateWindows.isEmpty
+                        entry.isPositioned = false
+                        entry.consecutiveVerifiedHits = 0
+                        if candidateWindows.isEmpty,
+                           entry.didTriggerLaunchOrReopen,
+                           !entry.didRetryActivateReopen,
+                           tick >= 5,
+                           let firstApp = runningApps.first,
+                           firstApp.isFinishedLaunching {
+                            entry.didRetryActivateReopen = true
+                            _ = firstApp.activate()
+                            self.launchOrReopenApp(bundleIdentifier: entry.rule.bundleIdentifier)
+                        }
+                        self.activeRulePlacements[ruleID] = entry
+                        continue
+                    }
+
+                    entry.hasWindow = true
+                    let frames = Self.tiledFrames(
+                        count: selected.count,
+                        inside: entry.zone.frameInAX,
+                        innerGap: CGFloat(cfg.gaps.innerGapPoints)
+                    )
+
+                    var allPositioned = true
+                    for (idx, win) in selected.enumerated() {
+                        let targetFrame = frames[idx]
+                        let ok = Self.isWindowFramePositionedCorrectly(
+                            actualFrameAX: win.frameAX,
+                            targetFrameAX: targetFrame,
+                            minSize: win.minSize,
+                            lastClampedFrameAX: entry.lastClampedFramesByIndex[idx],
+                            usableAXRect: entry.targetDisplay.usableAX
+                        )
+                        if !ok {
+                            allPositioned = false
+                        }
+                    }
+
+                    if allPositioned {
+                        entry.isPositioned = true
+                        entry.consecutiveVerifiedHits += 1
+                        self.activeRulePlacements[ruleID] = entry
+                    } else {
+                        entry.isPositioned = false
+                        entry.consecutiveVerifiedHits = 0
+                        guard entry.snapAttempts < 8 else {
+                            entry.consecutiveVerifiedHits = 2
+                            self.activeRulePlacements[ruleID] = entry
+                            continue
+                        }
+                        entry.snapAttempts += 1
+                        self.activeRulePlacements[ruleID] = entry
+
+                        for (idx, win) in selected.enumerated() {
+                            let targetFrame = frames[idx]
+                            let alreadyPositioned = Self.isWindowFramePositionedCorrectly(
+                                actualFrameAX: win.frameAX,
+                                targetFrameAX: targetFrame,
+                                minSize: win.minSize,
+                                lastClampedFrameAX: entry.lastClampedFramesByIndex[idx],
+                                usableAXRect: entry.targetDisplay.usableAX
+                            )
+                            guard !alreadyPositioned else { continue }
+
+                            self.recordPreSnapWindowIfUnseen(win)
+                            let sourceDisp = self.displayRegistry.display(containingAXRect: win.frameAX)
+                            self.axController.snapWindow(
+                                win,
+                                toAXFrame: targetFrame,
+                                usableAXRect: entry.targetDisplay.usableAX,
+                                sourceDisplayFrameAX: sourceDisp?.frameAX,
+                                targetDisplayFrameAX: entry.targetDisplay.frameAX
+                            ) { [weak self] execResult in
+                                guard let self, self.applyGeneration == gen, let execResult else { return }
+                                if execResult.clampedForMinSize {
+                                    self.activeRulePlacements[ruleID]?.lastClampedFramesByIndex[idx] = execResult.appliedFrameAX
+                                }
+                            }
+                        }
+                    }
+                }
             }
-            self?.cleanupLaunchObserver(pid: pid, taskKey: taskKey)
         }
     }
 
-    private func tryPlaceLaunchedElement(
-        _ elementBox: AXElementBox,
-        pid: pid_t,
-        rule: ProfileAppRule,
-        zone: ResolvedZone,
-        targetDisplay: ConnectedDisplay,
-        taskKey: String
-    ) {
-        let windows = axController.windowsForAppSync(pid: pid)
-        guard let valid = windows.first(where: {
-            CFEqual($0.elementBox.element, elementBox.element)
-                && !$0.isFullscreen && !$0.isMinimized
-                && $0.frameAX.width >= 100 && $0.frameAX.height >= 80
-        }) else {
+    private func recordPreSnapWindowIfUnseen(_ win: DiscoveredAXWindow) {
+        guard var snapshot = lastRestoreSnapshot else { return }
+        let bid = win.bundleIdentifier.lowercased()
+        if snapshot.newlyLaunchedBundleIDs.contains(bid) {
             return
         }
-        axController.snapWindow(
-            valid,
-            toAXFrame: zone.frameInAX,
-            usableAXRect: targetDisplay.usableAX,
-            sourceDisplayFrameAX: nil,
-            targetDisplayFrameAX: targetDisplay.frameAX
-        ) { _ in }
-        cleanupLaunchObserver(pid: pid, taskKey: taskKey)
-    }
-
-    private func cleanupLaunchObserver(pid: pid_t, taskKey: String) {
-        launchTimeoutTasks[taskKey]?.cancel()
-        launchTimeoutTasks.removeValue(forKey: taskKey)
-        if let obs = launchObservers.removeValue(forKey: pid) {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(obs), .commonModes)
+        let exists = snapshot.preProfileWindows.contains { existing in
+            if let w1 = existing.windowNumber, let w2 = win.windowNumber, w1 == w2 {
+                return true
+            }
+            return existing.pid == win.pid && existing.windowTitle == win.title && !win.title.isEmpty
         }
+        guard !exists else { return }
+
+        let item = WindowSnapUndoItem(
+            pid: win.pid,
+            windowNumber: win.windowNumber,
+            bundleIdentifier: win.bundleIdentifier,
+            appName: win.appName,
+            windowTitle: win.title,
+            initialFrameAX: win.frameAX,
+            afterFrameAX: win.frameAX,
+            displaySignature: displayRegistry.display(containingAXRect: win.frameAX)?.signature,
+            zoneName: "Pre-Profile"
+        )
+        snapshot.preProfileWindows.append(item)
+        snapshot.preProfileElementsByUndoID[item.id] = win.elementBox
+        lastRestoreSnapshot = snapshot
     }
 
     // MARK: - Active Profile New-Window Auto-Placement

@@ -575,7 +575,7 @@ final class PortKillerModule: NSObject, ToolboxModule, ObservableObject {
     func ensurePanel(width: CGFloat = 460, height: CGFloat = 480) -> NSPanel {
         if let panel { return panel }
 
-        let newPanel = NSPanel(
+        let newPanel = PointerCursorNSPanel(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
             styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView],
             backing: .buffered,

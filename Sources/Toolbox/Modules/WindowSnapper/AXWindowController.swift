@@ -171,7 +171,7 @@ struct WindowSnapUndoStack: Sendable {
     }
 }
 
-struct PreSnapFrameRecord: Equatable, Sendable {
+struct PreSnapFrameRecord: Codable, Equatable, Sendable {
     var windowNumber: Int?
     let pid: pid_t
     let bundleIdentifier: String
@@ -300,6 +300,33 @@ struct PreSnapFrameStore: Sendable {
         } else if windowNumber == nil {
             records.removeAll { $0.pid == pid }
         }
+    }
+
+    func save(to url: URL) {
+        let encoder = JSONEncoder()
+        guard let data = try? encoder.encode(records) else { return }
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? data.write(to: url, options: [.atomic])
+    }
+
+    static func load(from url: URL, livePIDs: Set<pid_t>? = nil) -> PreSnapFrameStore {
+        guard let data = try? Data(contentsOf: url),
+              let decoded = try? JSONDecoder().decode([PreSnapFrameRecord].self, from: data) else {
+            return PreSnapFrameStore()
+        }
+        var store = PreSnapFrameStore()
+        if let livePIDs {
+            store.records = decoded.filter { livePIDs.contains($0.pid) }
+        } else {
+            store.records = decoded
+        }
+        if store.records.count > 100 {
+            store.records.removeFirst(store.records.count - 100)
+        }
+        return store
     }
 }
 
@@ -966,6 +993,170 @@ final class AXWindowController: @unchecked Sendable {
         }
     }
 
+    func windowsForApps(
+        pids: [pid_t],
+        completion: @escaping @MainActor ([pid_t: [DiscoveredAXWindow]]) -> Void
+    ) {
+        let uniquePIDs = Array(Set(pids))
+        let selfPID = ProcessInfo.processInfo.processIdentifier
+        let includeSelf = uniquePIDs.contains(selfPID)
+        let foreignPIDs = uniquePIDs.filter { $0 != selfPID }
+
+        if foreignPIDs.isEmpty {
+            Task { @MainActor in
+                var result: [pid_t: [DiscoveredAXWindow]] = [:]
+                if includeSelf {
+                    result[selfPID] = Self.standardSelfWindowsMainActor()
+                }
+                completion(result)
+            }
+            return
+        }
+
+        axQueue.async { [weak self] in
+            guard let self else {
+                Task { @MainActor in completion([:]) }
+                return
+            }
+            let cgEntries = Self.onScreenLayerZeroWindows()
+            var cgByPID: [pid_t: [CGWindowLayerZeroEntry]] = [:]
+            for entry in cgEntries {
+                cgByPID[entry.ownerPID, default: []].append(entry)
+            }
+
+            var remoteResult: [pid_t: [DiscoveredAXWindow]] = [:]
+            for pid in foreignPIDs {
+                let axWindows = self.windowsForAppSync(pid: pid)
+                remoteResult[pid] = Self.enrichWindows(axWindows, withCGEntries: cgByPID[pid] ?? [])
+            }
+
+            Task { @MainActor in
+                var combined = remoteResult
+                if includeSelf {
+                    combined[selfPID] = Self.standardSelfWindowsMainActor()
+                }
+                completion(combined)
+            }
+        }
+    }
+
+    func unminimizeAndFetchWindowsForApps(
+        pids: [pid_t],
+        unminimize: Bool,
+        completion: @escaping @MainActor (_ unminimizedElements: [AXElementBox], _ windowsByPID: [pid_t: [DiscoveredAXWindow]]) -> Void
+    ) {
+        let uniquePIDs = Array(Set(pids))
+        let selfPID = ProcessInfo.processInfo.processIdentifier
+        let includeSelf = uniquePIDs.contains(selfPID)
+        let foreignPIDs = uniquePIDs.filter { $0 != selfPID }
+
+        axQueue.async { [weak self] in
+            guard let self else {
+                Task { @MainActor in completion([], [:]) }
+                return
+            }
+            var unminimized: [AXElementBox] = []
+            var remoteResult: [pid_t: [DiscoveredAXWindow]] = [:]
+
+            for pid in foreignPIDs {
+                var windows = self.windowsForAppSync(pid: pid)
+                if unminimize {
+                    var didUnminimize = false
+                    for win in windows where win.isMinimized {
+                        Self.applyTimeout(to: win.elementBox.element)
+                        if AXUIElementSetAttributeValue(
+                            win.elementBox.element,
+                            kAXMinimizedAttribute as CFString,
+                            kCFBooleanFalse
+                        ) == .success {
+                            unminimized.append(win.elementBox)
+                            didUnminimize = true
+                        }
+                    }
+                    if didUnminimize {
+                        windows = self.windowsForAppSync(pid: pid)
+                    }
+                }
+                remoteResult[pid] = windows
+            }
+
+            let cgEntries = Self.onScreenLayerZeroWindows()
+            var cgByPID: [pid_t: [CGWindowLayerZeroEntry]] = [:]
+            for entry in cgEntries {
+                cgByPID[entry.ownerPID, default: []].append(entry)
+            }
+            for pid in foreignPIDs {
+                if let wins = remoteResult[pid] {
+                    remoteResult[pid] = Self.enrichWindows(wins, withCGEntries: cgByPID[pid] ?? [])
+                }
+            }
+
+            Task { @MainActor in
+                var combined = remoteResult
+                if includeSelf {
+                    combined[selfPID] = Self.standardSelfWindowsMainActor()
+                }
+                completion(unminimized, combined)
+            }
+        }
+    }
+
+    func minimizeElements(
+        _ boxes: [AXElementBox],
+        completion: (@MainActor () -> Void)? = nil
+    ) {
+        guard !boxes.isEmpty else {
+            if let completion {
+                Task { @MainActor in completion() }
+            }
+            return
+        }
+        let remoteBoxes = boxes.filter { !$0.isSelfProcess }
+        let selfWinNumbers = boxes.filter(\.isSelfProcess).compactMap(\.selfWindowNumber)
+
+        axQueue.async {
+            for box in remoteBoxes {
+                Self.applyTimeout(to: box.element)
+                _ = AXUIElementSetAttributeValue(box.element, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
+            }
+            Task { @MainActor in
+                for num in selfWinNumbers {
+                    if let win = NSApp.window(withWindowNumber: num), !(win is NSPanel) {
+                        win.miniaturize(nil)
+                    }
+                }
+                completion?()
+            }
+        }
+    }
+
+    private static func enrichWindows(
+        _ axWindows: [DiscoveredAXWindow],
+        withCGEntries cgEntries: [CGWindowLayerZeroEntry]
+    ) -> [DiscoveredAXWindow] {
+        guard !cgEntries.isEmpty else { return axWindows }
+        var usedWinNums: Set<Int> = []
+        return axWindows.map { win in
+            let available = cgEntries.filter { !usedWinNums.contains($0.windowNumber) }
+            guard let matchedCG = bestMatchingCGEntry(for: win, among: available) else {
+                return win
+            }
+            usedWinNums.insert(matchedCG.windowNumber)
+            return DiscoveredAXWindow(
+                pid: win.pid,
+                windowNumber: win.windowNumber ?? matchedCG.windowNumber,
+                bundleIdentifier: win.bundleIdentifier,
+                appName: win.appName,
+                title: win.title.isEmpty ? matchedCG.title : win.title,
+                frameAX: win.frameAX,
+                isFullscreen: win.isFullscreen,
+                isMinimized: win.isMinimized,
+                elementBox: win.elementBox,
+                minSize: win.minSize
+            )
+        }
+    }
+
     func inspectRunningAppWindows(
         excludingPIDs: Set<pid_t>,
         excludingWindowNumbers: Set<Int>,
@@ -1161,6 +1352,7 @@ final class AXWindowController: @unchecked Sendable {
     func restoreUndoBatch(
         _ batch: WindowSnapUndoBatch,
         displays: [ConnectedDisplay],
+        overrideElements: [String: AXElementBox] = [:],
         completion: @escaping @MainActor (Int) -> Void
     ) {
         let selfPID = ProcessInfo.processInfo.processIdentifier
@@ -1171,7 +1363,7 @@ final class AXWindowController: @unchecked Sendable {
             var remoteRestored = 0
             if let self {
                 for item in remoteItems {
-                    guard let targetElement = self.resolveElement(for: item) else {
+                    guard let targetElement = self.resolveElement(for: item, overrideElements: overrideElements) else {
                         continue
                     }
                     let targetCenter = CGPoint(x: item.initialFrameAX.midX, y: item.initialFrameAX.midY)
@@ -1221,9 +1413,14 @@ final class AXWindowController: @unchecked Sendable {
 
     // MARK: - Synchronous Serial Queue Implementation
 
-    private func resolveElement(for item: WindowSnapUndoItem) -> AXUIElement? {
+    private func resolveElement(for item: WindowSnapUndoItem, overrideElements: [String: AXElementBox] = [:]) -> AXUIElement? {
         if item.pid == ProcessInfo.processInfo.processIdentifier {
             return nil
+        }
+        if let overrideBox = overrideElements[item.id], !overrideBox.isSelfProcess {
+            if Self.copyFrameAX(of: overrideBox.element) != nil {
+                return overrideBox.element
+            }
         }
         if let cached = cachedElement(forUndoItemID: item.id), !cached.isSelfProcess {
             if Self.copyFrameAX(of: cached.element) != nil {
@@ -1681,22 +1878,34 @@ final class AXWindowController: @unchecked Sendable {
         let appName = resolvedApp?.localizedName ?? (bundleID.isEmpty ? "PID \(pid)" : bundleID)
         let appAX = Self.applicationElement(for: pid)
 
+        var result: [DiscoveredAXWindow] = []
         var windowsValue: AnyObject?
-        guard AXUIElementCopyAttributeValue(appAX, kAXWindowsAttribute as CFString, &windowsValue) == .success,
-              let axWindows = windowsValue as? [AXUIElement] else {
-            return []
+        if AXUIElementCopyAttributeValue(appAX, kAXWindowsAttribute as CFString, &windowsValue) == .success,
+           let axWindows = windowsValue as? [AXUIElement] {
+            for element in axWindows {
+                if let win = Self.buildDiscoveredWindow(
+                    element: element,
+                    pid: pid,
+                    bundleIdentifier: bundleID,
+                    appName: appName,
+                    windowNumber: nil
+                ) {
+                    result.append(win)
+                }
+            }
         }
 
-        var result: [DiscoveredAXWindow] = []
-        for element in axWindows {
-            if let win = Self.buildDiscoveredWindow(
-                element: element,
-                pid: pid,
-                bundleIdentifier: bundleID,
-                appName: appName,
-                windowNumber: nil
-            ) {
-                result.append(win)
+        if result.isEmpty {
+            if let fallbackEl = Self.copyElementAttribute(kAXMainWindowAttribute as CFString, from: appAX)
+                ?? Self.copyElementAttribute(kAXFocusedWindowAttribute as CFString, from: appAX),
+               let discovered = Self.buildDiscoveredWindow(
+                   element: fallbackEl,
+                   pid: pid,
+                   bundleIdentifier: bundleID,
+                   appName: appName,
+                   windowNumber: nil
+               ) {
+                result.append(discovered)
             }
         }
         return result
@@ -1856,7 +2065,8 @@ final class AXWindowController: @unchecked Sendable {
         var subroleVal: AnyObject?
         AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &subroleVal)
         let subrole = subroleVal as? String
-        guard subrole == (kAXStandardWindowSubrole as String) else {
+        guard subrole == (kAXStandardWindowSubrole as String)
+            || subrole == (kAXDialogSubrole as String) else {
             return nil
         }
 

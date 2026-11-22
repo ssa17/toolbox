@@ -136,7 +136,7 @@ private final class OverlayNSPanel: NSPanel {
     }
 }
 
-private final class InteractiveEditorNSPanel: NSPanel {
+private final class InteractiveEditorNSPanel: PointerCursorNSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
@@ -409,32 +409,6 @@ final class ZoneOverlayController: ObservableObject {
         }
 
         schedulePreviewAutoHide(after: autoHideAfter)
-    }
-
-    func flashZone(
-        _ zone: ResolvedZone,
-        on display: ConnectedDisplay,
-        style: OverlayStyleConfig,
-        duration: TimeInterval = 0.18
-    ) {
-        guard !isLivePreviewActive, !isDryRunPreviewActive, !isEditingOnScreen else { return }
-
-        showSingleZoneDragPreview(
-            on: display,
-            zone: zone,
-            style: style
-        )
-
-        flashGeneration &+= 1
-        let gen = flashGeneration
-        let work = DispatchWorkItem { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self, self.flashGeneration == gen else { return }
-                self.hideDragOverlays()
-            }
-        }
-        flashWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: work)
     }
 
     func flashTriggerZones(

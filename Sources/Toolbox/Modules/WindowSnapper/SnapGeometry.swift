@@ -522,6 +522,9 @@ enum SnapGeometry {
                     height: rowNormHeights[rowIdx]
                 )
                 let label: String = {
+                    if rows.count == 1 && cols.count == 1 {
+                        return "Maximized"
+                    }
                     if rows.count == 1 && cols.count == 2 {
                         return colIdx == 0 ? "Left" : "Right"
                     }
@@ -1047,7 +1050,11 @@ enum SnapGeometry {
                ).first(where: { $0.id == "cell:0:0" }) {
                 return leftMain
             }
-            if let firstCol = divisionZones.first(where: { $0.gridCoord?.col == 0 && (layout?.division.rowWeights.count ?? 1) == 1 }) {
+            let colCount = layout?.division.columnWeights.count ?? 2
+            let rowCount = layout?.division.rowWeights.count ?? 1
+            if colCount > 1,
+               rowCount == 1,
+               let firstCol = divisionZones.first(where: { $0.gridCoord?.col == 0 }) {
                 return firstCol
             }
             return resolveUniversalOrBuiltInZone(
@@ -1068,8 +1075,12 @@ enum SnapGeometry {
                ).first(where: { $0.id == "cell:1:0" }) {
                 return rightMain
             }
-            let lastColIdx = max(0, (layout?.division.columnWeights.count ?? 2) - 1)
-            if let lastCol = divisionZones.first(where: { $0.gridCoord?.col == lastColIdx && (layout?.division.rowWeights.count ?? 1) == 1 }) {
+            let colCount = layout?.division.columnWeights.count ?? 2
+            let rowCount = layout?.division.rowWeights.count ?? 1
+            let lastColIdx = max(0, colCount - 1)
+            if colCount > 1,
+               rowCount == 1,
+               let lastCol = divisionZones.first(where: { $0.gridCoord?.col == lastColIdx }) {
                 return lastCol
             }
             return resolveUniversalOrBuiltInZone(

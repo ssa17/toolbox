@@ -208,7 +208,7 @@ enum WindowThumbnailCapturer {
     }
 }
 
-private final class GlassPaneNSPanel: NSPanel {
+private final class GlassPaneNSPanel: PointerCursorNSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
@@ -346,6 +346,7 @@ final class GlassPaneSessionController: ObservableObject {
     }
 
     func dismiss() {
+        let wasActive = store.state.isActive || !panels.isEmpty
         sessionGeneration &+= 1
         thumbnailTask?.cancel()
         thumbnailTask = nil
@@ -363,7 +364,9 @@ final class GlassPaneSessionController: ObservableObject {
         }
         store.thumbnailsByWindowNumber = [:]
         store.iconsByPID = [:]
-        PointerCursorNSView.syncVisibleWindowUnderMouseOrResetCursor()
+        if wasActive {
+            PointerCursorNSView.syncVisibleWindowUnderMouseOrResetCursor()
+        }
     }
 
     func containsScreenPointAX(_ pointAX: CGPoint) -> Bool {
