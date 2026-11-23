@@ -30,6 +30,10 @@ Does **not** count (skip):
 - docs, tests (`--self-test`, `--snapshot-ui`), build/CI, packaging plumbing
 - version bumps (the release step records those itself)
 - perf/robustness work with no observable difference
+- anything inside the hidden, PIN-gated **Developer Tools** workspace (developer
+  mode, diagnostics, simulations, lock buttons) — regular users never see it, so
+  it never belongs in the "what's new"; also don't mention Developer Tools inside
+  other bullets
 
 Format rules:
 
