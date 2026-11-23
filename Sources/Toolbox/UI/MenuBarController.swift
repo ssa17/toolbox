@@ -1438,6 +1438,7 @@ struct MenuBarPopoverView: View {
 
                         ForEach(activeProfiles.prefix(4)) { profile in
                             let isActiveProfile = configManager.config.windowSnapper.activeProfileID == profile.id
+                            let canRestore = windowSnapper.restoreAvailableProfileID == profile.id
                             let isDryRun = overlayController.isDryRunPreviewActive && overlayController.activeDryRunProfileID == profile.id
 
                             HStack(spacing: 6) {
@@ -1457,6 +1458,14 @@ struct MenuBarPopoverView: View {
                                                 .fill(Color.green)
                                                 .frame(width: 5, height: 5)
                                         }
+                                        if canRestore {
+                                            Text("Restore")
+                                                .toolboxFont(.caption2.weight(.semibold))
+                                                .foregroundStyle(ToolboxTheme.readableAccentText(for: .indigo))
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(Color.primary.opacity(0.08), in: Capsule())
+                                        }
                                         Spacer()
                                         if !profile.shortcut.isEmpty {
                                             ShortcutPill(text: profile.shortcut.displayString)
@@ -1466,6 +1475,7 @@ struct MenuBarPopoverView: View {
                                     .padding(.vertical, 5)
                                     .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
                                 }
+                                .help(canRestore ? "Restore previous workspace" : "Activate profile")
                                 .buttonStyle(.plain)
                                 .focusEffectDisabled()
                                 .pointerCursor(isAppEnabled && p.windowProfiles > 0.99)

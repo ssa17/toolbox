@@ -874,6 +874,35 @@ struct MainSplitView: View {
                                     badgeColor: badgeInfo?.color ?? .blue
                                 )
                             }
+
+                            Divider()
+                                .padding(.vertical, 3)
+
+                            Button {
+                                developerMode.lock()
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "lock.fill")
+                                    Text("Lock developer mode")
+                                        .toolboxFont(.callout.weight(.medium))
+                                    Spacer()
+                                }
+                                .foregroundStyle(.red)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 6)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(Color.red.opacity(0.10))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .strokeBorder(Color.red.opacity(0.30), lineWidth: 1)
+                                        )
+                                )
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .focusEffectDisabled()
+                            .pointerCursor()
                         }
                     }
 

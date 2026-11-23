@@ -321,6 +321,10 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
 
     @Published private(set) var isRunning = false
     @Published private(set) var sequoiaConflictStatus: SequoiaTilingConflictStatus = SnapGeometry.currentSequoiaTilingConflict()
+    /// The ID of the profile whose previous workspace can be restored right now,
+    /// or nil when no restore is available. Published so the settings view and
+    /// status bar menu can show a "Restore" affordance without observing the engine.
+    @Published private(set) var restoreAvailableProfileID: String? = nil
 
     let displayRegistry = DisplayRegistry.shared
     let overlayController = ZoneOverlayController.shared
@@ -331,11 +335,17 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
         displayRegistry: displayRegistry,
         overlayController: overlayController
     )
-    lazy var profileEngine: ProfileEngine = ProfileEngine(
-        axController: axController,
-        displayRegistry: displayRegistry,
-        overlayController: overlayController
-    )
+    lazy var profileEngine: ProfileEngine = {
+        let engine = ProfileEngine(
+            axController: axController,
+            displayRegistry: displayRegistry,
+            overlayController: overlayController
+        )
+        engine.onRestoreSnapshotChanged = { [weak self] in
+            self?.refreshRestoreAvailability()
+        }
+        return engine
+    }()
 
     private var config = WindowSnapperConfig()
     private let preSnapStoreURL: URL = ConfigManager.shared.configURL
@@ -592,6 +602,24 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
                 cancelPendingKeyboardSnap()
                 HotKeyManager.shared.unregisterAll(prefix: "window_snapper.")
             }
+        }
+        refreshRestoreAvailability()
+    }
+
+    /// Recomputes the published restore-availability signal from the current
+    /// config and the engine's stored restore snapshot. Call whenever the
+    /// snapshot changes (via the engine callback) or the config reloads.
+    private func refreshRestoreAvailability() {
+        let cfg = ConfigManager.shared.config.windowSnapper
+        let available: String?
+        if let activeID = cfg.activeProfileID,
+           profileEngine.canRestorePreviousWorkspace(forProfileID: activeID, config: cfg) {
+            available = activeID
+        } else {
+            available = nil
+        }
+        if restoreAvailableProfileID != available {
+            restoreAvailableProfileID = available
         }
     }
 
@@ -1718,20 +1746,19 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
         )
     }
 
+    /// Activates a profile from any UI path (Apply button, status bar menu, shortcut).
+    /// Toggling is intentional: pressing the activation control while the profile is
+    /// already active and a restore snapshot is stored restores the previous workspace.
     func applyProfile(_ profile: WorkspaceProfile) {
-        glassPaneController.dismiss()
-        guard ensureAccessibilityForAction() else { return }
-        profileEngine.applyProfile(profile) { [weak self] batch in
-            self?.recordBatchInPreSnapStore(batch)
-        }
-    }
-
-    func triggerProfileShortcut(_ profile: WorkspaceProfile) {
         glassPaneController.dismiss()
         guard ensureAccessibilityForAction() else { return }
         profileEngine.toggleOrApplyProfile(profile) { [weak self] batch in
             self?.recordBatchInPreSnapStore(batch)
         }
+    }
+
+    func triggerProfileShortcut(_ profile: WorkspaceProfile) {
+        applyProfile(profile)
     }
 
     private func placeGlassPaneCandidate(

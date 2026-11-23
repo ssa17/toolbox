@@ -49,7 +49,12 @@ final class ProfileEngine: ObservableObject {
     private var lastAutoTriggeredTopologyKey: String?
     private var placementTrackerTask: Task<Void, Never>?
     private var applyGeneration: UInt64 = 0
-    private(set) var lastRestoreSnapshot: WorkspaceProfileRestoreSnapshot?
+    /// Called whenever the restore snapshot is stored, replaced, or cleared.
+    /// The module uses this to keep restore-availability UI state in sync.
+    var onRestoreSnapshotChanged: (@MainActor () -> Void)? = nil
+    private(set) var lastRestoreSnapshot: WorkspaceProfileRestoreSnapshot? {
+        didSet { onRestoreSnapshotChanged?() }
+    }
 
     init(
         axController: AXWindowController,

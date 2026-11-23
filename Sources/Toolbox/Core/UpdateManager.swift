@@ -1016,6 +1016,9 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
     private let notesCard = NSView()
     private let notesScroll = NSScrollView()
     private let notesTextView = NSTextView()
+    private let releaseNotesLink = NSButton(title: "", target: nil, action: nil)
+    private var releaseNotesURL: URL?
+    private var notesScrollBottomConstraint: NSLayoutConstraint!
     private let progressWrap = NSView()
     private let progressTrack = NSView()
     private let progressFill = NSView()
@@ -1120,6 +1123,16 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
         notesTextView.textContainer?.widthTracksTextView = true
         notesScroll.documentView = notesTextView
 
+        releaseNotesLink.isBordered = false
+        releaseNotesLink.font = .systemFont(ofSize: 11, weight: .medium)
+        releaseNotesLink.contentTintColor = accentBlue
+        releaseNotesLink.alignment = .center
+        releaseNotesLink.isHidden = true
+        releaseNotesLink.translatesAutoresizingMaskIntoConstraints = false
+        releaseNotesLink.target = self
+        releaseNotesLink.action = #selector(onReleaseNotesLinkClicked)
+        notesCard.addSubview(releaseNotesLink)
+
         progressWrap.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(progressWrap)
 
@@ -1153,6 +1166,8 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
         primaryBtn.action = #selector(onPrimary)
         root.addSubview(primaryBtn)
 
+        notesScrollBottomConstraint = notesScroll.bottomAnchor.constraint(equalTo: notesCard.bottomAnchor, constant: -4)
+
         NSLayoutConstraint.activate([
             icon.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 22),
             icon.topAnchor.constraint(equalTo: root.topAnchor, constant: 26),
@@ -1183,7 +1198,12 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
             notesScroll.leadingAnchor.constraint(equalTo: notesCard.leadingAnchor, constant: 4),
             notesScroll.trailingAnchor.constraint(equalTo: notesCard.trailingAnchor, constant: -4),
             notesScroll.topAnchor.constraint(equalTo: notesCard.topAnchor, constant: 4),
-            notesScroll.bottomAnchor.constraint(equalTo: notesCard.bottomAnchor, constant: -4),
+            notesScrollBottomConstraint,
+
+            releaseNotesLink.leadingAnchor.constraint(equalTo: notesCard.leadingAnchor, constant: 12),
+            releaseNotesLink.trailingAnchor.constraint(equalTo: notesCard.trailingAnchor, constant: -12),
+            releaseNotesLink.bottomAnchor.constraint(equalTo: notesCard.bottomAnchor, constant: -6),
+            releaseNotesLink.heightAnchor.constraint(equalToConstant: 18),
 
             progressWrap.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 22),
             progressWrap.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -22),
@@ -1228,6 +1248,23 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
             btn.layer?.borderWidth = 1
         }
         btn.translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    /// Shows (or hides) the small "View full release notes on GitHub" link in the
+    /// notes card. When visible, the notes scroll view is shrunk to leave room for it.
+    private func setReleaseNotesLinkVisible(_ visible: Bool, url: URL? = nil) {
+        let show = visible && url != nil
+        releaseNotesLink.isHidden = !show
+        if show, let url {
+            releaseNotesURL = url
+            releaseNotesLink.title = "View full release notes on GitHub \u{2197}"
+        }
+        notesScrollBottomConstraint.constant = show ? -28 : -4
+    }
+
+    @objc private func onReleaseNotesLinkClicked() {
+        guard let url = releaseNotesURL else { return }
+        NSWorkspace.shared.open(url)
     }
 
     /// Computes a window origin centered relative to `parentFrame` (or `visibleFrame` when nil),
@@ -1481,6 +1518,7 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
         subtitleLabel.stringValue = "Keeps Toolbox up to date in the background"
         notesCard.isHidden = false
         progressWrap.isHidden = true
+        setReleaseNotesLinkVisible(false)
         setNotesPlain("Toolbox can check GitHub Releases automatically in the background and show a badge when a newer version is available.")
         secondaryBtn.isHidden = false
         secondaryBtn.title = "Not Now"
@@ -1514,6 +1552,7 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
         } else {
             setNotesPlain("A new signed release of Toolbox is ready to download and install.")
         }
+        setReleaseNotesLinkVisible(true, url: SupportLinks.githubReleaseNotesURL(version: newVer))
 
         secondaryBtn.isHidden = false
         secondaryBtn.title = "Later"
@@ -1539,6 +1578,7 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
         } else {
             renderNotes(notes, format: nil)
         }
+        setReleaseNotesLinkVisible(true, url: SupportLinks.githubReleaseNotesURL(version: version))
         secondaryBtn.isHidden = false
         secondaryBtn.title = "Later"
         primaryBtn.isHidden = false
@@ -1686,6 +1726,7 @@ final class ToolboxUpdateWindowController: NSObject, NSWindowDelegate {
         subtitleLabel.stringValue = "Your current version is unchanged"
         notesCard.isHidden = false
         progressWrap.isHidden = true
+        setReleaseNotesLinkVisible(false)
         setNotesPlain(message)
         secondaryBtn.isHidden = true
         primaryBtn.isHidden = false

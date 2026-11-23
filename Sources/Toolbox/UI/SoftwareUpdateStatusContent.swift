@@ -84,6 +84,16 @@ struct SoftwareUpdateStatusContent: View {
                         Text(pendingUpdateDetailText(newVersion: newVer))
                             .toolboxFont(.caption)
                             .foregroundStyle(.secondary)
+                        Button {
+                            SupportLinks.open(SupportLinks.githubReleaseNotesURL(version: newVer))
+                        } label: {
+                            Text("View release notes on GitHub")
+                                .toolboxFont(.caption2.weight(.semibold))
+                                .foregroundStyle(ToolboxTheme.accentBlue)
+                        }
+                        .buttonStyle(.plain)
+                        .pointerCursor()
+                        .padding(.top, 2)
                     }
 
                     Spacer(minLength: 8)

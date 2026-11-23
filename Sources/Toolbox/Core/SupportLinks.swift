@@ -8,6 +8,12 @@ enum SupportLinks {
     static let koFi = URL(string: "https://ko-fi.com/ssa17")!
     static let githubRepo = URL(string: "https://github.com/ssa17/toolbox")!
     static let githubIssues = URL(string: "https://github.com/ssa17/toolbox/issues")!
+    static let githubReleases = URL(string: "https://github.com/ssa17/toolbox/releases")!
+
+    /// GitHub release page for a specific version tag (e.g. v1.6.1).
+    static func githubReleaseNotesURL(version: String) -> URL {
+        URL(string: "https://github.com/ssa17/toolbox/releases/tag/v\(version)") ?? githubReleases
+    }
 
     @MainActor
     static func open(_ url: URL) {

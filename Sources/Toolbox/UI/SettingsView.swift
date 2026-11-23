@@ -17,6 +17,12 @@ struct SettingsView: View {
         return build == short ? "v\(short)" : "v\(short) (build \(build))"
     }
 
+    /// The version whose release notes we link to — the latest release available
+    /// (a pending update if one exists, otherwise the installed version).
+    private var latestVersion: String {
+        updateManager.pendingUpdateVersion ?? updateManager.currentVersion
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
@@ -255,26 +261,17 @@ struct SettingsView: View {
                                 .focusEffectDisabled()
                                 .pointerCursor()
                             }
+                            Button {
+                                SupportLinks.open(SupportLinks.githubReleaseNotesURL(version: latestVersion))
+                            } label: {
+                                Text("View release notes on GitHub")
+                                    .toolboxFont(.caption2.weight(.semibold))
+                                    .foregroundStyle(ToolboxTheme.accentBlue)
+                            }
+                            .buttonStyle(.plain)
+                            .pointerCursor()
                         }
                         Spacer()
-
-                        if developerMode.isUnlocked {
-                            HStack(spacing: 6) {
-                                Button("Developer Tools") {
-                                    MainWindowController.shared.show(destination: .developer(.updates))
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                .pointerCursor()
-
-                                Button("Lock") {
-                                    developerMode.lock()
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                .pointerCursor()
-                            }
-                        }
                     }
                 }
             }

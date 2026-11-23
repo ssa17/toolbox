@@ -215,6 +215,17 @@ When applied:
 3. Place every currently running target window in parallel per PID (serialized per app so AX IPC never races within one app).
 4. Launch any closed `launchIfNotRunning` apps asynchronously and place their initial standard windows within an `8 s` launch window (showing progress in `HUDToast`, e.g., `"Applied ‘Coding’ — 4 windows placed, launching Slack…"`).
 
+### 6.4 Press-Again Restore (Per-Profile Toggle)
+Every profile activation path — global hotkey, the **Apply** button in the profile card, and the status bar menu row — routes through one `toggleOrApplyProfile` gate (`ProfileEngine`). Activation behavior is a per-profile toggle, not a second binding:
+- **First press (any path):** applies the profile and stores a pre-apply snapshot.
+- **Second press of the same profile:** restores the previous workspace *instead of* re-applying — provided (a) the **Press again to restore previous layout** setting is enabled (default on), (b) this profile is the active profile, and (c) a restore snapshot is stored for it. Otherwise the press simply re-applies the profile.
+
+When a restore fires, it restores the pre-apply frames (via the pre-snap undo batch), re-minimizes windows the profile un-minimized, un/re-hides apps, restores the previous active profile and display layouts, re-activates the previously frontmost app (falling back to the Toolbox main window), toasts `"Restored previous layout"` (when HUD toasts are enabled), and clears the snapshot — so the next press starts a fresh apply.
+
+**In-memory caveat:** the restore snapshot lives only in `ProfileEngine`'s memory (it holds live `AXElementBox` elements and is not persisted). After an app quit/relaunch — or whenever the snapshot was never stored (e.g., the profile was activated while unavailable, or restored already) — the second press degrades to a plain re-apply.
+
+**Discoverability:** when a restore is available, the Apply button in the profile card reads **Restore** and the status bar menu row shows a **Restore** pill, so the restore path is reachable even with no hotkey bound.
+
 ---
 
 ## 7. Multi-Display & macOS Platform Engineering (`Technical Design & macOS APIs`)

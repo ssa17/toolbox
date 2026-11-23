@@ -1779,7 +1779,8 @@ struct WindowSnapperSettingsView: View {
     }
 
     private func profileCardActionButtons(profile: WorkspaceProfile, index: Int) -> some View {
-        HStack(spacing: 6) {
+        let canRestore = module.restoreAvailableProfileID == profile.id
+        return HStack(spacing: 6) {
             Button("Edit") {
                 beginEditingProfile(profile)
             }
@@ -1794,7 +1795,7 @@ struct WindowSnapperSettingsView: View {
             .controlSize(.regular)
             .pointerCursor()
 
-            Button("Apply") {
+            Button(canRestore ? "Restore" : "Apply") {
                 module.applyProfile(profile)
             }
             .buttonStyle(.toolboxProminent)
@@ -2743,8 +2744,8 @@ struct WindowSnapperSettingsView: View {
 
     private var restoreProfileShortcutSettingRow: some View {
         SettingRow(
-            "Press shortcut again to restore previous layout",
-            subtitle: "First shortcut press opens this workspace; pressing the same shortcut a second time returns windows and hidden apps to how they were before."
+            "Press again to restore previous layout",
+            subtitle: "First press (shortcut, Apply button, or status bar menu) opens this workspace; pressing it again returns windows and hidden apps to how they were before."
         ) {
             Toggle("", isOn: $configManager.config.windowSnapper.restorePreviousWorkspaceOnShortcutToggle)
                 .labelsHidden()

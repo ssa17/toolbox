@@ -112,13 +112,6 @@ struct DeveloperToolsView: View {
                 Spacer(minLength: 12)
 
                 VStack(alignment: .trailing, spacing: 6) {
-                    Button("Lock Now") {
-                        developerMode.lock()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .pointerCursor()
-
                     if developerMode.hasActiveSimulation {
                         Button("Reset Simulations") {
                             developerMode.resetAllSimulations()
@@ -1252,20 +1245,6 @@ struct DeveloperToolsView: View {
                         .labelsHidden()
                         .toggleStyle(.switch)
                         .pointerCursor()
-                }
-
-                Divider()
-
-                SettingRow(
-                    "Lock Developer Tools",
-                    subtitle: "Clears all active simulations and hides Developer Tools behind the PIN gate."
-                ) {
-                    Button("Lock & Hide") {
-                        developerMode.lock()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .pointerCursor()
                 }
             }
         }
