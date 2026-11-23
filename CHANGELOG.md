@@ -9,6 +9,8 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-11-23
+
 ### Added
 - **Software Updates** — link to the full release notes on GitHub from the update dialog, the pending-update card in Settings, and the About Toolbox section, so you can see what's new even when you're up to date
 - **Developer Tools** — a destructive **Lock developer mode** button as the last item of the sidebar (replacing the per-page "Lock Now" / "Lock & Hide" / About-section "Lock" and "Developer Tools" buttons)
