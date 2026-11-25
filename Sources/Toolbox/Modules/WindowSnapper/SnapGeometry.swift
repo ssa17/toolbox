@@ -1263,4 +1263,24 @@ enum SnapGeometry {
             layoutOverride: nil
         )
     }
+
+    static func slideInStartFrame(for targetFrame: CGRect, inside usableAXRect: CGRect) -> CGRect {
+        if targetFrame.width < usableAXRect.width * 0.85 {
+            let offset = min(110, usableAXRect.width * 0.12)
+            if targetFrame.midX >= usableAXRect.midX {
+                return targetFrame.offsetBy(dx: offset, dy: 0)
+            }
+            return targetFrame.offsetBy(dx: -offset, dy: 0)
+        }
+        let verticalOffset = min(64, usableAXRect.height * 0.08)
+        return targetFrame.offsetBy(dx: 0, dy: verticalOffset)
+    }
+
+    static func slideOutTargetFrame(for currentFrame: CGRect, inside usableAXRect: CGRect) -> CGRect {
+        let offset = min(120, usableAXRect.width * 0.12)
+        if currentFrame.midX >= usableAXRect.midX {
+            return currentFrame.offsetBy(dx: offset, dy: 0)
+        }
+        return currentFrame.offsetBy(dx: -offset, dy: 0)
+    }
 }

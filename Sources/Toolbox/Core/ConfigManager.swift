@@ -1773,15 +1773,84 @@ struct WindowSnapperHotKeys: Codable, Equatable, Sendable {
     }
 }
 
+enum DisplayConnectMode: String, Codable, CaseIterable, Identifiable, Sendable {
+    case systemDefault = "system_default"
+    case alwaysExtend = "always_extend"
+    case alwaysMirror = "always_mirror"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .systemDefault: return "System Default"
+        case .alwaysExtend: return "Always Extend"
+        case .alwaysMirror: return "Always Mirror"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .systemDefault:
+            return "Keep macOS's current extend or mirror setting when monitors connect."
+        case .alwaysExtend:
+            return "Automatically un-mirror newly connected displays so each screen has its own workspace."
+        case .alwaysMirror:
+            return "Automatically mirror newly connected displays to your built-in or main display."
+        }
+    }
+}
+
+enum ProfileDisplayRole: String, Codable, CaseIterable, Identifiable, Hashable, Sendable {
+    case main = "main"
+    case external1 = "external_1"
+    case external2 = "external_2"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .main: return "Main Display"
+        case .external1: return "External 1"
+        case .external2: return "External 2"
+        }
+    }
+
+    var shortLabel: String {
+        switch self {
+        case .main: return "Main"
+        case .external1: return "External 1"
+        case .external2: return "External 2"
+        }
+    }
+
+    var targetDisplay: ProfileTargetDisplay {
+        switch self {
+        case .main: return .main
+        case .external1: return .externalSlot(0)
+        case .external2: return .externalSlot(1)
+        }
+    }
+
+    static func roles(forDisplayCount count: Int) -> [ProfileDisplayRole] {
+        switch count {
+        case ...1: return [.main]
+        case 2: return [.main, .external1]
+        default: return [.main, .external1, .external2]
+        }
+    }
+}
+
 enum ProfileTargetDisplay: Codable, Equatable, Hashable, Sendable {
     case main
     case anyExternal
+    case externalSlot(Int)
     case specific(DisplaySignature)
 
     var label: String {
         switch self {
         case .main: return "Main Display"
         case .anyExternal: return "Any External Display"
+        case .externalSlot(let idx): return "External \(idx + 1)"
         case .specific(let sig): return sig.localizedName
         }
     }
@@ -1886,6 +1955,132 @@ struct ProfileAppRule: Codable, Equatable, Identifiable, Hashable, Sendable {
     }
 }
 
+struct ProfileDisplaySlotLayout: Codable, Equatable, Hashable, Sendable {
+    var role: ProfileDisplayRole
+    var presetID: String = DisplayPresetKind.halves.rawValue
+    var division: DisplayDivision = DisplayDivision()
+    var customZones: [ZoneDefinition] = []
+    var outerMarginPoints: Double? = nil
+    var innerGapPoints: Double? = nil
+
+    init(
+        role: ProfileDisplayRole,
+        presetID: String = DisplayPresetKind.halves.rawValue,
+        division: DisplayDivision = DisplayDivision(),
+        customZones: [ZoneDefinition] = [],
+        outerMarginPoints: Double? = nil,
+        innerGapPoints: Double? = nil
+    ) {
+        self.role = role
+        self.presetID = presetID
+        self.division = division
+        self.customZones = customZones
+        self.outerMarginPoints = outerMarginPoints
+        self.innerGapPoints = innerGapPoints
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        role = try c.decodeIfPresent(ProfileDisplayRole.self, forKey: .role) ?? .main
+        presetID = try c.decodeIfPresent(String.self, forKey: .presetID) ?? DisplayPresetKind.halves.rawValue
+        division = try c.decodeIfPresent(DisplayDivision.self, forKey: .division) ?? DisplayDivision()
+        customZones = try c.decodeIfPresent([ZoneDefinition].self, forKey: .customZones) ?? []
+        outerMarginPoints = try c.decodeIfPresent(Double.self, forKey: .outerMarginPoints)
+        innerGapPoints = try c.decodeIfPresent(Double.self, forKey: .innerGapPoints)
+    }
+
+    var presetKind: DisplayPresetKind {
+        DisplayPresetKind(rawValue: presetID) ?? .custom
+    }
+
+    var hasCustomDividerProportions: Bool {
+        let base = presetKind.defaultDivision
+        return !Self.normalizedWeightsEqual(division.columnWeights, base.columnWeights)
+            || !Self.normalizedWeightsEqual(division.rowWeights, base.rowWeights)
+    }
+
+    func asDisplayLayoutConfig(for signature: DisplaySignature) -> DisplayLayoutConfig {
+        DisplayLayoutConfig(
+            id: "slot-\(role.rawValue)-\(signature.stableStorageKey)",
+            display: signature,
+            presetID: presetID,
+            division: division,
+            customZones: customZones,
+            outerMarginPoints: outerMarginPoints,
+            innerGapPoints: innerGapPoints
+        )
+    }
+
+    private static func normalizedWeightsEqual(_ lhs: [Double], _ rhs: [Double], tolerance: Double = 0.01) -> Bool {
+        guard lhs.count == rhs.count, !lhs.isEmpty else { return false }
+        let lhsSafe = lhs.map { max(0.05, $0) }
+        let rhsSafe = rhs.map { max(0.05, $0) }
+        let lhsSum = lhsSafe.reduce(0, +)
+        let rhsSum = rhsSafe.reduce(0, +)
+        guard lhsSum > 0, rhsSum > 0 else { return false }
+        for (a, b) in zip(lhsSafe, rhsSafe) {
+            if abs((a / lhsSum) - (b / rhsSum)) > tolerance {
+                return false
+            }
+        }
+        return true
+    }
+}
+
+struct ProfileDisplayVariant: Codable, Equatable, Identifiable, Hashable, Sendable {
+    var displayCount: Int
+    var slotLayouts: [ProfileDisplaySlotLayout] = []
+    var appRules: [ProfileAppRule] = []
+
+    var id: Int { displayCount }
+
+    init(
+        displayCount: Int,
+        slotLayouts: [ProfileDisplaySlotLayout] = [],
+        appRules: [ProfileAppRule] = []
+    ) {
+        self.displayCount = min(max(displayCount, 1), 3)
+        self.slotLayouts = slotLayouts
+        self.appRules = Self.deduplicatedRules(appRules)
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let rawCount = try c.decodeIfPresent(Int.self, forKey: .displayCount) ?? 1
+        displayCount = min(max(rawCount, 1), 3)
+        slotLayouts = try c.decodeIfPresent([ProfileDisplaySlotLayout].self, forKey: .slotLayouts) ?? []
+        let decodedRules = try c.decodeIfPresent([ProfileAppRule].self, forKey: .appRules) ?? []
+        appRules = Self.deduplicatedRules(decodedRules)
+    }
+
+    static func deduplicatedRules(_ rules: [ProfileAppRule]) -> [ProfileAppRule] {
+        var seen = Set<String>()
+        var result: [ProfileAppRule] = []
+        for rule in rules {
+            let roleKey: String
+            switch rule.targetDisplay {
+            case .main:
+                roleKey = "main"
+            case .anyExternal, .externalSlot(0):
+                roleKey = "ext:0"
+            case .externalSlot(let idx):
+                roleKey = "ext:\(idx)"
+            case .specific(let sig):
+                roleKey = "spec:\(sig.stableStorageKey)"
+            }
+            let dedupKey = "\(roleKey)|\(rule.targetZoneID)"
+            if seen.insert(dedupKey).inserted {
+                result.append(rule)
+            }
+        }
+        return result
+    }
+
+    func layout(for role: ProfileDisplayRole) -> ProfileDisplaySlotLayout {
+        slotLayouts.first(where: { $0.role == role }) ?? ProfileDisplaySlotLayout(role: role)
+    }
+}
+
 struct WorkspaceProfile: Codable, Equatable, Identifiable, Hashable, Sendable {
     var id: String = UUID().uuidString
     var name: String
@@ -1898,6 +2093,8 @@ struct WorkspaceProfile: Codable, Equatable, Identifiable, Hashable, Sendable {
     var hideUnlistedApps: Bool = false
     var boundDisplaySignatures: [DisplaySignature] = []
     var topologyTriggerMode: DisplayTopologyTriggerMode = .off
+    var maxDisplayCount: Int = 1
+    var displayVariants: [ProfileDisplayVariant] = []
 
     init(
         id: String = UUID().uuidString,
@@ -1910,7 +2107,9 @@ struct WorkspaceProfile: Codable, Equatable, Identifiable, Hashable, Sendable {
         unminimizeAndUnhideApps: Bool = true,
         hideUnlistedApps: Bool = false,
         boundDisplaySignatures: [DisplaySignature] = [],
-        topologyTriggerMode: DisplayTopologyTriggerMode = .off
+        topologyTriggerMode: DisplayTopologyTriggerMode = .off,
+        maxDisplayCount: Int = 1,
+        displayVariants: [ProfileDisplayVariant] = []
     ) {
         self.id = id
         self.name = name
@@ -1923,6 +2122,8 @@ struct WorkspaceProfile: Codable, Equatable, Identifiable, Hashable, Sendable {
         self.hideUnlistedApps = hideUnlistedApps
         self.boundDisplaySignatures = boundDisplaySignatures
         self.topologyTriggerMode = topologyTriggerMode
+        self.maxDisplayCount = min(max(maxDisplayCount, 1), 3)
+        self.displayVariants = displayVariants
     }
 
     init(from decoder: Decoder) throws {
@@ -1938,6 +2139,133 @@ struct WorkspaceProfile: Codable, Equatable, Identifiable, Hashable, Sendable {
         hideUnlistedApps = try c.decodeIfPresent(Bool.self, forKey: .hideUnlistedApps) ?? false
         boundDisplaySignatures = try c.decodeIfPresent([DisplaySignature].self, forKey: .boundDisplaySignatures) ?? []
         topologyTriggerMode = try c.decodeIfPresent(DisplayTopologyTriggerMode.self, forKey: .topologyTriggerMode) ?? .off
+        let rawMax = try c.decodeIfPresent(Int.self, forKey: .maxDisplayCount) ?? 1
+        maxDisplayCount = min(max(rawMax, 1), 3)
+        displayVariants = try c.decodeIfPresent([ProfileDisplayVariant].self, forKey: .displayVariants) ?? []
+    }
+
+    func resolvedVariant(forDisplayCount connectedCount: Int) -> ProfileDisplayVariant? {
+        guard !displayVariants.isEmpty else { return nil }
+        let targetCount = min(max(connectedCount, 1), min(max(maxDisplayCount, 1), 3))
+        if let exact = displayVariants.first(where: { $0.displayCount == targetCount }) {
+            return exact
+        }
+        if let lower = displayVariants
+            .filter({ $0.displayCount <= targetCount })
+            .max(by: { $0.displayCount < $1.displayCount }) {
+            return lower
+        }
+        return displayVariants.min(by: { $0.displayCount < $1.displayCount })
+    }
+
+    func effectiveAppRules(forDisplayCount connectedCount: Int) -> [ProfileAppRule] {
+        let raw = resolvedVariant(forDisplayCount: connectedCount)?.appRules ?? appRules
+        return ProfileDisplayVariant.deduplicatedRules(raw)
+    }
+
+    func effectiveDisplayLayoutOverrides(
+        for displays: [ConnectedDisplay],
+        swapExternalDisplays: Bool
+    ) -> [DisplayLayoutConfig] {
+        guard let variant = resolvedVariant(forDisplayCount: displays.count) else {
+            return displayLayoutOverrides
+        }
+        let rolesByDisplayID = Dictionary(
+            uniqueKeysWithValues: DisplayRegistry.assignLogicalRoles(
+                for: displays,
+                swapExternalDisplays: swapExternalDisplays
+            ).map { ($0.value.displayID, $0.key) }
+        )
+        return displays.map { disp in
+            let role = rolesByDisplayID[disp.displayID] ?? .main
+            return variant.layout(for: role).asDisplayLayoutConfig(for: disp.signature)
+        }
+    }
+
+    mutating func ensureVariantsUpToMaxDisplayCount(defaultPreset: DisplayPresetKind = .leftMainRightStack) {
+        maxDisplayCount = min(max(maxDisplayCount, 1), 3)
+        if displayVariants.isEmpty {
+            let legacyMainLayout = displayLayoutOverrides.first
+            let mainSlot = ProfileDisplaySlotLayout(
+                role: .main,
+                presetID: legacyMainLayout?.presetID ?? defaultPreset.rawValue,
+                division: legacyMainLayout?.division ?? defaultPreset.defaultDivision,
+                customZones: legacyMainLayout?.customZones ?? [],
+                outerMarginPoints: legacyMainLayout?.outerMarginPoints,
+                innerGapPoints: legacyMainLayout?.innerGapPoints
+            )
+            let legacyMainRules = ProfileDisplayVariant.deduplicatedRules(
+                appRules.filter {
+                    if case .main = $0.targetDisplay { return true }
+                    return false
+                }
+            )
+            let legacyExternalRules = ProfileDisplayVariant.deduplicatedRules(
+                appRules.compactMap { rule -> ProfileAppRule? in
+                    if case .main = rule.targetDisplay { return nil }
+                    var copy = rule
+                    copy.targetDisplay = .externalSlot(0)
+                    return copy
+                }
+            )
+            var seededVariants = [
+                ProfileDisplayVariant(displayCount: 1, slotLayouts: [mainSlot], appRules: legacyMainRules)
+            ]
+            if !legacyExternalRules.isEmpty {
+                maxDisplayCount = max(maxDisplayCount, 2)
+                let v2Rules = ProfileDisplayVariant.deduplicatedRules(
+                    legacyMainRules.map { rule in
+                        var copy = rule
+                        copy.id = UUID().uuidString
+                        return copy
+                    } + legacyExternalRules
+                )
+                seededVariants.append(
+                    ProfileDisplayVariant(
+                        displayCount: 2,
+                        slotLayouts: [mainSlot, ProfileDisplaySlotLayout(role: .external1)],
+                        appRules: v2Rules
+                    )
+                )
+            }
+            displayVariants = seededVariants
+        }
+
+        let v1 = displayVariants.first(where: { $0.displayCount == 1 }) ?? displayVariants[0]
+        let v1MainSlot = v1.layout(for: .main)
+        let v1MainRules = v1.appRules.filter {
+            if case .main = $0.targetDisplay { return true }
+            return false
+        }
+
+        var normalized: [ProfileDisplayVariant] = []
+        for count in 1...maxDisplayCount {
+            var variant = displayVariants.first(where: { $0.displayCount == count })
+                ?? ProfileDisplayVariant(
+                    displayCount: count,
+                    slotLayouts: [v1MainSlot],
+                    appRules: v1MainRules.map { rule in
+                        var copy = rule
+                        copy.id = UUID().uuidString
+                        return copy
+                    }
+                )
+            let expectedRoles = ProfileDisplayRole.roles(forDisplayCount: count)
+            var slots: [ProfileDisplaySlotLayout] = []
+            for role in expectedRoles {
+                if let existing = variant.slotLayouts.first(where: { $0.role == role }) {
+                    slots.append(existing)
+                } else if role == .main {
+                    slots.append(v1MainSlot)
+                } else {
+                    slots.append(ProfileDisplaySlotLayout(role: role))
+                }
+            }
+            variant.slotLayouts = slots
+            variant.appRules = ProfileDisplayVariant.deduplicatedRules(variant.appRules)
+            normalized.append(variant)
+        }
+        displayVariants = normalized
     }
 
     static var defaultTemplates: [WorkspaceProfile] {
@@ -2068,6 +2396,9 @@ struct WindowSnapperConfig: Codable, Equatable, Sendable {
     var profiles: [WorkspaceProfile] = []
     var activeProfileID: String? = nil
     var restorePreviousWorkspaceOnShortcutToggle: Bool = true
+    var displayConnectMode: DisplayConnectMode = .systemDefault
+    var autoApplyProfileID: String? = nil
+    var swapExternalDisplays: Bool = false
 
     var animateWindowTransitions: Bool {
         get { windowAnimationSpeed.isAnimated }
@@ -2099,6 +2430,9 @@ struct WindowSnapperConfig: Codable, Equatable, Sendable {
         case profiles
         case activeProfileID
         case restorePreviousWorkspaceOnShortcutToggle
+        case displayConnectMode
+        case autoApplyProfileID
+        case swapExternalDisplays
     }
 
     init() {}
@@ -2141,6 +2475,9 @@ struct WindowSnapperConfig: Codable, Equatable, Sendable {
         profiles = try c.decodeIfPresent([WorkspaceProfile].self, forKey: .profiles) ?? []
         activeProfileID = try c.decodeIfPresent(String.self, forKey: .activeProfileID)
         restorePreviousWorkspaceOnShortcutToggle = try c.decodeIfPresent(Bool.self, forKey: .restorePreviousWorkspaceOnShortcutToggle) ?? true
+        displayConnectMode = try c.decodeIfPresent(DisplayConnectMode.self, forKey: .displayConnectMode) ?? .systemDefault
+        autoApplyProfileID = try c.decodeIfPresent(String.self, forKey: .autoApplyProfileID)
+        swapExternalDisplays = try c.decodeIfPresent(Bool.self, forKey: .swapExternalDisplays) ?? false
     }
 
     func encode(to encoder: Encoder) throws {
@@ -2164,6 +2501,9 @@ struct WindowSnapperConfig: Codable, Equatable, Sendable {
         try c.encode(profiles, forKey: .profiles)
         try c.encodeIfPresent(activeProfileID, forKey: .activeProfileID)
         try c.encode(restorePreviousWorkspaceOnShortcutToggle, forKey: .restorePreviousWorkspaceOnShortcutToggle)
+        try c.encode(displayConnectMode, forKey: .displayConnectMode)
+        try c.encodeIfPresent(autoApplyProfileID, forKey: .autoApplyProfileID)
+        try c.encode(swapExternalDisplays, forKey: .swapExternalDisplays)
     }
 
     static func clampedUndoDepth(_ depth: Int) -> Int {
@@ -2212,7 +2552,7 @@ struct ToolboxConfig: Codable, Equatable, Sendable {
         case windowSnapping
     }
 
-    var schemaVersion: Int = 11
+    var schemaVersion: Int = 12
     var general: GeneralConfig = GeneralConfig()
     var dockMinimize: DockMinimizeConfig = DockMinimizeConfig()
     var clipboard: ClipboardConfig = ClipboardConfig()
@@ -2256,7 +2596,7 @@ struct ToolboxConfig: Codable, Equatable, Sendable {
         if decodedSchema < 8 {
             decodedCallControls.showFloatingPillOnlyDuringCalls = true
         }
-        schemaVersion = max(decodedSchema, 11)
+        schemaVersion = max(decodedSchema, 12)
         callControls = decodedCallControls
         windowSnapper = try c.decodeIfPresent(WindowSnapperConfig.self, forKey: .windowSnapper)
             ?? legacyContainer.decodeIfPresent(WindowSnapperConfig.self, forKey: .windowSnapping)

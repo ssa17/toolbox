@@ -136,8 +136,12 @@ private final class WindowSnapperSettingsUIState: ObservableObject {
     @Published var editingProfileDraft: WorkspaceProfile? = nil
     @Published var isCreatingNewProfile: Bool = false
     @Published var profileBuilderDisplayID: CGDirectDisplayID? = nil
+    @Published var editingVariantDisplayCount: Int = 1
+    @Published var editingDisplayRole: ProfileDisplayRole = .main
+    @Published var draftAutoApplyOnConnect: Bool = false
     @Published var profileTemplateFilter: ProfileTemplateFilterCount = .all
     @Published var showProfileTemplatePicker: Bool = false
+    @Published var showProfileBehaviorOptions: Bool = false
     @Published var shortcutCategory: WindowSnapperShortcutCategory = .halvesAndCore
     @Published var selectedTopEdgeSlotIndex: Int = 0
     @Published var installedApps: [InstalledAppCandidate] = []
@@ -155,6 +159,7 @@ struct WindowSnapperSettingsView: View {
     @ObservedObject private var overlayController = ZoneOverlayController.shared
     @ObservedObject private var screenOCR = ModuleRegistry.shared.screenOCR
     @ObservedObject var module: WindowSnapperModule
+    @ObservedObject private var profileEngine: ProfileEngine
     @StateObject private var uiState: WindowSnapperSettingsUIState
 
     init(
@@ -162,6 +167,7 @@ struct WindowSnapperSettingsView: View {
         initialTab: WindowSnapperSettingsTab = .general
     ) {
         self.module = module
+        _profileEngine = ObservedObject(wrappedValue: module.profileEngine)
         _uiState = StateObject(
             wrappedValue: WindowSnapperSettingsUIState(selectedTab: initialTab)
         )
@@ -265,7 +271,7 @@ struct WindowSnapperSettingsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("macOS Native Window Tiling Is Enabled")
                             .toolboxFont(.headline)
-                        Text("Turn off macOS's built-in tiling options in System Settings → Desktop & Dock → Windows so Toolbox Window Snapper handles every drag cleanly without competing overlays.")
+                        Text("Turn off macOS's built-in tiling options in System Settings > Desktop & Dock > Windows so Toolbox Window Snapper handles every drag cleanly without competing overlays.")
                             .toolboxFont(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1541,7 +1547,130 @@ struct WindowSnapperSettingsView: View {
         if let draft = uiState.editingProfileDraft {
             profileDraftEditor(draft: draft)
         } else {
+            displayConnectSection
             profilesListSection
+        }
+    }
+
+    @ViewBuilder
+    private var displayConnectSection: some View {
+        let cfg = configManager.config.windowSnapper
+        let profiles = cfg.profiles
+        let hasThreeDisplayProfile = profiles.contains { $0.maxDisplayCount >= 3 }
+        let connected = displayRegistry.connectedDisplays
+        let hasMultipleConnected = connected.count >= 2 || DisplayRegistry.onlineDisplayIDs().count >= 2
+        let setupSummary: String = {
+            if connected.isEmpty { return "No displays detected" }
+            let names = connected.map(\.signature.localizedName).joined(separator: " + ")
+            return "\(connected.count) \(connected.count == 1 ? "Display" : "Displays") Connected · \(names)"
+        }()
+
+        FeatureSection(
+            "Display Connect & Auto-Setup",
+            subtitle: "Control how macOS arranges newly plugged-in monitors and which profile auto-applies."
+        ) {
+            HStack(spacing: 8) {
+                Image(systemName: connected.count >= 2 ? "display.2" : "display")
+                    .toolboxFont(.caption.weight(.semibold))
+                    .foregroundStyle(ToolboxTheme.readableAccentText(for: module.accentColor))
+                Text(setupSummary)
+                    .toolboxFont(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer()
+                if connected.count >= 2 {
+                    Button {
+                        module.identifyDisplays()
+                    } label: {
+                        Label("Identify", systemImage: "viewfinder")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .pointerCursor()
+                }
+                if let autoID = cfg.autoApplyProfileID,
+                   let autoProfile = profiles.first(where: { $0.id == autoID }) {
+                    StatusBadge(text: "Auto: \(autoProfile.name)", color: .teal)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+
+            Divider()
+
+            SettingRow(
+                "On display connect",
+                subtitle: cfg.displayConnectMode.explanation
+            ) {
+                HStack(spacing: 8) {
+                    ToolboxSegmentedControl(
+                        options: Array(DisplayConnectMode.allCases),
+                        selection: Binding(
+                            get: { configManager.config.windowSnapper.displayConnectMode },
+                            set: { configManager.config.windowSnapper.displayConnectMode = $0 }
+                        ),
+                        accentColor: module.accentColor,
+                        label: { $0.label }
+                    )
+
+                    if cfg.displayConnectMode != .systemDefault && hasMultipleConnected {
+                        Button("Apply Now") {
+                            module.applyDisplayConnectModeNow()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.regular)
+                        .pointerCursor()
+                    }
+                }
+            }
+
+            Divider()
+
+            SettingRow(
+                "Auto-apply profile",
+                subtitle: "Automatically applies this profile's matching 1, 2, or 3-display layout whenever displays change."
+            ) {
+                Picker(
+                    "",
+                    selection: Binding<String?>(
+                        get: { configManager.config.windowSnapper.autoApplyProfileID },
+                        set: { configManager.config.windowSnapper.autoApplyProfileID = $0 }
+                    )
+                ) {
+                    Text("Off (Manual Only)").tag(String?.none)
+                    ForEach(profiles) { profile in
+                        Text(profile.name).tag(Optional(profile.id))
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 200)
+                .pointerCursor()
+            }
+
+            if connected.count >= 3 || hasThreeDisplayProfile {
+                Divider()
+
+                SettingRow(
+                    "External display order",
+                    subtitle: "Quickly swap which external monitor acts as External 1 vs External 2 in 3-display layouts."
+                ) {
+                    HStack(spacing: 8) {
+                        StatusBadge(
+                            text: cfg.swapExternalDisplays ? "Swapped" : "Default",
+                            color: cfg.swapExternalDisplays ? .orange : .secondary
+                        )
+                        Button {
+                            module.swapExternalDisplays()
+                        } label: {
+                            Label("Swap External 1 & 2", systemImage: "arrow.left.arrow.right")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.regular)
+                        .pointerCursor()
+                    }
+                }
+            }
         }
     }
 
@@ -1615,7 +1744,7 @@ struct WindowSnapperSettingsView: View {
         let defaultDisplay = displayRegistry.mainDisplay() ?? displayRegistry.connectedDisplays.first
         let defaultSig = defaultDisplay?.signature ?? DisplaySignature(localizedName: "Main Display")
         let preset: DisplayPresetKind = .leftMainRightStack
-        let draft = WorkspaceProfile(
+        var draft = WorkspaceProfile(
             name: "Workspace \(count)",
             symbolName: "sparkles.rectangle.stack",
             displayLayoutOverrides: [
@@ -1626,26 +1755,43 @@ struct WindowSnapperSettingsView: View {
                 )
             ]
         )
+        draft.ensureVariantsUpToMaxDisplayCount()
         uiState.editingProfileDraft = draft
         uiState.isCreatingNewProfile = true
         uiState.showProfileTemplatePicker = true
+        uiState.showProfileBehaviorOptions = false
+        uiState.editingVariantDisplayCount = min(max(displayRegistry.connectedDisplays.count, 1), draft.maxDisplayCount)
+        uiState.editingDisplayRole = .main
+        uiState.draftAutoApplyOnConnect = false
     }
 
     private func beginStarterProfileDraft(_ template: WorkspaceProfile) {
         var copy = template
         copy.id = UUID().uuidString
+        copy.ensureVariantsUpToMaxDisplayCount()
         uiState.editingProfileDraft = copy
         uiState.isCreatingNewProfile = true
         uiState.showProfileTemplatePicker = false
+        uiState.showProfileBehaviorOptions = false
+        uiState.editingVariantDisplayCount = min(max(displayRegistry.connectedDisplays.count, 1), copy.maxDisplayCount)
+        uiState.editingDisplayRole = .main
+        uiState.draftAutoApplyOnConnect = false
     }
 
-    private func beginEditingProfile(_ profile: WorkspaceProfile) {
-        uiState.editingProfileDraft = profile
+    private func beginEditingProfile(_ profile: WorkspaceProfile, initialVariantCount: Int? = nil) {
+        var copy = profile
+        copy.ensureVariantsUpToMaxDisplayCount()
+        uiState.editingProfileDraft = copy
         uiState.isCreatingNewProfile = false
         uiState.showProfileTemplatePicker = false
+        uiState.showProfileBehaviorOptions = false
+        let fallbackCount = min(max(displayRegistry.connectedDisplays.count, 1), copy.maxDisplayCount)
+        uiState.editingVariantDisplayCount = min(max(initialVariantCount ?? fallbackCount, 1), copy.maxDisplayCount)
+        uiState.editingDisplayRole = .main
+        uiState.draftAutoApplyOnConnect = (configManager.config.windowSnapper.autoApplyProfileID == copy.id)
     }
 
-    private func saveEditingProfileDraft() {
+    private func saveEditingProfileDraft(andApply: Bool = false) {
         guard var draft = uiState.editingProfileDraft else { return }
         let trimmed = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
@@ -1654,19 +1800,35 @@ struct WindowSnapperSettingsView: View {
             draft.name = trimmed
         }
 
+        draft.ensureVariantsUpToMaxDisplayCount()
+        if let v1 = draft.displayVariants.first(where: { $0.displayCount == 1 }) {
+            draft.appRules = v1.appRules
+        }
+
         if let existingIdx = configManager.config.windowSnapper.profiles.firstIndex(where: { $0.id == draft.id }) {
             configManager.config.windowSnapper.profiles[existingIdx] = draft
         } else {
             configManager.config.windowSnapper.profiles.append(draft)
         }
+        if uiState.draftAutoApplyOnConnect {
+            configManager.config.windowSnapper.autoApplyProfileID = draft.id
+        } else if configManager.config.windowSnapper.autoApplyProfileID == draft.id {
+            configManager.config.windowSnapper.autoApplyProfileID = nil
+        }
         uiState.editingProfileDraft = nil
         uiState.isCreatingNewProfile = false
         uiState.showProfileTemplatePicker = false
-        HUDToast.shared.show(
-            title: "Saved profile '\(draft.name)'",
-            symbol: "sparkles.rectangle.stack",
-            tint: .indigo
-        )
+        uiState.showProfileBehaviorOptions = false
+        if andApply {
+            module.applyProfileDirectly(draft)
+        } else {
+            HUDToast.shared.show(
+                title: "Saved \(draft.name)",
+                subtitle: "Ready to apply",
+                symbol: "checkmark.circle.fill",
+                tint: .green
+            )
+        }
     }
 
     private func cancelEditingProfileDraft() {
@@ -1676,12 +1838,15 @@ struct WindowSnapperSettingsView: View {
         uiState.editingProfileDraft = nil
         uiState.isCreatingNewProfile = false
         uiState.showProfileTemplatePicker = false
+        uiState.showProfileBehaviorOptions = false
     }
 
     private func profileCardRow(index: Int) -> some View {
         let profile = configManager.config.windowSnapper.profiles[index]
         let isActive = configManager.config.windowSnapper.activeProfileID == profile.id
+        let isAutoApply = configManager.config.windowSnapper.autoApplyProfileID == profile.id
         let readableAccent = ToolboxTheme.readableAccentText(for: module.accentColor)
+        let connectedCount = max(displayRegistry.connectedDisplays.count, 1)
 
         return VStack(alignment: .leading, spacing: 10) {
             ViewThatFits(in: .horizontal) {
@@ -1693,6 +1858,52 @@ struct WindowSnapperSettingsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     profileCardHeaderButton(profile: profile, isActive: isActive, readableAccent: readableAccent)
                     profileCardActionButtons(profile: profile, index: index)
+                }
+            }
+
+            if profile.maxDisplayCount > 1 {
+                HStack(spacing: 6) {
+                    Text("Views:")
+                        .toolboxFont(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    ForEach(1...profile.maxDisplayCount, id: \.self) { count in
+                        let isMatched = count == min(connectedCount, profile.maxDisplayCount)
+                        let variantApps = profile.effectiveAppRules(forDisplayCount: count).count
+                        Button {
+                            beginEditingProfile(profile, initialVariantCount: count)
+                        } label: {
+                            HStack(spacing: 4) {
+                                if isMatched {
+                                    Circle()
+                                        .fill(Color.green)
+                                        .frame(width: 5, height: 5)
+                                }
+                                Text("\(count) \(count == 1 ? "Display" : "Displays")")
+                                    .toolboxFont(.caption2.weight(isMatched ? .semibold : .medium))
+                                if variantApps > 0 {
+                                    Text("· \(variantApps)")
+                                        .toolboxFont(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(
+                                isMatched ? module.accentColor.opacity(0.14) : Color.primary.opacity(0.05),
+                                in: Capsule()
+                            )
+                            .overlay(
+                                Capsule().strokeBorder(
+                                    isMatched ? module.accentColor.opacity(0.45) : Color.primary.opacity(0.08),
+                                    lineWidth: 1
+                                )
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .focusEffectDisabled()
+                        .pointerCursor()
+                    }
+                    Spacer(minLength: 0)
                 }
             }
 
@@ -1715,10 +1926,16 @@ struct WindowSnapperSettingsView: View {
             }
         }
         .padding(11)
-        .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 10))
+        .background(
+            isActive ? module.accentColor.opacity(0.05) : Color.primary.opacity(0.03),
+            in: RoundedRectangle(cornerRadius: 10)
+        )
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(Color.primary.opacity(0.09), lineWidth: 1)
+                .strokeBorder(
+                    isAutoApply ? Color.teal.opacity(0.45) : Color.primary.opacity(0.09),
+                    lineWidth: 1
+                )
         )
     }
 
@@ -1727,18 +1944,31 @@ struct WindowSnapperSettingsView: View {
         isActive: Bool,
         readableAccent: Color
     ) -> some View {
-        Button {
+        let connectedCount = max(displayRegistry.connectedDisplays.count, 1)
+        let matchedPreset: DisplayPresetKind = profile.resolvedVariant(forDisplayCount: connectedCount)?.layout(for: .main).presetKind
+            ?? profile.displayLayoutOverrides.first?.presetKind
+            ?? .halves
+
+        return Button {
             beginEditingProfile(profile)
         } label: {
             HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(module.accentColor.opacity(isActive ? 0.24 : 0.12))
-                        .frame(width: 34, height: 34)
-                    Image(systemName: profile.symbolName)
-                        .toolboxFont(.callout.weight(.semibold))
-                        .foregroundStyle(readableAccent)
-                }
+                TemplateMiniThumbnailView(
+                    preset: matchedPreset,
+                    cellFill: module.accentColor.opacity(isActive ? 0.52 : 0.34),
+                    cellStroke: readableAccent.opacity(0.85),
+                    padding: 5,
+                    cellGap: 1.5
+                )
+                .frame(width: 48, height: 32)
+                .background(
+                    Color(nsColor: NSColor(calibratedRed: 0.08, green: 0.09, blue: 0.14, alpha: 1.0)),
+                    in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.16), lineWidth: 1)
+                )
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
@@ -1746,7 +1976,16 @@ struct WindowSnapperSettingsView: View {
                             .toolboxFont(.callout.weight(.semibold))
                             .foregroundStyle(.primary)
                             .lineLimit(1)
-                        if let firstOverride = profile.displayLayoutOverrides.first {
+                        if profile.maxDisplayCount > 1 {
+                            StatusBadge(text: "1–\(profile.maxDisplayCount) Displays", color: module.accentColor)
+                        } else if let mainSlot = profile.resolvedVariant(forDisplayCount: 1)?.layout(for: .main) {
+                            StatusBadge(
+                                text: mainSlot.hasCustomDividerProportions
+                                    ? "\(mainSlot.presetKind.label) · Adjusted"
+                                    : mainSlot.presetKind.label,
+                                color: module.accentColor
+                            )
+                        } else if let firstOverride = profile.displayLayoutOverrides.first {
                             StatusBadge(
                                 text: firstOverride.hasCustomDividerProportions
                                     ? "\(firstOverride.presetKind.label) · Adjusted"
@@ -1757,14 +1996,17 @@ struct WindowSnapperSettingsView: View {
                         if isActive {
                             StatusBadge(text: "Active", color: .green)
                         }
-                        if profile.topologyTriggerMode != .off {
+                        if configManager.config.windowSnapper.autoApplyProfileID == profile.id {
+                            StatusBadge(text: "Auto-Apply", color: .teal)
+                        } else if profile.topologyTriggerMode != .off {
                             StatusBadge(text: profile.topologyTriggerMode.label, color: .teal)
                         }
                     }
+                    let effectiveRules = profile.effectiveAppRules(forDisplayCount: displayRegistry.connectedDisplays.count)
                     Text(
-                        profile.appRules.isEmpty
+                        effectiveRules.isEmpty
                             ? "Layout only · click Edit to assign applications"
-                            : "\(profile.appRules.count) app\(profile.appRules.count == 1 ? "" : "s") assigned"
+                            : "\(effectiveRules.count) app\(effectiveRules.count == 1 ? "" : "s") assigned"
                     )
                     .toolboxFont(.caption)
                     .foregroundStyle(.secondary)
@@ -1780,6 +2022,9 @@ struct WindowSnapperSettingsView: View {
 
     private func profileCardActionButtons(profile: WorkspaceProfile, index: Int) -> some View {
         let canRestore = module.restoreAvailableProfileID == profile.id
+        let isAutoApply = configManager.config.windowSnapper.autoApplyProfileID == profile.id
+        let isActive = configManager.config.windowSnapper.activeProfileID == profile.id
+
         return HStack(spacing: 6) {
             Button("Edit") {
                 beginEditingProfile(profile)
@@ -1788,45 +2033,83 @@ struct WindowSnapperSettingsView: View {
             .controlSize(.regular)
             .pointerCursor()
 
-            Button("Preview (3s)") {
-                module.previewProfile(profile, duration: 3.0)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.regular)
-            .pointerCursor()
-
-            Button(canRestore ? "Restore" : "Apply") {
+            Button {
                 module.applyProfile(profile)
+            } label: {
+                if profileEngine.isApplyingProfile && isActive {
+                    HStack(spacing: 5) {
+                        ProgressView()
+                            .controlSize(.mini)
+                        Text("Applying…")
+                    }
+                } else {
+                    Text(canRestore ? "Restore" : "Apply")
+                }
             }
             .buttonStyle(.toolboxProminent)
             .controlSize(.regular)
-            .pointerCursor()
+            .disabled(profileEngine.isApplyingProfile)
+            .pointerCursor(!profileEngine.isApplyingProfile)
 
-            Button {
-                let removedID = profile.id
-                configManager.config.windowSnapper.profiles.remove(at: index)
-                if configManager.config.windowSnapper.activeProfileID == removedID {
-                    configManager.config.windowSnapper.activeProfileID = nil
+            Menu {
+                Button {
+                    configManager.config.windowSnapper.autoApplyProfileID = isAutoApply ? nil : profile.id
+                } label: {
+                    Label(
+                        isAutoApply ? "Turn Off Auto-Apply" : "Set as Auto-Apply",
+                        systemImage: isAutoApply ? "bolt.slash" : "bolt.fill"
+                    )
+                }
+
+                Button {
+                    module.previewProfile(profile, duration: 3.0)
+                } label: {
+                    Label("Preview on Screen (3s)", systemImage: "eye")
+                }
+
+                if isActive && displayRegistry.connectedDisplays.count >= 3 {
+                    Button {
+                        module.swapExternalDisplays()
+                    } label: {
+                        Label("Swap External 1 & 2", systemImage: "arrow.left.arrow.right")
+                    }
+                }
+
+                Divider()
+
+                Button(role: .destructive) {
+                    let removedID = profile.id
+                    configManager.config.windowSnapper.profiles.remove(at: index)
+                    if configManager.config.windowSnapper.activeProfileID == removedID {
+                        configManager.config.windowSnapper.activeProfileID = nil
+                    }
+                    if configManager.config.windowSnapper.autoApplyProfileID == removedID {
+                        configManager.config.windowSnapper.autoApplyProfileID = nil
+                    }
+                } label: {
+                    Label("Delete Profile", systemImage: "trash")
                 }
             } label: {
-                Image(systemName: "trash")
-                    .foregroundStyle(ToolboxTheme.readableAccentText(for: .red))
+                Image(systemName: "ellipsis.circle")
+                    .foregroundStyle(.secondary)
             }
-            .buttonStyle(.bordered)
+            .menuStyle(.borderedButton)
             .controlSize(.regular)
+            .fixedSize()
             .pointerCursor()
         }
     }
 
     @ViewBuilder
     private func profileCardAppsSummary(profile: WorkspaceProfile) -> some View {
-        if profile.appRules.isEmpty {
+        let effectiveRules = profile.effectiveAppRules(forDisplayCount: displayRegistry.connectedDisplays.count)
+        if effectiveRules.isEmpty {
             Text("No apps assigned · click Edit")
                 .toolboxFont(.caption)
                 .foregroundStyle(.secondary)
         } else {
             HStack(spacing: 6) {
-                ForEach(profile.appRules.prefix(4)) { rule in
+                ForEach(effectiveRules.prefix(4)) { rule in
                     HStack(spacing: 5) {
                         appIconView(bundleIdentifier: rule.bundleIdentifier, size: 14)
                         Text(rule.appName)
@@ -1838,8 +2121,8 @@ struct WindowSnapperSettingsView: View {
                     .padding(.vertical, 3)
                     .background(Color.primary.opacity(0.05), in: Capsule())
                 }
-                if profile.appRules.count > 4 {
-                    Text("+\(profile.appRules.count - 4)")
+                if effectiveRules.count > 4 {
+                    Text("+\(effectiveRules.count - 4)")
                         .toolboxFont(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 7)
@@ -1869,40 +2152,45 @@ struct WindowSnapperSettingsView: View {
 
     // MARK: - Visual Profile Draft Editor
 
-    private var activeProfileBuilderDisplay: ConnectedDisplay {
-        if let id = uiState.profileBuilderDisplayID,
-           let matched = displayRegistry.connectedDisplays.first(where: { $0.displayID == id }) {
-            return matched
+    private func resolvedBuilderDisplay(for role: ProfileDisplayRole) -> (display: ConnectedDisplay, isPhysicallyConnected: Bool) {
+        let roles = DisplayRegistry.assignLogicalRoles(
+            for: displayRegistry.connectedDisplays,
+            swapExternalDisplays: configManager.config.windowSnapper.swapExternalDisplays
+        )
+        if let matched = roles[role] {
+            return (matched, true)
         }
-        if let main = displayRegistry.mainDisplay() ?? displayRegistry.connectedDisplays.first {
-            return main
-        }
-        return ConnectedDisplay(
-            displayID: 1,
-            signature: DisplaySignature(localizedName: "Main Display", arrangementIndex: 0),
-            frameAppKit: CGRect(x: 0, y: 0, width: 1440, height: 900),
-            visibleFrameAppKit: CGRect(x: 0, y: 0, width: 1440, height: 875),
-            frameAX: CGRect(x: 0, y: 0, width: 1440, height: 900),
-            usableAppKit: CGRect(x: 0, y: 0, width: 1440, height: 875),
-            usableAX: CGRect(x: 0, y: 25, width: 1440, height: 875),
-            safeAreaInsets: SafeAreaInsets(),
-            isMain: true,
-            primaryScreenHeight: 900
+        return (
+            ConnectedDisplay(
+                displayID: role == .main ? 1 : (role == .external1 ? 2 : 3),
+                signature: DisplaySignature(
+                    localizedName: "\(role.label) (Preview)",
+                    arrangementIndex: role == .main ? 0 : (role == .external1 ? 1 : 2)
+                ),
+                frameAppKit: CGRect(x: 0, y: 0, width: 1920, height: 1080),
+                visibleFrameAppKit: CGRect(x: 0, y: 0, width: 1920, height: 1055),
+                frameAX: CGRect(x: 0, y: 0, width: 1920, height: 1080),
+                usableAppKit: CGRect(x: 0, y: 0, width: 1920, height: 1055),
+                usableAX: CGRect(x: 0, y: 25, width: 1920, height: 1055),
+                safeAreaInsets: SafeAreaInsets(),
+                isMain: role == .main,
+                primaryScreenHeight: 1080
+            ),
+            false
         )
     }
 
     @ViewBuilder
     private func profileDraftEditor(draft: WorkspaceProfile) -> some View {
-        let builderDisplay = activeProfileBuilderDisplay
-        let activeLayout = DisplayRegistry.layout(
-            for: builderDisplay.signature,
-            in: configManager.config.windowSnapper.displayLayouts,
-            overrides: draft.displayLayoutOverrides
-        ) ?? DisplayLayoutConfig(
-            display: builderDisplay.signature,
-            presetID: DisplayPresetKind.halves.rawValue,
-            division: DisplayPresetKind.halves.defaultDivision
-        )
+        let variantCount = min(max(uiState.editingVariantDisplayCount, 1), draft.maxDisplayCount)
+        let allowedRoles = ProfileDisplayRole.roles(forDisplayCount: variantCount)
+        let activeRole = allowedRoles.contains(uiState.editingDisplayRole) ? uiState.editingDisplayRole : .main
+        let builderTarget = resolvedBuilderDisplay(for: activeRole)
+        let builderDisplay = builderTarget.display
+        let activeVariant = draft.displayVariants.first(where: { $0.displayCount == variantCount })
+            ?? ProfileDisplayVariant(displayCount: variantCount)
+        let slotLayout = activeVariant.layout(for: activeRole)
+        let activeLayout = slotLayout.asDisplayLayoutConfig(for: builderDisplay.signature)
         let resolvedZones = SnapGeometry.resolveZones(
             layout: activeLayout,
             usableAXRect: builderDisplay.usableAX,
@@ -1915,214 +2203,10 @@ struct WindowSnapperSettingsView: View {
 
         FeatureSection(
             editorTitle,
-            subtitle: "Pick a layout and assign apps to screen positions. Applying this profile arranges those apps and activates its display grid."
+            subtitle: "Choose a display setup, pick a layout, and click or drag apps into screen zones."
         ) {
-            HStack(spacing: 10) {
-                StatusBadge(
-                    text: uiState.isCreatingNewProfile ? "Unsaved Draft" : "Editing Profile",
-                    color: .orange
-                )
-                Spacer()
-                Button("Preview (3s)") {
-                    module.previewProfile(draft, duration: 3.0)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.regular)
-                .pointerCursor()
-
-                Button("Cancel") {
-                    cancelEditingProfileDraft()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.regular)
-                .pointerCursor()
-
-                Button {
-                    saveEditingProfileDraft()
-                } label: {
-                    Label("Save Profile", systemImage: "checkmark")
-                }
-                .buttonStyle(.toolboxProminent)
-                .controlSize(.regular)
-                .pointerCursor()
-            }
-
-            Divider()
-
-            if displayRegistry.connectedDisplays.count > 1 {
-                HStack(spacing: 8) {
-                    Text("Configure display:")
-                        .toolboxFont(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    ToolboxSegmentedControl(
-                        options: displayRegistry.connectedDisplays.map(\.displayID),
-                        selection: Binding(
-                            get: { uiState.profileBuilderDisplayID ?? builderDisplay.displayID },
-                            set: { uiState.profileBuilderDisplayID = $0 }
-                        ),
-                        accentColor: module.accentColor,
-                        label: { id in
-                            displayRegistry.connectedDisplays.first(where: { $0.displayID == id })?.signature.localizedName ?? "Display"
-                        }
-                    )
-                    Spacer()
-                }
-
-                Divider()
-            }
-
-            // Step 1: Interactive Template Squares Canvas
-            VStack(alignment: .leading, spacing: 10) {
-                let assignedCount = resolvedZones.filter { zone in
-                    matchingRuleIndex(in: draft, for: zone.id, display: builderDisplay) != nil
-                }.count
-
-                HStack(spacing: 8) {
-                    Text("Assign Apps to Screen Positions (Optional)")
-                        .toolboxFont(.callout.weight(.semibold))
-                    StatusBadge(
-                        text: "\(assignedCount) of \(resolvedZones.count) filled",
-                        color: assignedCount > 0 ? module.accentColor : .secondary
-                    )
-                    Spacer()
-                    if assignedCount > 0 {
-                        Button("Clear All") {
-                            clearAllDraftRules(for: builderDisplay)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.regular)
-                        .pointerCursor()
-                    }
-                }
-
-                profileDraftSquaresCanvas(
-                    draft: draft,
-                    display: builderDisplay,
-                    zones: resolvedZones
-                )
-            }
-
-            Divider()
-
-            // Optional Layout Template Changer (Disclosure)
-            VStack(alignment: .leading, spacing: 10) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.16)) {
-                        uiState.showProfileTemplatePicker.toggle()
-                    }
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: uiState.showProfileTemplatePicker ? "chevron.down" : "chevron.right")
-                            .toolboxFont(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 12)
-                        Text("Change Layout Template")
-                            .toolboxFont(.callout.weight(.medium))
-                        Spacer()
-                        StatusBadge(
-                            text: activeLayout.hasCustomDividerProportions
-                                ? "\(activeLayout.presetKind.label) · Adjusted"
-                                : activeLayout.presetKind.label,
-                            color: module.accentColor
-                        )
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .focusEffectDisabled()
-                .pointerCursor()
-
-                if uiState.showProfileTemplatePicker {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 10) {
-                            Text("Template Size")
-                                .toolboxFont(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            ToolboxSegmentedControl(
-                                options: Array(ProfileTemplateFilterCount.allCases),
-                                selection: $uiState.profileTemplateFilter,
-                                accentColor: module.accentColor,
-                                label: { $0.label }
-                            )
-                        }
-                        VStack(alignment: .leading, spacing: 8) {
-                            ToolboxSegmentedControl(
-                                options: Array(ProfileTemplateFilterCount.allCases),
-                                selection: $uiState.profileTemplateFilter,
-                                accentColor: module.accentColor,
-                                label: { $0.label }
-                            )
-                        }
-                    }
-
-                    let copyZonesButton = Button {
-                        let copied = DisplayRegistry.layout(
-                            for: builderDisplay.signature,
-                            in: configManager.config.windowSnapper.displayLayouts
-                        ) ?? DisplayLayoutConfig(display: builderDisplay.signature)
-                        applyLayoutToDraft(copied, on: builderDisplay)
-                        HUDToast.shared.show(
-                            title: "Copied '\(copied.presetKind.label)' from Display Zones",
-                            symbol: "rectangle.3.group",
-                            tint: .indigo
-                        )
-                    } label: {
-                        Label("Copy from Display Zones", systemImage: "rectangle.3.group")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .pointerCursor()
-
-                    let adjustDividersButton = Button {
-                        module.beginOnScreenLayoutEditor(
-                            for: builderDisplay,
-                            initialLayout: activeLayout
-                        ) { updated in
-                            applyLayoutToDraft(updated, on: builderDisplay)
-                        }
-                    } label: {
-                        Label("Adjust Dividers on Screen", systemImage: "slider.horizontal.3")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .pointerCursor()
-
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 8) {
-                            copyZonesButton
-                            adjustDividersButton
-                            Spacer(minLength: 0)
-                        }
-
-                        VStack(alignment: .leading, spacing: 8) {
-                            copyZonesButton
-                            adjustDividersButton
-                        }
-                    }
-
-                    let filteredTemplates = DisplayPresetKind.builtInTemplates.filter {
-                        uiState.profileTemplateFilter.matches($0)
-                    }
-                    ToolboxAdaptiveCardGrid(wideColumns: 4, narrowColumns: 2, wideMinWidth: 520, spacing: 8) {
-                        ForEach(filteredTemplates) { preset in
-                            TemplateDiagramCard(
-                                preset: preset,
-                                accentColor: module.accentColor,
-                                isSelected: activeLayout.presetID == preset.rawValue
-                            ) {
-                                applyTemplateToDraft(preset, on: builderDisplay)
-                            }
-                        }
-                    }
-                }
-            }
-
-            Divider()
-
-            // Step 3: Simple Profile Footer
-            SettingRow("Profile name & shortcut") {
-                HStack(spacing: 8) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
                     TextField(
                         "Workspace Name",
                         text: Binding(
@@ -2131,108 +2215,535 @@ struct WindowSnapperSettingsView: View {
                         )
                     )
                     .textFieldStyle(.roundedBorder)
-                    .frame(width: 170)
+                    .frame(width: 210)
 
-                    ShortcutRecorderView(
-                        shortcut: draft.shortcut,
-                        sourceID: "window_snapper.profile.\(draft.id)",
-                        registrationKey: "window_snapper.profile.\(draft.id)"
-                    ) { newShortcut in
-                        uiState.editingProfileDraft?.shortcut = newShortcut
+                    Spacer()
+
+                    Button {
+                        module.previewProfile(draft, duration: 3.0)
+                    } label: {
+                        Image(systemName: "eye")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+                    .help("Preview layout on screen (3s)")
+                    .pointerCursor()
+
+                    Button("Cancel") {
+                        cancelEditingProfileDraft()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+                    .pointerCursor()
+
+                    Button {
+                        saveEditingProfileDraft()
+                    } label: {
+                        Label("Save", systemImage: "checkmark")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+                    .pointerCursor()
+
+                    Button {
+                        saveEditingProfileDraft(andApply: true)
+                    } label: {
+                        Label("Save & Apply", systemImage: "play.fill")
+                    }
+                    .buttonStyle(.toolboxProminent)
+                    .controlSize(.regular)
+                    .pointerCursor()
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    TextField(
+                        "Workspace Name",
+                        text: Binding(
+                            get: { uiState.editingProfileDraft?.name ?? draft.name },
+                            set: { uiState.editingProfileDraft?.name = $0 }
+                        )
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 240)
+
+                    HStack(spacing: 8) {
+                        Spacer()
+                        Button {
+                            module.previewProfile(draft, duration: 3.0)
+                        } label: {
+                            Image(systemName: "eye")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.regular)
+                        .help("Preview layout on screen (3s)")
+                        .pointerCursor()
+
+                        Button("Cancel") {
+                            cancelEditingProfileDraft()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.regular)
+                        .pointerCursor()
+
+                        Button {
+                            saveEditingProfileDraft()
+                        } label: {
+                            Label("Save", systemImage: "checkmark")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.regular)
+                        .pointerCursor()
+
+                        Button {
+                            saveEditingProfileDraft(andApply: true)
+                        } label: {
+                            Label("Save & Apply", systemImage: "play.fill")
+                        }
+                        .buttonStyle(.toolboxProminent)
+                        .controlSize(.regular)
+                        .pointerCursor()
                     }
                 }
             }
 
             Divider()
 
-            restoreProfileShortcutSettingRow
+            // Step 1: Unified Display Setup Views Cards (1, 2, 3 Displays)
+            let connectedCount = max(displayRegistry.connectedDisplays.count, 1)
+            let currentMatchedCount = min(connectedCount, draft.maxDisplayCount)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Text("1. Display Setup Views")
+                        .toolboxFont(.callout.weight(.semibold))
+                    Text("Pick which view to edit, or add 2- and 3-display layouts.")
+                        .toolboxFont(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
 
-            Divider()
+                ToolboxAdaptiveCardGrid(wideColumns: 3, narrowColumns: 1, wideMinWidth: 520, spacing: 10) {
+                    ForEach(1...3, id: \.self) { count in
+                        let isEnabled = count <= draft.maxDisplayCount
+                        let isSelected = isEnabled && variantCount == count
+                        let isCurrentSetup = isEnabled && count == currentMatchedCount
+                        let variant = draft.displayVariants.first(where: { $0.displayCount == count })
+                        let appCount = variant.map { ProfileDisplayVariant.deduplicatedRules($0.appRules).count } ?? 0
+                        let mainPresetLabel = variant?.layout(for: .main).presetKind.label ?? "Halves"
 
-            SettingRow(
-                "App launching & focus behavior",
-                subtitle: "Automatically launch closed apps when applying, or hide unlisted windows."
-            ) {
-                HStack(spacing: 16) {
-                    let allLaunch = draft.appRules.isEmpty ? true : draft.appRules.allSatisfy(\.launchIfNotRunning)
-                    Toggle("Launch closed apps", isOn: Binding(
-                        get: { allLaunch },
-                        set: { next in
-                            guard var current = uiState.editingProfileDraft else { return }
-                            for rIdx in current.appRules.indices {
-                                current.appRules[rIdx].launchIfNotRunning = next
+                        ProfileVariantSelectionCard(
+                            displayCount: count,
+                            isEnabled: isEnabled,
+                            isSelected: isSelected,
+                            isCurrentSetup: isCurrentSetup,
+                            canRemove: isEnabled && count == draft.maxDisplayCount && count > 1,
+                            appCount: appCount,
+                            mainPresetLabel: mainPresetLabel,
+                            accentColor: module.accentColor,
+                            onSelect: {
+                                if !isEnabled {
+                                    guard var current = uiState.editingProfileDraft else { return }
+                                    current.maxDisplayCount = count
+                                    current.ensureVariantsUpToMaxDisplayCount()
+                                    uiState.editingProfileDraft = current
+                                }
+                                uiState.editingVariantDisplayCount = count
+                                let nextRoles = ProfileDisplayRole.roles(forDisplayCount: count)
+                                if !nextRoles.contains(uiState.editingDisplayRole) {
+                                    uiState.editingDisplayRole = .main
+                                }
+                            },
+                            onRemove: {
+                                guard var current = uiState.editingProfileDraft else { return }
+                                let nextMax = max(1, count - 1)
+                                current.maxDisplayCount = nextMax
+                                current.ensureVariantsUpToMaxDisplayCount()
+                                uiState.editingProfileDraft = current
+                                if uiState.editingVariantDisplayCount > nextMax {
+                                    uiState.editingVariantDisplayCount = nextMax
+                                }
+                                let nextRoles = ProfileDisplayRole.roles(forDisplayCount: uiState.editingVariantDisplayCount)
+                                if !nextRoles.contains(uiState.editingDisplayRole) {
+                                    uiState.editingDisplayRole = .main
+                                }
                             }
-                            uiState.editingProfileDraft = current
-                        }
-                    ))
-                    .toolboxFont(.caption.weight(.medium))
-                    .disabled(draft.appRules.isEmpty)
-                    .pointerCursor(!draft.appRules.isEmpty)
-
-                    Toggle(
-                        "Hide other apps",
-                        isOn: Binding(
-                            get: { uiState.editingProfileDraft?.hideUnlistedApps ?? draft.hideUnlistedApps },
-                            set: { uiState.editingProfileDraft?.hideUnlistedApps = $0 }
                         )
-                    )
-                    .toolboxFont(.caption.weight(.medium))
-                    .pointerCursor()
+                    }
+                }
+            }
+
+            if variantCount > 1 {
+                Divider()
+
+                let rolesMap = DisplayRegistry.assignLogicalRoles(
+                    for: displayRegistry.connectedDisplays,
+                    swapExternalDisplays: configManager.config.windowSnapper.swapExternalDisplays
+                )
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        Text("2. Select Screen to Configure")
+                            .toolboxFont(.callout.weight(.semibold))
+                        Spacer()
+                        if displayRegistry.connectedDisplays.count >= 2 {
+                            Button {
+                                module.identifyDisplays()
+                            } label: {
+                                Label("Identify", systemImage: "viewfinder")
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .pointerCursor()
+                        }
+                        if variantCount == 3 {
+                            Button {
+                                module.swapExternalDisplays()
+                            } label: {
+                                Label("Swap External 1 & 2", systemImage: "arrow.left.arrow.right")
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .pointerCursor()
+                        }
+                    }
+
+                    ToolboxAdaptiveCardGrid(
+                        wideColumns: variantCount == 2 ? 2 : 3,
+                        narrowColumns: 1,
+                        wideMinWidth: 460,
+                        spacing: 10
+                    ) {
+                        ForEach(allowedRoles) { role in
+                            let roleLayout = activeVariant.layout(for: role)
+                            let roleAppCount = activeVariant.appRules.filter {
+                                $0.enabled && ruleMatchesRole($0.targetDisplay, role: role)
+                            }.count
+                            let connectedName = rolesMap[role]?.signature.localizedName
+
+                            ProfileMonitorSelectorCard(
+                                role: role,
+                                preset: roleLayout.presetKind,
+                                connectedDisplayName: connectedName,
+                                appCount: roleAppCount,
+                                isSelected: activeRole == role,
+                                accentColor: module.accentColor
+                            ) {
+                                uiState.editingDisplayRole = role
+                            }
+                        }
+                    }
                 }
             }
 
             Divider()
 
-            SettingRow(
-                "Auto-apply on display connect",
-                subtitle: "Automatically arrange windows whenever your current display setup is plugged in."
-            ) {
-                Toggle(
-                    "",
-                    isOn: Binding(
-                        get: { (uiState.editingProfileDraft?.topologyTriggerMode ?? draft.topologyTriggerMode) == .autoApply },
-                        set: { enabled in
-                            guard var current = uiState.editingProfileDraft else { return }
-                            if enabled {
-                                current.boundDisplaySignatures = displayRegistry.connectedDisplays.map(\.signature)
-                                current.topologyTriggerMode = .autoApply
-                            } else {
-                                current.topologyTriggerMode = .off
-                            }
-                            uiState.editingProfileDraft = current
-                        }
+            // Step 3: Interactive Template Squares Canvas + Auto-Collapsing Layout Switcher + Drag Tray
+            VStack(alignment: .leading, spacing: 10) {
+                let assignedCount = resolvedZones.filter { zone in
+                    matchingRuleIndex(in: draft, variantCount: variantCount, role: activeRole, for: zone.id) != nil
+                }.count
+
+                let layoutToggleBtn = Button {
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        uiState.showProfileTemplatePicker.toggle()
+                    }
+                } label: {
+                    Label(
+                        uiState.showProfileTemplatePicker ? "Done" : "Layout: \(activeLayout.presetKind.label)",
+                        systemImage: uiState.showProfileTemplatePicker ? "chevron.up" : "rectangle.3.group"
                     )
-                )
-                .labelsHidden()
-                .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
-                .pointerCursor()
-            }
-
-            Divider()
-
-            HStack(spacing: 10) {
-                Spacer()
-                Button("Cancel") {
-                    cancelEditingProfileDraft()
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.regular)
                 .pointerCursor()
 
-                Button {
-                    saveEditingProfileDraft()
+                let toolsMenu = Menu {
+                    Button {
+                        module.captureOpenWindowsForVariant(displayCount: variantCount) { captured in
+                            guard var current = uiState.editingProfileDraft else { return }
+                            current.ensureVariantsUpToMaxDisplayCount()
+                            if let vIdx = current.displayVariants.firstIndex(where: { $0.displayCount == variantCount }) {
+                                current.displayVariants[vIdx] = captured
+                            }
+                            if variantCount == 1 {
+                                current.appRules = captured.appRules
+                            }
+                            uiState.editingProfileDraft = current
+                            HUDToast.shared.show(
+                                title: "Captured Open Windows",
+                                subtitle: "\(captured.appRules.count) app\(captured.appRules.count == 1 ? "" : "s") assigned",
+                                symbol: "camera.viewfinder",
+                                tint: .green
+                            )
+                        }
+                    } label: {
+                        Label("Capture Open Windows", systemImage: "camera.viewfinder")
+                    }
+
+                    Button {
+                        let copied = DisplayRegistry.layout(
+                            for: builderDisplay.signature,
+                            in: configManager.config.windowSnapper.displayLayouts
+                        ) ?? DisplayLayoutConfig(display: builderDisplay.signature)
+                        applyLayoutToDraft(copied, variantCount: variantCount, role: activeRole, on: builderDisplay)
+                        HUDToast.shared.show(
+                            title: "Copied Layout",
+                            subtitle: copied.presetKind.label,
+                            symbol: "rectangle.3.group",
+                            tint: .indigo
+                        )
+                    } label: {
+                        Label("Copy from Display Zones", systemImage: "rectangle.3.group")
+                    }
+
+                    Button {
+                        module.beginOnScreenLayoutEditor(
+                            for: builderDisplay,
+                            initialLayout: activeLayout
+                        ) { updated in
+                            applyLayoutToDraft(updated, variantCount: variantCount, role: activeRole, on: builderDisplay)
+                        }
+                    } label: {
+                        Label("Adjust Dividers on Screen", systemImage: "slider.horizontal.3")
+                    }
+                    .disabled(!builderTarget.isPhysicallyConnected)
+
+                    if assignedCount > 0 {
+                        Divider()
+                        Button(role: .destructive) {
+                            clearAllDraftRules(variantCount: variantCount, role: activeRole)
+                        } label: {
+                            Label("Clear All Apps", systemImage: "trash")
+                        }
+                    }
                 } label: {
-                    Label("Save Profile", systemImage: "checkmark")
+                    Image(systemName: "ellipsis.circle")
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.toolboxProminent)
+                .menuStyle(.borderedButton)
                 .controlSize(.regular)
+                .fixedSize()
                 .pointerCursor()
+
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        Text(variantCount > 1 ? "3. Assign Apps (\(activeRole.label))" : "2. Assign Apps & Layout")
+                            .toolboxFont(.callout.weight(.semibold))
+                        StatusBadge(
+                            text: "\(assignedCount) of \(resolvedZones.count) filled",
+                            color: assignedCount > 0 ? module.accentColor : .secondary
+                        )
+                        Spacer()
+                        layoutToggleBtn
+                        toolsMenu
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            Text(variantCount > 1 ? "3. Assign Apps (\(activeRole.label))" : "2. Assign Apps & Layout")
+                                .toolboxFont(.callout.weight(.semibold))
+                            StatusBadge(
+                                text: "\(assignedCount) of \(resolvedZones.count) filled",
+                                color: assignedCount > 0 ? module.accentColor : .secondary
+                            )
+                        }
+                        HStack(spacing: 8) {
+                            layoutToggleBtn
+                            toolsMenu
+                        }
+                    }
+                }
+
+                if uiState.showProfileTemplatePicker {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 10) {
+                                Text("Pick a Layout Template")
+                                    .toolboxFont(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                ToolboxSegmentedControl(
+                                    options: Array(ProfileTemplateFilterCount.allCases),
+                                    selection: $uiState.profileTemplateFilter,
+                                    accentColor: module.accentColor,
+                                    label: { $0.label }
+                                )
+                            }
+                            VStack(alignment: .leading, spacing: 8) {
+                                ToolboxSegmentedControl(
+                                    options: Array(ProfileTemplateFilterCount.allCases),
+                                    selection: $uiState.profileTemplateFilter,
+                                    accentColor: module.accentColor,
+                                    label: { $0.label }
+                                )
+                            }
+                        }
+
+                        let filteredTemplates = DisplayPresetKind.builtInTemplates.filter {
+                            uiState.profileTemplateFilter.matches($0)
+                        }
+                        ToolboxAdaptiveCardGrid(wideColumns: 4, narrowColumns: 2, wideMinWidth: 520, spacing: 8) {
+                            ForEach(filteredTemplates) { preset in
+                                TemplateDiagramCard(
+                                    preset: preset,
+                                    accentColor: module.accentColor,
+                                    isSelected: activeLayout.presetID == preset.rawValue
+                                ) {
+                                    withAnimation(.easeOut(duration: 0.12)) {
+                                        applyTemplateToDraft(preset, variantCount: variantCount, role: activeRole, on: builderDisplay)
+                                        uiState.showProfileTemplatePicker = false
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(10)
+                    .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 10))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                    )
+                }
+
+                profileDraftSquaresCanvas(
+                    draft: draft,
+                    variantCount: variantCount,
+                    role: activeRole,
+                    display: builderDisplay,
+                    zones: resolvedZones
+                )
+
+                if !runningRegularApps.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Drag an app onto a zone above, or click any zone to choose.")
+                            .toolboxFont(.caption2)
+                            .foregroundStyle(.secondary)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(runningRegularApps, id: \.processIdentifier) { app in
+                                    if let bid = app.bundleIdentifier {
+                                        let appName = app.localizedName ?? bid
+                                        HStack(spacing: 5) {
+                                            appIconView(bundleIdentifier: bid, size: 14)
+                                            Text(appName)
+                                                .toolboxFont(.caption.weight(.medium))
+                                                .foregroundStyle(.primary)
+                                                .lineLimit(1)
+                                        }
+                                        .padding(.horizontal, 9)
+                                        .padding(.vertical, 5)
+                                        .background(Color.primary.opacity(0.05), in: Capsule())
+                                        .overlay(
+                                            Capsule()
+                                                .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
+                                        )
+                                        .onDrag {
+                                            NSItemProvider(object: "toolbox-app::\(bid)::\(appName)" as NSString)
+                                        }
+                                        .pointerCursor()
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 1)
+                        }
+                    }
+                }
+            }
+
+            Divider()
+
+            // Step 4: Collapsible Behavior & Options (Progressive Disclosure)
+            VStack(alignment: .leading, spacing: 10) {
+                Button {
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        uiState.showProfileBehaviorOptions.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: uiState.showProfileBehaviorOptions ? "chevron.down" : "chevron.right")
+                            .toolboxFont(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 12)
+                        Text("Behavior & Options")
+                            .toolboxFont(.callout.weight(.semibold))
+                        Spacer()
+                        if !uiState.showProfileBehaviorOptions {
+                            HStack(spacing: 6) {
+                                if !draft.shortcut.isEmpty {
+                                    ShortcutPill(text: draft.shortcut.displayString)
+                                }
+                                if uiState.draftAutoApplyOnConnect {
+                                    StatusBadge(text: "Auto-Apply", color: .teal)
+                                }
+                                if draft.hideUnlistedApps {
+                                    StatusBadge(text: "Hide Others", color: module.accentColor)
+                                }
+                                if draft.shortcut.isEmpty && !uiState.draftAutoApplyOnConnect && !draft.hideUnlistedApps {
+                                    StatusBadge(text: "Default", color: .secondary)
+                                }
+                            }
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .focusEffectDisabled()
+                .pointerCursor()
+
+                if uiState.showProfileBehaviorOptions {
+                    VStack(alignment: .leading, spacing: 12) {
+                        SettingRow("Global shortcut", subtitle: "Apply or toggle this profile from anywhere.") {
+                            ShortcutRecorderView(
+                                shortcut: draft.shortcut,
+                                sourceID: "window_snapper.profile.\(draft.id)",
+                                registrationKey: "window_snapper.profile.\(draft.id)"
+                            ) { newShortcut in
+                                uiState.editingProfileDraft?.shortcut = newShortcut
+                            }
+                        }
+
+                        Divider()
+
+                        restoreProfileShortcutSettingRow
+
+                        Divider()
+
+                        SettingRow(
+                            "Hide other apps",
+                            subtitle: "Hide unlisted apps when applying this profile. Assigned apps launch automatically if closed."
+                        ) {
+                            Toggle(
+                                "",
+                                isOn: Binding(
+                                    get: { uiState.editingProfileDraft?.hideUnlistedApps ?? draft.hideUnlistedApps },
+                                    set: { uiState.editingProfileDraft?.hideUnlistedApps = $0 }
+                                )
+                            )
+                            .labelsHidden()
+                            .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
+                            .pointerCursor()
+                        }
+
+                        Divider()
+
+                        SettingRow(
+                            "Auto-apply on display connect",
+                            subtitle: "Automatically apply this profile's matching layout whenever monitors connect or disconnect."
+                        ) {
+                            Toggle("", isOn: $uiState.draftAutoApplyOnConnect)
+                                .labelsHidden()
+                                .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
+                                .pointerCursor()
+                        }
+                    }
+                    .padding(.top, 4)
+                }
             }
         }
     }
 
     private func profileDraftSquaresCanvas(
         draft: WorkspaceProfile,
+        variantCount: Int,
+        role: ProfileDisplayRole,
         display: ConnectedDisplay,
         zones: [ResolvedZone]
     ) -> some View {
@@ -2245,7 +2756,10 @@ struct WindowSnapperSettingsView: View {
                 RoundedRectangle(cornerRadius: 2).fill(Color.white.opacity(0.22)).frame(width: 24, height: 4)
                 RoundedRectangle(cornerRadius: 2).fill(Color.white.opacity(0.14)).frame(width: 18, height: 4)
                 Spacer()
-                Text(display.signature.localizedName)
+                let headerTitle = display.signature.localizedName.hasPrefix(role.label)
+                    ? display.signature.localizedName
+                    : "\(role.label) · \(display.signature.localizedName)"
+                Text(headerTitle)
                     .toolboxFont(.system(size: 10, weight: .medium))
                     .foregroundStyle(Color.white.opacity(0.55))
             }
@@ -2267,8 +2781,9 @@ struct WindowSnapperSettingsView: View {
                         let nh = zone.frameInAX.height / max(1, display.usableAX.height)
                         let w = max(60, nw * canvasW)
                         let h = max(54, nh * canvasH)
-                        let matchedIdx = matchingRuleIndex(in: draft, for: zone.id, display: display)
-                        let assignedRule = matchedIdx.map { draft.appRules[$0] }
+                        let matchedIdx = matchingRuleIndex(in: draft, variantCount: variantCount, role: role, for: zone.id)
+                        let variantRules = draft.displayVariants.first(where: { $0.displayCount == variantCount })?.appRules ?? []
+                        let assignedRule = matchedIdx.map { variantRules[$0] }
 
                         InteractiveTemplateSquareButton(
                             zone: zone,
@@ -2284,14 +2799,23 @@ struct WindowSnapperSettingsView: View {
                                     bundleIdentifier: bid,
                                     appName: name,
                                     zone: zone,
-                                    display: display
+                                    variantCount: variantCount,
+                                    role: role
                                 )
                             },
                             onPickFromFinder: {
-                                pickAppForDraftSquare(zone: zone, display: display)
+                                pickAppForDraftSquare(zone: zone, variantCount: variantCount, role: role)
                             },
                             onClear: {
-                                removeDraftRule(zoneID: zone.id, display: display)
+                                removeDraftRule(zoneID: zone.id, variantCount: variantCount, role: role)
+                            },
+                            onDropZoneSwap: { sourceZoneID in
+                                swapOrMoveDraftRule(
+                                    fromZoneID: sourceZoneID,
+                                    toZone: zone,
+                                    variantCount: variantCount,
+                                    role: role
+                                )
                             }
                         )
                         .offset(x: nx * canvasW, y: ny * canvasH)
@@ -2307,26 +2831,32 @@ struct WindowSnapperSettingsView: View {
         )
     }
 
-    private func targetDisplaymatches(_ ruleTarget: ProfileTargetDisplay, display: ConnectedDisplay) -> Bool {
-        switch ruleTarget {
-        case .main:
-            return display.isMain
-        case .anyExternal:
-            return !display.isMain
-        case .specific(let sig):
-            return DisplayRegistry.matchDisplay(for: sig, among: [display.signature]) != nil
+    private func ruleMatchesRole(_ ruleTarget: ProfileTargetDisplay, role: ProfileDisplayRole) -> Bool {
+        switch (ruleTarget, role) {
+        case (.main, .main):
+            return true
+        case (.externalSlot(0), .external1), (.anyExternal, .external1):
+            return true
+        case (.externalSlot(1), .external2):
+            return true
+        default:
+            return false
         }
     }
 
     private func matchingRuleIndex(
         in profile: WorkspaceProfile,
-        for zoneID: String,
-        display: ConnectedDisplay
+        variantCount: Int,
+        role: ProfileDisplayRole,
+        for zoneID: String
     ) -> Int? {
-        profile.appRules.firstIndex { rule in
+        guard let variant = profile.displayVariants.first(where: { $0.displayCount == variantCount }) else {
+            return nil
+        }
+        return variant.appRules.firstIndex { rule in
             rule.enabled
                 && rule.targetZoneID == zoneID
-                && targetDisplaymatches(rule.targetDisplay, display: display)
+                && ruleMatchesRole(rule.targetDisplay, role: role)
         }
     }
 
@@ -2334,47 +2864,98 @@ struct WindowSnapperSettingsView: View {
         bundleIdentifier: String,
         appName: String,
         zone: ResolvedZone,
-        display: ConnectedDisplay
+        variantCount: Int,
+        role: ProfileDisplayRole
     ) {
         guard var draft = uiState.editingProfileDraft else { return }
-        draft.appRules.removeAll { rule in
-            rule.targetZoneID == zone.id && targetDisplaymatches(rule.targetDisplay, display: display)
+        draft.ensureVariantsUpToMaxDisplayCount()
+        guard let vIdx = draft.displayVariants.firstIndex(where: { $0.displayCount == variantCount }) else { return }
+        draft.displayVariants[vIdx].appRules.removeAll { rule in
+            rule.targetZoneID == zone.id && ruleMatchesRole(rule.targetDisplay, role: role)
         }
-        let targetDisp: ProfileTargetDisplay = display.isMain ? .main : .specific(display.signature)
         let rule = ProfileAppRule(
             bundleIdentifier: bundleIdentifier,
             appName: appName,
-            targetDisplay: targetDisp,
+            targetDisplay: role.targetDisplay,
             targetZoneID: zone.id,
             fallbackRect: zone.normalizedRect,
             windowPolicy: .frontmost,
             launchIfNotRunning: true
         )
-        draft.appRules.append(rule)
+        draft.displayVariants[vIdx].appRules.append(rule)
+        if variantCount == 1 {
+            draft.appRules = draft.displayVariants[vIdx].appRules
+        }
         uiState.editingProfileDraft = draft
     }
 
     private func removeDraftRule(
         zoneID: String,
-        display: ConnectedDisplay
+        variantCount: Int,
+        role: ProfileDisplayRole
     ) {
         guard var draft = uiState.editingProfileDraft else { return }
-        draft.appRules.removeAll { rule in
-            rule.targetZoneID == zoneID && targetDisplaymatches(rule.targetDisplay, display: display)
+        guard let vIdx = draft.displayVariants.firstIndex(where: { $0.displayCount == variantCount }) else { return }
+        draft.displayVariants[vIdx].appRules.removeAll { rule in
+            rule.targetZoneID == zoneID && ruleMatchesRole(rule.targetDisplay, role: role)
+        }
+        if variantCount == 1 {
+            draft.appRules = draft.displayVariants[vIdx].appRules
         }
         uiState.editingProfileDraft = draft
     }
 
-    private func clearAllDraftRules(for display: ConnectedDisplay) {
+    private func swapOrMoveDraftRule(
+        fromZoneID: String,
+        toZone: ResolvedZone,
+        variantCount: Int,
+        role: ProfileDisplayRole
+    ) {
+        guard fromZoneID != toZone.id,
+              var draft = uiState.editingProfileDraft else { return }
+        draft.ensureVariantsUpToMaxDisplayCount()
+        guard let vIdx = draft.displayVariants.firstIndex(where: { $0.displayCount == variantCount }) else { return }
+        guard let srcIdx = draft.displayVariants[vIdx].appRules.firstIndex(where: {
+            $0.enabled && $0.targetZoneID == fromZoneID && ruleMatchesRole($0.targetDisplay, role: role)
+        }) else { return }
+
+        if let dstIdx = draft.displayVariants[vIdx].appRules.firstIndex(where: {
+            $0.enabled && $0.targetZoneID == toZone.id && ruleMatchesRole($0.targetDisplay, role: role)
+        }) {
+            let srcFallback = draft.displayVariants[vIdx].appRules[srcIdx].fallbackRect
+            draft.displayVariants[vIdx].appRules[srcIdx].targetZoneID = toZone.id
+            draft.displayVariants[vIdx].appRules[srcIdx].fallbackRect = toZone.normalizedRect
+            draft.displayVariants[vIdx].appRules[dstIdx].targetZoneID = fromZoneID
+            draft.displayVariants[vIdx].appRules[dstIdx].fallbackRect = srcFallback
+        } else {
+            draft.displayVariants[vIdx].appRules[srcIdx].targetZoneID = toZone.id
+            draft.displayVariants[vIdx].appRules[srcIdx].fallbackRect = toZone.normalizedRect
+        }
+
+        if variantCount == 1 {
+            draft.appRules = draft.displayVariants[vIdx].appRules
+        }
+        withAnimation(.spring(response: 0.24, dampingFraction: 0.85)) {
+            uiState.editingProfileDraft = draft
+        }
+    }
+
+    private func clearAllDraftRules(variantCount: Int, role: ProfileDisplayRole) {
         guard var draft = uiState.editingProfileDraft else { return }
-        draft.appRules.removeAll { rule in
-            targetDisplaymatches(rule.targetDisplay, display: display)
+        guard let vIdx = draft.displayVariants.firstIndex(where: { $0.displayCount == variantCount }) else { return }
+        draft.displayVariants[vIdx].appRules.removeAll { rule in
+            ruleMatchesRole(rule.targetDisplay, role: role)
+        }
+        if variantCount == 1 {
+            draft.appRules = draft.displayVariants[vIdx].appRules
         }
         uiState.editingProfileDraft = draft
     }
 
     private func applyTemplateToDraft(
         _ preset: DisplayPresetKind,
+        variantCount: Int,
+        role: ProfileDisplayRole,
         on display: ConnectedDisplay
     ) {
         let layout = DisplayLayoutConfig(
@@ -2382,34 +2963,34 @@ struct WindowSnapperSettingsView: View {
             presetID: preset.rawValue,
             division: preset.defaultDivision
         )
-        applyLayoutToDraft(layout, on: display)
+        applyLayoutToDraft(layout, variantCount: variantCount, role: role, on: display)
     }
 
     private func applyLayoutToDraft(
         _ sourceLayout: DisplayLayoutConfig,
+        variantCount: Int,
+        role: ProfileDisplayRole,
         on display: ConnectedDisplay
     ) {
         guard var draft = uiState.editingProfileDraft else { return }
-        if let existingIdx = draft.displayLayoutOverrides.firstIndex(where: {
-            DisplayRegistry.matchDisplay(for: $0.display, among: [display.signature]) != nil
-        }) {
-            draft.displayLayoutOverrides[existingIdx].presetID = sourceLayout.presetID
-            draft.displayLayoutOverrides[existingIdx].division = sourceLayout.division
-            draft.displayLayoutOverrides[existingIdx].customZones = sourceLayout.customZones
-            draft.displayLayoutOverrides[existingIdx].outerMarginPoints = sourceLayout.outerMarginPoints
-            draft.displayLayoutOverrides[existingIdx].innerGapPoints = sourceLayout.innerGapPoints
+        draft.ensureVariantsUpToMaxDisplayCount()
+        guard let vIdx = draft.displayVariants.firstIndex(where: { $0.displayCount == variantCount }) else { return }
+
+        let newSlot = ProfileDisplaySlotLayout(
+            role: role,
+            presetID: sourceLayout.presetID,
+            division: sourceLayout.division,
+            customZones: sourceLayout.customZones,
+            outerMarginPoints: sourceLayout.outerMarginPoints,
+            innerGapPoints: sourceLayout.innerGapPoints
+        )
+        if let sIdx = draft.displayVariants[vIdx].slotLayouts.firstIndex(where: { $0.role == role }) {
+            draft.displayVariants[vIdx].slotLayouts[sIdx] = newSlot
         } else {
-            var copied = sourceLayout
-            copied.id = UUID().uuidString
-            copied.display = display.signature
-            draft.displayLayoutOverrides.append(copied)
+            draft.displayVariants[vIdx].slotLayouts.append(newSlot)
         }
 
-        let newLayout = DisplayRegistry.layout(
-            for: display.signature,
-            in: configManager.config.windowSnapper.displayLayouts,
-            overrides: draft.displayLayoutOverrides
-        )
+        let newLayout = newSlot.asDisplayLayoutConfig(for: display.signature)
         let newZones = SnapGeometry.resolveZones(
             layout: newLayout,
             usableAXRect: display.usableAX,
@@ -2418,26 +2999,48 @@ struct WindowSnapperSettingsView: View {
         )
         let validIDs = Set(newZones.map(\.id))
 
-        // Preserve any rules matching validIDs; remap orphaned rules on this display onto open squares
+        // Preserve any rules matching validIDs; remap orphaned rules on this screen onto open squares,
+        // and drop any excess orphaned rules that no longer have a zone (e.g. Halves -> Maximized).
         var occupiedIDs = Set(
-            draft.appRules
-                .filter { targetDisplaymatches($0.targetDisplay, display: display) && validIDs.contains($0.targetZoneID) }
+            draft.displayVariants[vIdx].appRules
+                .filter { ruleMatchesRole($0.targetDisplay, role: role) && validIDs.contains($0.targetZoneID) }
                 .map(\.targetZoneID)
         )
         let openZones = newZones.filter { !occupiedIDs.contains($0.id) }
         var nextOpenIdx = 0
+        var orphanedIndicesToRemove: [Int] = []
 
-        for idx in draft.appRules.indices {
-            guard targetDisplaymatches(draft.appRules[idx].targetDisplay, display: display) else { continue }
-            let zid = draft.appRules[idx].targetZoneID
+        for idx in draft.displayVariants[vIdx].appRules.indices {
+            guard ruleMatchesRole(draft.displayVariants[vIdx].appRules[idx].targetDisplay, role: role) else { continue }
+            let zid = draft.displayVariants[vIdx].appRules[idx].targetZoneID
             if let matched = newZones.first(where: { $0.id == zid }) {
-                draft.appRules[idx].fallbackRect = matched.normalizedRect
+                draft.displayVariants[vIdx].appRules[idx].fallbackRect = matched.normalizedRect
             } else if nextOpenIdx < openZones.count {
                 let targetZone = openZones[nextOpenIdx]
                 nextOpenIdx += 1
                 occupiedIDs.insert(targetZone.id)
-                draft.appRules[idx].targetZoneID = targetZone.id
-                draft.appRules[idx].fallbackRect = targetZone.normalizedRect
+                draft.displayVariants[vIdx].appRules[idx].targetZoneID = targetZone.id
+                draft.displayVariants[vIdx].appRules[idx].fallbackRect = targetZone.normalizedRect
+            } else {
+                orphanedIndicesToRemove.append(idx)
+            }
+        }
+
+        for idx in orphanedIndicesToRemove.reversed() {
+            draft.displayVariants[vIdx].appRules.remove(at: idx)
+        }
+        draft.displayVariants[vIdx].appRules = ProfileDisplayVariant.deduplicatedRules(
+            draft.displayVariants[vIdx].appRules
+        )
+
+        if variantCount == 1 && role == .main {
+            draft.appRules = draft.displayVariants[vIdx].appRules
+            if let firstOverrideIdx = draft.displayLayoutOverrides.firstIndex(where: {
+                DisplayRegistry.matchDisplay(for: $0.display, among: [display.signature]) != nil
+            }) {
+                draft.displayLayoutOverrides[firstOverrideIdx] = newLayout
+            } else {
+                draft.displayLayoutOverrides = [newLayout]
             }
         }
 
@@ -2446,7 +3049,8 @@ struct WindowSnapperSettingsView: View {
 
     private func pickAppForDraftSquare(
         zone: ResolvedZone,
-        display: ConnectedDisplay
+        variantCount: Int,
+        role: ProfileDisplayRole
     ) {
         let panel = NSOpenPanel()
         panel.title = "Choose App for \(zone.name)"
@@ -2462,7 +3066,8 @@ struct WindowSnapperSettingsView: View {
                 bundleIdentifier: bid,
                 appName: appName,
                 zone: zone,
-                display: display
+                variantCount: variantCount,
+                role: role
             )
         }
     }
@@ -2570,7 +3175,7 @@ struct WindowSnapperSettingsView: View {
             Divider()
 
             SettingRow(
-                "Cycle 1/2 → 2/3 → 1/3 on repeat press",
+                "Cycle 1/2, 2/3, 1/3 on repeat press",
                 subtitle: "Pressing Left, Right, Top, or Bottom repeatedly cycles sizes cleanly."
             ) {
                 Toggle("", isOn: $configManager.config.windowSnapper.cycleRepeatedDirectionShortcuts)
@@ -2714,10 +3319,11 @@ struct WindowSnapperSettingsView: View {
                                     )
                                 }
                             }
+                            let effectiveShortcutRules = profile.effectiveAppRules(forDisplayCount: displayRegistry.connectedDisplays.count)
                             Text(
-                                profile.appRules.isEmpty
+                                effectiveShortcutRules.isEmpty
                                     ? "Layout only"
-                                    : "\(profile.appRules.count) app\(profile.appRules.count == 1 ? "" : "s") assigned"
+                                    : "\(effectiveShortcutRules.count) app\(effectiveShortcutRules.count == 1 ? "" : "s") assigned"
                             )
                             .toolboxFont(.caption2)
                             .foregroundStyle(.secondary)
@@ -2785,7 +3391,7 @@ struct WindowSnapperSettingsView: View {
     private func actionSubtitle(for action: WindowSnapperHotKeyAction) -> String {
         switch action {
         case .leftHalf, .rightHalf, .topHalf, .bottomHalf:
-            return "Cycles 1/2 → 2/3 → 1/3 on repeated presses"
+            return "Cycles 1/2, 2/3, 1/3 on repeated presses"
         case .topLeft, .topRight, .bottomLeft, .bottomRight:
             return "Snaps window into display quadrant"
         case .maximize:
@@ -3140,6 +3746,7 @@ private final class SquareMenuCallbackTarget: NSObject {
 @MainActor
 private final class SquareMenuAnchorHolder: ObservableObject {
     @Published var isHovered = false
+    @Published var isDropTargeted = false
     weak var anchorView: NSView?
     var activeTargets: [SquareMenuCallbackTarget] = []
 }
@@ -3174,6 +3781,7 @@ private struct InteractiveTemplateSquareButton: View {
     let onAssignApp: (String, String) -> Void
     let onPickFromFinder: () -> Void
     let onClear: () -> Void
+    let onDropZoneSwap: (String) -> Void
 
     @StateObject private var state = SquareMenuAnchorHolder()
 
@@ -3181,6 +3789,7 @@ private struct InteractiveTemplateSquareButton: View {
         let readableAccent = ToolboxTheme.readableAccentText(for: accentColor)
         let radius: CGFloat = 8
         let isHovered = state.isHovered
+        let isDropTargeted = state.isDropTargeted
         let isShortSquare = compact || height < 140
 
         ZStack(alignment: .topTrailing) {
@@ -3190,9 +3799,12 @@ private struct InteractiveTemplateSquareButton: View {
                 ZStack(alignment: .topLeading) {
                     if let rule {
                         RoundedRectangle(cornerRadius: radius, style: .continuous)
-                            .fill(accentColor.opacity(isHovered ? 0.30 : 0.22))
+                            .fill(accentColor.opacity(isDropTargeted ? 0.38 : (isHovered ? 0.30 : 0.22)))
                         RoundedRectangle(cornerRadius: radius, style: .continuous)
-                            .strokeBorder(readableAccent.opacity(isHovered ? 1.0 : 0.88), lineWidth: 1.5)
+                            .strokeBorder(
+                                readableAccent.opacity(isDropTargeted ? 1.0 : (isHovered ? 1.0 : 0.88)),
+                                lineWidth: isDropTargeted ? 2.2 : 1.5
+                            )
 
                         HStack(spacing: 4) {
                             Text("\(zone.badgeNumber)")
@@ -3226,11 +3838,11 @@ private struct InteractiveTemplateSquareButton: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
                         RoundedRectangle(cornerRadius: radius, style: .continuous)
-                            .fill(Color.white.opacity(isHovered ? 0.08 : 0.04))
+                            .fill(isDropTargeted ? accentColor.opacity(0.18) : Color.white.opacity(isHovered ? 0.08 : 0.04))
                         RoundedRectangle(cornerRadius: radius, style: .continuous)
                             .strokeBorder(
-                                Color.white.opacity(isHovered ? 0.48 : 0.24),
-                                style: StrokeStyle(lineWidth: 1.25, dash: [5, 4])
+                                isDropTargeted ? readableAccent.opacity(0.95) : Color.white.opacity(isHovered ? 0.48 : 0.24),
+                                style: StrokeStyle(lineWidth: isDropTargeted ? 2 : 1.25, dash: isDropTargeted ? [] : [5, 4])
                             )
 
                         HStack(spacing: 4) {
@@ -3286,6 +3898,38 @@ private struct InteractiveTemplateSquareButton: View {
             }
         }
         .frame(width: width, height: height)
+        .scaleEffect(isDropTargeted ? 1.015 : 1.0)
+        .animation(.easeOut(duration: 0.14), value: isDropTargeted)
+        .onDrag {
+            if rule != nil {
+                return NSItemProvider(object: "toolbox-zone::\(zone.id)" as NSString)
+            }
+            return NSItemProvider()
+        }
+        .onDrop(of: [.plainText, .text], isTargeted: $state.isDropTargeted) { providers in
+            guard let provider = providers.first(where: {
+                $0.canLoadObject(ofClass: NSString.self)
+            }) else {
+                return false
+            }
+            _ = provider.loadObject(ofClass: NSString.self) { object, _ in
+                guard let payload = object as? String else { return }
+                DispatchQueue.main.async {
+                    if payload.hasPrefix("toolbox-app::") {
+                        let parts = payload.components(separatedBy: "::")
+                        if parts.count >= 3 {
+                            let bid = parts[1]
+                            let name = parts.dropFirst(2).joined(separator: "::")
+                            onAssignApp(bid, name)
+                        }
+                    } else if payload.hasPrefix("toolbox-zone::") {
+                        let sourceZoneID = String(payload.dropFirst("toolbox-zone::".count))
+                        onDropZoneSwap(sourceZoneID)
+                    }
+                }
+            }
+            return true
+        }
     }
 
     private func presentAppPickerMenu() {
@@ -3526,5 +4170,197 @@ private struct WindowAnimationPreviewStrip: View {
         }
         .frame(width: 204, height: 78)
         .clipped()
+    }
+}
+
+private struct ProfileVariantSelectionCard: View {
+    let displayCount: Int
+    let isEnabled: Bool
+    let isSelected: Bool
+    let isCurrentSetup: Bool
+    let canRemove: Bool
+    let appCount: Int
+    let mainPresetLabel: String
+    let accentColor: Color
+    let onSelect: () -> Void
+    let onRemove: () -> Void
+
+    @StateObject private var hoverState = TemplateCardHoverState()
+
+    var body: some View {
+        let readableAccent = ToolboxTheme.readableAccentText(for: accentColor)
+        let title = displayCount == 1 ? "1 Display" : "\(displayCount) Displays"
+        let isHovered = hoverState.isHovered
+
+        ZStack(alignment: .topTrailing) {
+            Button(action: onSelect) {
+                if isEnabled {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            Image(systemName: displayCount == 1 ? "display" : "display.2")
+                                .toolboxFont(.caption.weight(.semibold))
+                                .foregroundStyle(isSelected ? readableAccent : .secondary)
+                            Text(title)
+                                .toolboxFont(.callout.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Spacer(minLength: 0)
+                            if isCurrentSetup {
+                                StatusBadge(text: "Current", color: .green)
+                            }
+                        }
+
+                        Text(appCount == 0 ? "\(mainPresetLabel) · No apps" : "\(mainPresetLabel) · \(appCount) app\(appCount == 1 ? "" : "s")")
+                            .toolboxFont(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        isSelected
+                            ? accentColor.opacity(0.14)
+                            : Color.primary.opacity(isHovered ? 0.055 : 0.03),
+                        in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(
+                                isSelected
+                                    ? readableAccent.opacity(0.85)
+                                    : Color.primary.opacity(isHovered ? 0.22 : 0.10),
+                                lineWidth: isSelected ? 1.5 : 1
+                            )
+                    )
+                } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus.circle.fill")
+                                .toolboxFont(.caption.weight(.semibold))
+                                .foregroundStyle(readableAccent)
+                            Text("Add \(title)")
+                                .toolboxFont(.callout.weight(.medium))
+                                .foregroundStyle(.primary)
+                            Spacer(minLength: 0)
+                        }
+
+                        Text("Configure layout for \(displayCount) screens")
+                            .toolboxFont(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        Color.primary.opacity(isHovered ? 0.045 : 0.02),
+                        in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(
+                                Color.primary.opacity(isHovered ? 0.34 : 0.18),
+                                style: StrokeStyle(lineWidth: 1, dash: [5, 4])
+                            )
+                    )
+                }
+            }
+            .buttonStyle(.plain)
+            .focusEffectDisabled()
+            .onHover { hoverState.isHovered = $0 }
+            .animation(.easeOut(duration: 0.14), value: isSelected)
+            .animation(.easeOut(duration: 0.14), value: isHovered)
+            .pointerCursor()
+
+            if canRemove {
+                Button(action: onRemove) {
+                    Image(systemName: "xmark.circle.fill")
+                        .toolboxFont(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Remove \(title) view")
+                .padding(6)
+                .pointerCursor()
+            }
+        }
+    }
+}
+
+private struct ProfileMonitorSelectorCard: View {
+    let role: ProfileDisplayRole
+    let preset: DisplayPresetKind
+    let connectedDisplayName: String?
+    let appCount: Int
+    let isSelected: Bool
+    let accentColor: Color
+    let action: () -> Void
+
+    @StateObject private var hoverState = TemplateCardHoverState()
+
+    var body: some View {
+        let readableAccent = ToolboxTheme.readableAccentText(for: accentColor)
+        let isHovered = hoverState.isHovered
+
+        Button(action: action) {
+            HStack(spacing: 10) {
+                TemplateMiniThumbnailView(
+                    preset: preset,
+                    cellFill: isSelected ? accentColor.opacity(0.48) : Color.white.opacity(isHovered ? 0.32 : 0.24),
+                    cellStroke: isSelected ? readableAccent.opacity(0.95) : Color.white.opacity(isHovered ? 0.54 : 0.40),
+                    padding: 5,
+                    cellGap: 1.5
+                )
+                .frame(width: 48, height: 32)
+                .background(
+                    Color(nsColor: NSColor(calibratedRed: 0.08, green: 0.09, blue: 0.14, alpha: 1.0)),
+                    in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.14), lineWidth: 0.75)
+                )
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 5) {
+                        Text(role.label)
+                            .toolboxFont(.caption.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                        StatusBadge(
+                            text: appCount == 0 ? "Empty" : "\(appCount) app\(appCount == 1 ? "" : "s")",
+                            color: appCount > 0 ? accentColor : .secondary
+                        )
+                    }
+
+                    Text(connectedDisplayName ?? "Not connected · Preview")
+                        .toolboxFont(.caption2)
+                        .foregroundStyle(connectedDisplayName != nil ? .secondary : .tertiary)
+                        .lineLimit(1)
+                }
+            }
+            .padding(9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                isSelected
+                    ? accentColor.opacity(0.13)
+                    : Color.primary.opacity(isHovered ? 0.055 : 0.03),
+                in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(
+                        isSelected
+                            ? readableAccent.opacity(0.85)
+                            : Color.primary.opacity(isHovered ? 0.22 : 0.09),
+                        lineWidth: isSelected ? 1.5 : 1
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .focusEffectDisabled()
+        .onHover { hoverState.isHovered = $0 }
+        .animation(.easeOut(duration: 0.14), value: isSelected)
+        .animation(.easeOut(duration: 0.14), value: isHovered)
+        .pointerCursor()
     }
 }

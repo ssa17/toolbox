@@ -25,18 +25,23 @@ final class DisplayRegistry: ObservableObject {
     @Published private(set) var disconnectedSignatureCache: [CGDirectDisplayID: DisplaySignature] = [:]
     @Published private(set) var primaryScreenHeight: CGFloat = 1080
 
+    var onDisplaysReconfigurationBegan: ((_ isRemoved: Bool) -> Void)?
     var onDisplaysReconfigured: (([ConnectedDisplay], [DisplaySignature]) -> Void)?
 
     private var liveSignatureCache: [CGDirectDisplayID: DisplaySignature] = [:]
+    private var knownOnlineDisplayIDs: Set<CGDirectDisplayID> = []
+    private var suppressModeEnforcementUntil: Date = .distantPast
     private var screenObserver: NSObjectProtocol?
     private var hasRegisteredCGCallback = false
     private var pendingDebounceWork: DispatchWorkItem?
 
     private init() {
+        knownOnlineDisplayIDs = Set(Self.onlineDisplayIDs())
         refresh()
     }
 
     func startObserving() {
+        knownOnlineDisplayIDs = Set(Self.onlineDisplayIDs())
         if screenObserver == nil {
             screenObserver = NotificationCenter.default.addObserver(
                 forName: NSApplication.didChangeScreenParametersNotification,
@@ -83,6 +88,9 @@ final class DisplayRegistry: ObservableObject {
 
     private func handleCGReconfiguration(displayID: CGDirectDisplayID, isBegin: Bool, isRemoved: Bool) {
         if isBegin {
+            pendingDebounceWork?.cancel()
+            pendingDebounceWork = nil
+            onDisplaysReconfigurationBegan?(isRemoved)
             if let existing = liveSignatureCache[displayID] {
                 disconnectedSignatureCache[displayID] = existing
             }
@@ -100,12 +108,92 @@ final class DisplayRegistry: ObservableObject {
         let work = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
+                let currentOnline = Set(Self.onlineDisplayIDs())
+                let newlyConnected = currentOnline.subtracting(self.knownOnlineDisplayIDs)
+                self.knownOnlineDisplayIDs = currentOnline
+
+                if !newlyConnected.isEmpty,
+                   currentOnline.count >= 2,
+                   Date() >= self.suppressModeEnforcementUntil,
+                   !PermissionsManager.isRunningInDiagnosticMode {
+                    let fullCfg = ConfigManager.shared.config
+                    if fullCfg.general.appEnabled,
+                       fullCfg.windowSnapper.enabled,
+                       fullCfg.windowSnapper.displayConnectMode != .systemDefault {
+                        let changed = self.applyDisplayConnectMode(fullCfg.windowSnapper.displayConnectMode)
+                        if changed {
+                            self.suppressModeEnforcementUntil = Date().addingTimeInterval(2.5)
+                            return
+                        }
+                    }
+                }
+
                 self.refresh()
                 self.onDisplaysReconfigured?(self.connectedDisplays, previousSignatures)
             }
         }
         pendingDebounceWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
+    }
+
+    nonisolated static func onlineDisplayIDs() -> [CGDirectDisplayID] {
+        var ids = [CGDirectDisplayID](repeating: 0, count: 16)
+        var count: UInt32 = 0
+        guard CGGetOnlineDisplayList(16, &ids, &count) == .success else {
+            return []
+        }
+        return Array(ids.prefix(Int(count)))
+    }
+
+    @discardableResult
+    func applyDisplayConnectMode(_ mode: DisplayConnectMode) -> Bool {
+        guard !PermissionsManager.isRunningInDiagnosticMode else { return false }
+        let online = Self.onlineDisplayIDs()
+        guard online.count >= 2 else { return false }
+
+        switch mode {
+        case .systemDefault:
+            return false
+
+        case .alwaysExtend:
+            let mirrored = online.filter { id in
+                CGDisplayIsInMirrorSet(id) != 0 && CGDisplayMirrorsDisplay(id) != kCGNullDirectDisplay
+            }
+            guard !mirrored.isEmpty else { return false }
+            var configRef: CGDisplayConfigRef?
+            guard CGBeginDisplayConfiguration(&configRef) == .success, let cfg = configRef else {
+                return false
+            }
+            for id in mirrored {
+                CGConfigureDisplayMirrorOfDisplay(cfg, id, kCGNullDirectDisplay)
+            }
+            let result = CGCompleteDisplayConfiguration(cfg, .permanently)
+            if result == .success {
+                DeveloperEventLog.shared.record(.windowSnapper, "Extended \(mirrored.count) mirrored display(s)")
+                return true
+            }
+            return false
+
+        case .alwaysMirror:
+            let masterID = online.first(where: { CGDisplayIsBuiltin($0) != 0 }) ?? CGMainDisplayID()
+            let targets = online.filter { id in
+                id != masterID && CGDisplayMirrorsDisplay(id) != masterID
+            }
+            guard !targets.isEmpty else { return false }
+            var configRef: CGDisplayConfigRef?
+            guard CGBeginDisplayConfiguration(&configRef) == .success, let cfg = configRef else {
+                return false
+            }
+            for id in targets {
+                CGConfigureDisplayMirrorOfDisplay(cfg, id, masterID)
+            }
+            let result = CGCompleteDisplayConfiguration(cfg, .permanently)
+            if result == .success {
+                DeveloperEventLog.shared.record(.windowSnapper, "Mirrored \(targets.count) display(s) to primary")
+                return true
+            }
+            return false
+        }
     }
 
     func refresh(gaps: GapConfig = ConfigManager.shared.config.windowSnapper.gaps) {
@@ -298,6 +386,35 @@ final class DisplayRegistry: ObservableObject {
             return nil
         }
         return layouts.first { $0.display == matchedSig }
+    }
+
+    nonisolated static func assignLogicalRoles(
+        for displays: [ConnectedDisplay],
+        swapExternalDisplays: Bool = false
+    ) -> [ProfileDisplayRole: ConnectedDisplay] {
+        guard !displays.isEmpty else { return [:] }
+        let main = displays.first(where: \.isMain) ?? displays[0]
+        var externals = displays.filter { $0.displayID != main.displayID }
+        if swapExternalDisplays && externals.count >= 2 {
+            externals.swapAt(0, 1)
+        }
+        var result: [ProfileDisplayRole: ConnectedDisplay] = [.main: main]
+        if externals.count >= 1 {
+            result[.external1] = externals[0]
+        }
+        if externals.count >= 2 {
+            result[.external2] = externals[1]
+        }
+        return result
+    }
+
+    nonisolated static func role(
+        for display: ConnectedDisplay,
+        in displays: [ConnectedDisplay],
+        swapExternalDisplays: Bool = false
+    ) -> ProfileDisplayRole? {
+        let roles = assignLogicalRoles(for: displays, swapExternalDisplays: swapExternalDisplays)
+        return roles.first(where: { $0.value.displayID == display.displayID })?.key
     }
 
     static func topologiesMatch(

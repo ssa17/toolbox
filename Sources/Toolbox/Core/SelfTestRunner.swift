@@ -32,6 +32,7 @@ enum SelfTestRunner {
         testScrollInversionClassificationAndInversion()
         testScrollDirectionModuleLifecycleAndRegistry()
         testDockMinimizeWindowsBehaviorAndPreFilter()
+        testDockMinimizeDecideMatrix()
         testUpdateManagerAndCustomDialog()
         testMenuBarCustomizationOrderAndVisibility()
         testPortScannerParsersAndElevatedMerge()
@@ -1452,7 +1453,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(cfg),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.scrollDirection == cfg.scrollDirection, "ScrollDirectionConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 11, "ToolboxConfig schemaVersion should be 11")
+            expect(decoded.schemaVersion == 12, "ToolboxConfig schemaVersion should be 12")
         } else {
             failures.append("ToolboxConfig Codable encode/decode failed")
         }
@@ -1629,6 +1630,62 @@ enum SelfTestRunner {
                "Drag-out-and-back exceeding maxTravel must still count as a drag, not a click")
         expect(!DockMinimizeModule.shouldExecuteDockClick(downLocation: down, upLocation: CGPoint(x: 510, y: 1040), maxTravel: 0),
                "Release location past threshold without intermediate drag events must still count as a drag")
+    }
+
+    private static func testDockMinimizeDecideMatrix() {
+        let window = AXUIElementCreateApplication(1)
+
+        let withOpen = DockMinimizeModule.WindowInspection(openWindows: [window], minimizableOpenWindows: [window])
+        let withMinimized = DockMinimizeModule.WindowInspection(minimizedWindows: [window])
+        let fullscreen = DockMinimizeModule.WindowInspection(openWindows: [window], minimizableOpenWindows: [window], hasActiveFullscreen: true)
+        let empty = DockMinimizeModule.WindowInspection()
+
+        func decision(
+            _ mode: DockActionMode,
+            _ isFrontmost: Bool,
+            _ isHidden: Bool,
+            _ inspection: DockMinimizeModule.WindowInspection,
+            layerZero: Bool = false,
+            wasHidden: Bool = false
+        ) -> DockMinimizeModule.DockClickAction? {
+            DockMinimizeModule.decideExternalClickAction(
+                actionMode: mode,
+                isFrontmost: isFrontmost,
+                isHidden: isHidden,
+                inspection: inspection,
+                hasLayerZeroWindow: layerZero,
+                wasHiddenByDockClick: wasHidden
+            )
+        }
+
+        // Fullscreen apps are never acted on.
+        expect(decision(.hideApp, true, false, fullscreen) == nil, "Fullscreen app must be left alone")
+        expect(decision(.minimizeAll, true, false, fullscreen) == nil, "Fullscreen app must be left alone (minimizeAll)")
+
+        // Hidden apps: restore if there is anything to bring back.
+        expect(decision(.hideApp, false, true, withOpen) == .unhideAndFocus, "Hidden app with windows should unhide+focus")
+        expect(decision(.hideApp, false, true, withMinimized) == .unhideAndFocus, "Hidden app with minimized windows should unhide+focus")
+        expect(decision(.hideApp, false, true, empty, wasHidden: true) == .unhideAndFocus, "App we hid ourselves should unhide even with no windows")
+        expect(decision(.hideApp, false, true, empty) == nil, "Hidden app with no windows and no hidden-state must be left alone")
+
+        // All windows in the Dock tray: restore (sendToBack mode excepted).
+        expect(decision(.hideApp, false, false, withMinimized) == .restore, "All-minimized app should restore")
+        expect(decision(.minimizeFrontWindow, false, false, withMinimized) == .restore, "minimizeFrontWindow mode should also restore from tray")
+        expect(decision(.sendToBack, false, false, withMinimized) == nil, "sendToBack mode must not restore from tray")
+
+        // Only the frontmost app is hidden/sent back/minimized.
+        expect(decision(.hideApp, true, false, withOpen) == .hideApp, "Frontmost app should hide in hideApp mode")
+        expect(decision(.sendToBack, true, false, withOpen) == .sendToBack, "Frontmost app should send to back in sendToBack mode")
+        expect(decision(.minimizeAll, true, false, withOpen) == .minimizeAll, "Frontmost app should minimize all")
+        expect(decision(.minimizeFrontWindow, true, false, withOpen) == .minimizeFrontWindow, "Frontmost app should minimize front")
+        expect(decision(.hideApp, false, false, withOpen) == nil, "Non-frontmost app must be left alone")
+
+        // hideApp/sendToBack needs something to hide (AX windows or a layer-zero window).
+        expect(decision(.hideApp, true, false, empty, layerZero: true) == .hideApp, "Frontmost app with on-screen layer-0 window should hide")
+        expect(decision(.hideApp, true, false, empty) == nil, "Frontmost app with no windows at all must be left alone")
+
+        // Minimizing requires a minimizable window.
+        expect(decision(.minimizeAll, true, false, empty) == nil, "minimizeAll with nothing minimizable must be left alone")
     }
 
     private static func testUpdateManagerAndCustomDialog() {
@@ -2383,7 +2440,7 @@ enum SelfTestRunner {
 
     private static func testCallControlsConfigAndCoreAudioEnumeration() {
         let cfg = ToolboxConfig()
-        expect(cfg.schemaVersion == 11, "ToolboxConfig schemaVersion should be 11")
+        expect(cfg.schemaVersion == 12, "ToolboxConfig schemaVersion should be 12")
         expect(!cfg.callControls.enabled, "Call Controls should default to disabled")
         expect(cfg.callControls.overrideScope == .everywhere, "Default overrideScope should be everywhere")
         expect(cfg.callControls.typingUnmuteDelayMs == 450, "Default typingUnmuteDelayMs should be 450")
@@ -2418,7 +2475,7 @@ enum SelfTestRunner {
         let legacyJSON = "{\"schemaVersion\": 5, \"general\": {\"appEnabled\": true}}"
         if let data = legacyJSON.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 11, "Legacy config should upgrade to schemaVersion 11")
+            expect(migrated.schemaVersion == 12, "Legacy config should upgrade to schemaVersion 12")
             expect(!migrated.callControls.enabled, "Legacy config must migrate callControls.enabled = false")
             expect(migrated.callControls.overrideScope == .everywhere, "Migrated default overrideScope should be everywhere")
             expect(migrated.callControls.showFloatingPillOnlyDuringCalls, "Legacy config must migrate showFloatingPillOnlyDuringCalls = true")
@@ -2433,7 +2490,7 @@ enum SelfTestRunner {
         """
         if let data = v6JSON.data(using: .utf8),
            let upgraded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgraded.schemaVersion == 11, "v6 config should migrate to schemaVersion 11")
+            expect(upgraded.schemaVersion == 12, "v6 config should migrate to schemaVersion 12")
             expect(upgraded.callControls.overrideScope == .everywhere, "v6 active_call_app_only should upgrade to everywhere")
             expect(upgraded.callControls.showFloatingPillOnlyDuringCalls, "v6 config should upgrade showFloatingPillOnlyDuringCalls to true")
         } else {
@@ -2446,7 +2503,7 @@ enum SelfTestRunner {
         """
         if let data = v7JSON.data(using: .utf8),
            let upgradedV7 = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgradedV7.schemaVersion == 11, "v7 config should migrate to schemaVersion 11")
+            expect(upgradedV7.schemaVersion == 12, "v7 config should migrate to schemaVersion 12")
             expect(upgradedV7.callControls.showFloatingPillOnlyDuringCalls, "v7 showFloatingPillOnlyDuringCalls should upgrade to true")
         } else {
             failures.append("Failed to migrate v7 audioGuard config")
@@ -2458,7 +2515,7 @@ enum SelfTestRunner {
         """
         if let data = v8JSON.data(using: .utf8),
            let upgradedV8 = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgradedV8.schemaVersion == 11, "v8 config should migrate to schemaVersion 11")
+            expect(upgradedV8.schemaVersion == 12, "v8 config should migrate to schemaVersion 12")
             expect(upgradedV8.callControls.enabled, "v8 audioGuard.enabled must migrate to callControls.enabled")
             expect(upgradedV8.callControls.typingUnmuteDelayMs == 725, "v8 audioGuard fields must be preserved in callControls")
             expect(
@@ -3232,7 +3289,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(customCfg),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.screenOCR == customCfg.screenOCR, "ScreenOCRConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 11, "ToolboxConfig schemaVersion should be 11")
+            expect(decoded.schemaVersion == 12, "ToolboxConfig schemaVersion should be 12")
         } else {
             failures.append("ToolboxConfig with screenOCR failed Codable encode/decode")
         }
@@ -3242,7 +3299,7 @@ enum SelfTestRunner {
         let legacyJSON = "{\"schemaVersion\": 9, \"general\": {\"appEnabled\": true}}"
         if let data = legacyJSON.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 11, "Legacy v9 config should upgrade to schemaVersion 11")
+            expect(migrated.schemaVersion == 12, "Legacy v9 config should upgrade to schemaVersion 12")
             expect(!migrated.screenOCR.enabled, "Legacy config must migrate screenOCR.enabled = false")
         } else {
             failures.append("Failed to decode pre-ScreenOCR JSON config")
@@ -5438,7 +5495,7 @@ enum SelfTestRunner {
     private static func testWindowSnapperConfigHotKeysProfilesAndLifecycle() {
         // 1. Config defaults, migration from schema 10 -> 11, and lenient partial decode
         let defaultCfg = ToolboxConfig()
-        expect(defaultCfg.schemaVersion == 11, "ToolboxConfig schemaVersion must be 11")
+        expect(defaultCfg.schemaVersion == 12, "ToolboxConfig schemaVersion must be 12")
         expect(!defaultCfg.windowSnapper.enabled, "WindowSnapper should default to disabled")
         expect(
             defaultCfg.windowSnapper.gaps.outerMarginPoints == 0 && defaultCfg.windowSnapper.gaps.innerGapPoints == 0,
@@ -5449,7 +5506,7 @@ enum SelfTestRunner {
         let legacyV10 = "{\"schemaVersion\": 10, \"general\": {\"appEnabled\": true}}"
         if let data = legacyV10.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 11, "v10 config must upgrade to schemaVersion 11")
+            expect(migrated.schemaVersion == 12, "v10 config must upgrade to schemaVersion 12")
             expect(!migrated.windowSnapper.enabled, "Migrated windowSnapper.enabled must default to false")
             expect(
                 migrated.windowSnapper.gaps.outerMarginPoints == 0 && migrated.windowSnapper.gaps.innerGapPoints == 0,
@@ -5536,9 +5593,57 @@ enum SelfTestRunner {
         roundTripCfg.windowSnapper.hotKeys = .rectangleStyle
         roundTripCfg.windowSnapper.profiles = WorkspaceProfile.defaultTemplates
         roundTripCfg.windowSnapper.restorePreviousWorkspaceOnShortcutToggle = false
+        roundTripCfg.windowSnapper.displayConnectMode = .alwaysExtend
+        roundTripCfg.windowSnapper.autoApplyProfileID = "template-coding-split"
+        roundTripCfg.windowSnapper.swapExternalDisplays = true
+        var multiVariantProfile = WorkspaceProfile(
+            id: "multi-var-prof",
+            name: "Multi-Screen Profile",
+            maxDisplayCount: 3,
+            displayVariants: [
+                ProfileDisplayVariant(
+                    displayCount: 1,
+                    slotLayouts: [ProfileDisplaySlotLayout(role: .main, presetID: DisplayPresetKind.halves.rawValue)],
+                    appRules: [ProfileAppRule(bundleIdentifier: "com.apple.Terminal", appName: "Terminal", targetDisplay: .main, targetZoneID: "cell:0:0")]
+                ),
+                ProfileDisplayVariant(
+                    displayCount: 2,
+                    slotLayouts: [
+                        ProfileDisplaySlotLayout(role: .main, presetID: DisplayPresetKind.maximized.rawValue),
+                        ProfileDisplaySlotLayout(role: .external1, presetID: DisplayPresetKind.halves.rawValue)
+                    ],
+                    appRules: [
+                        ProfileAppRule(bundleIdentifier: "com.apple.Terminal", appName: "Terminal", targetDisplay: .main, targetZoneID: "cell:0:0"),
+                        ProfileAppRule(bundleIdentifier: "com.apple.Safari", appName: "Safari", targetDisplay: .externalSlot(0), targetZoneID: "cell:1:0")
+                    ]
+                ),
+                ProfileDisplayVariant(
+                    displayCount: 3,
+                    slotLayouts: [
+                        ProfileDisplaySlotLayout(role: .main, presetID: DisplayPresetKind.maximized.rawValue),
+                        ProfileDisplaySlotLayout(role: .external1, presetID: DisplayPresetKind.halves.rawValue),
+                        ProfileDisplaySlotLayout(role: .external2, presetID: DisplayPresetKind.thirds.rawValue)
+                    ],
+                    appRules: [
+                        ProfileAppRule(bundleIdentifier: "com.apple.Terminal", appName: "Terminal", targetDisplay: .main, targetZoneID: "cell:0:0"),
+                        ProfileAppRule(bundleIdentifier: "com.apple.Safari", appName: "Safari", targetDisplay: .externalSlot(0), targetZoneID: "cell:0:0"),
+                        ProfileAppRule(bundleIdentifier: "com.apple.Notes", appName: "Notes", targetDisplay: .externalSlot(1), targetZoneID: "cell:2:0")
+                    ]
+                )
+            ]
+        )
+        multiVariantProfile.ensureVariantsUpToMaxDisplayCount()
+        roundTripCfg.windowSnapper.profiles.append(multiVariantProfile)
+
         expect(
             ToolboxConfig().windowSnapper.restorePreviousWorkspaceOnShortcutToggle,
             "WindowSnapperConfig.restorePreviousWorkspaceOnShortcutToggle must default to true"
+        )
+        expect(
+            ToolboxConfig().windowSnapper.displayConnectMode == .systemDefault
+                && ToolboxConfig().windowSnapper.autoApplyProfileID == nil
+                && !ToolboxConfig().windowSnapper.swapExternalDisplays,
+            "WindowSnapperConfig display connect defaults must be systemDefault, nil autoApplyProfileID, and swapExternalDisplays=false"
         )
         if let encoded = try? JSONEncoder().encode(roundTripCfg),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: encoded) {
@@ -5547,9 +5652,193 @@ enum SelfTestRunner {
                 !decoded.windowSnapper.restorePreviousWorkspaceOnShortcutToggle,
                 "restorePreviousWorkspaceOnShortcutToggle=false must round-trip cleanly"
             )
+            expect(
+                decoded.windowSnapper.displayConnectMode == .alwaysExtend
+                    && decoded.windowSnapper.autoApplyProfileID == "template-coding-split"
+                    && decoded.windowSnapper.swapExternalDisplays,
+                "DisplayConnectMode, autoApplyProfileID, and swapExternalDisplays must round-trip cleanly"
+            )
         } else {
             failures.append("WindowSnapperConfig Codable round-trip failed")
         }
+
+        // Multi-display variant resolution & logical display role mapping tests
+        expect(
+            multiVariantProfile.resolvedVariant(forDisplayCount: 1)?.displayCount == 1
+                && multiVariantProfile.resolvedVariant(forDisplayCount: 2)?.displayCount == 2
+                && multiVariantProfile.resolvedVariant(forDisplayCount: 3)?.displayCount == 3
+                && multiVariantProfile.resolvedVariant(forDisplayCount: 4)?.displayCount == 3,
+            "resolvedVariant(forDisplayCount:) must resolve 1, 2, 3 and clamp 4->3"
+        )
+        let legacyProfile = WorkspaceProfile.defaultTemplates[0]
+        expect(
+            legacyProfile.resolvedVariant(forDisplayCount: 2) == nil
+                && legacyProfile.effectiveAppRules(forDisplayCount: 2) == legacyProfile.appRules,
+            "Legacy profile without displayVariants must fall back to appRules"
+        )
+
+        let makeFakeDisplay: (CGDirectDisplayID, String, Bool, CGFloat) -> ConnectedDisplay = { id, name, isMain, xOrigin in
+            ConnectedDisplay(
+                displayID: id,
+                signature: DisplaySignature(localizedName: name, arrangementIndex: Int(id)),
+                frameAppKit: CGRect(x: xOrigin, y: 0, width: 1920, height: 1080),
+                visibleFrameAppKit: CGRect(x: xOrigin, y: 0, width: 1920, height: 1055),
+                frameAX: CGRect(x: xOrigin, y: 0, width: 1920, height: 1080),
+                usableAppKit: CGRect(x: xOrigin, y: 0, width: 1920, height: 1055),
+                usableAX: CGRect(x: xOrigin, y: 25, width: 1920, height: 1055),
+                safeAreaInsets: SafeAreaInsets(),
+                isMain: isMain,
+                primaryScreenHeight: 1080
+            )
+        }
+        let dMain = makeFakeDisplay(1, "Built-in", true, 0)
+        let dExtA = makeFakeDisplay(2, "Ext A", false, 1920)
+        let dExtB = makeFakeDisplay(3, "Ext B", false, 3840)
+
+        let rolesDefault = DisplayRegistry.assignLogicalRoles(for: [dMain, dExtA, dExtB], swapExternalDisplays: false)
+        expect(
+            rolesDefault[.main]?.displayID == 1
+                && rolesDefault[.external1]?.displayID == 2
+                && rolesDefault[.external2]?.displayID == 3,
+            "assignLogicalRoles(swap: false) must map Main=1, Ext1=2, Ext2=3"
+        )
+        let rolesSwapped = DisplayRegistry.assignLogicalRoles(for: [dMain, dExtA, dExtB], swapExternalDisplays: true)
+        expect(
+            rolesSwapped[.main]?.displayID == 1
+                && rolesSwapped[.external1]?.displayID == 3
+                && rolesSwapped[.external2]?.displayID == 2,
+            "assignLogicalRoles(swap: true) must swap External 1 and External 2"
+        )
+
+        let resolvedExt1Default = ProfileEngine.resolveTargetDisplay(
+            for: .externalSlot(0),
+            fallback: .moveToMainDisplay,
+            displays: [dMain, dExtA, dExtB],
+            swapExternalDisplays: false
+        )
+        let resolvedExt1Swapped = ProfileEngine.resolveTargetDisplay(
+            for: .externalSlot(0),
+            fallback: .moveToMainDisplay,
+            displays: [dMain, dExtA, dExtB],
+            swapExternalDisplays: true
+        )
+        let resolvedExtFallback = ProfileEngine.resolveTargetDisplay(
+            for: .externalSlot(0),
+            fallback: .moveToMainDisplay,
+            displays: [dMain],
+            swapExternalDisplays: false
+        )
+        expect(
+            resolvedExt1Default?.display.displayID == 2
+                && resolvedExt1Default?.usedFallback == false
+                && resolvedExt1Swapped?.display.displayID == 3
+                && resolvedExtFallback?.display.displayID == 1
+                && resolvedExtFallback?.usedFallback == true,
+            "resolveTargetDisplay must route .externalSlot(0) with swap and fallback to main when disconnected"
+        )
+
+        var previewCfg = WindowSnapperConfig()
+        let preview1 = ProfileEngine.buildDryRunPreview(
+            profile: multiVariantProfile,
+            displays: [dMain],
+            visibleWindows: [],
+            runningBundleIDs: [],
+            config: previewCfg
+        )
+        let preview3 = ProfileEngine.buildDryRunPreview(
+            profile: multiVariantProfile,
+            displays: [dMain, dExtA, dExtB],
+            visibleWindows: [],
+            runningBundleIDs: [],
+            config: previewCfg
+        )
+        previewCfg.swapExternalDisplays = true
+        let preview3Swapped = ProfileEngine.buildDryRunPreview(
+            profile: multiVariantProfile,
+            displays: [dMain, dExtA, dExtB],
+            visibleWindows: [],
+            runningBundleIDs: [],
+            config: previewCfg
+        )
+        expect(
+            preview1[1]?.count == 1
+                && preview3[1]?.first?.bundleIdentifier == "com.apple.Terminal"
+                && preview3[2]?.first?.bundleIdentifier == "com.apple.Safari"
+                && preview3[3]?.first?.bundleIdentifier == "com.apple.Notes"
+                && preview3Swapped[3]?.first?.bundleIdentifier == "com.apple.Safari"
+                && preview3Swapped[2]?.first?.bundleIdentifier == "com.apple.Notes",
+            "buildDryRunPreview must select 1- vs 3-display variant and respect swapExternalDisplays"
+        )
+
+        let dupRules = [
+            ProfileAppRule(bundleIdentifier: "com.google.antigravity", appName: "Antigravity", targetDisplay: .main, targetZoneID: "cell:0:0"),
+            ProfileAppRule(bundleIdentifier: "com.microsoft.VSCode", appName: "Code", targetDisplay: .main, targetZoneID: "cell:0:0"),
+            ProfileAppRule(bundleIdentifier: "com.apple.Safari", appName: "Safari", targetDisplay: .externalSlot(0), targetZoneID: "cell:0:0")
+        ]
+        let deduped = ProfileDisplayVariant.deduplicatedRules(dupRules)
+        expect(
+            deduped.count == 2
+                && deduped[0].bundleIdentifier == "com.google.antigravity"
+                && deduped[1].bundleIdentifier == "com.apple.Safari",
+            "deduplicatedRules must keep first rule per (role, zoneID) and preserve distinct roles"
+        )
+
+        var legacyTwoDisplayProfile = WorkspaceProfile(
+            name: "Legacy 2-Display",
+            appRules: [
+                ProfileAppRule(bundleIdentifier: "com.google.antigravity", appName: "Antigravity", targetDisplay: .main, targetZoneID: "cell:0:0"),
+                ProfileAppRule(bundleIdentifier: "com.apple.Safari", appName: "Safari", targetDisplay: .anyExternal, targetZoneID: "cell:0:0")
+            ]
+        )
+        legacyTwoDisplayProfile.ensureVariantsUpToMaxDisplayCount()
+        expect(
+            legacyTwoDisplayProfile.maxDisplayCount == 2
+                && legacyTwoDisplayProfile.effectiveAppRules(forDisplayCount: 1).count == 1
+                && legacyTwoDisplayProfile.effectiveAppRules(forDisplayCount: 1).first?.bundleIdentifier == "com.google.antigravity"
+                && legacyTwoDisplayProfile.effectiveAppRules(forDisplayCount: 2).count == 2,
+            "ensureVariantsUpToMaxDisplayCount must keep .main rules in Variant 1 and move external rules to Variant 2"
+        )
+
+        let usable = CGRect(x: 0, y: 25, width: 1440, height: 875)
+        let leftHalf = CGRect(x: 0, y: 25, width: 720, height: 875)
+        let rightHalf = CGRect(x: 720, y: 25, width: 720, height: 875)
+        let slideInLeft = SnapGeometry.slideInStartFrame(for: leftHalf, inside: usable)
+        let slideInRight = SnapGeometry.slideInStartFrame(for: rightHalf, inside: usable)
+        let slideInMax = SnapGeometry.slideInStartFrame(for: usable, inside: usable)
+        let slideOutLeft = SnapGeometry.slideOutTargetFrame(for: leftHalf, inside: usable)
+        let slideOutRight = SnapGeometry.slideOutTargetFrame(for: rightHalf, inside: usable)
+        expect(
+            slideInLeft.minX < leftHalf.minX
+                && slideInRight.minX > rightHalf.minX
+                && slideInMax.minY > usable.minY
+                && slideOutLeft.minX < leftHalf.minX
+                && slideOutRight.minX > rightHalf.minX,
+            "slideInStartFrame and slideOutTargetFrame must offset left/right/maximized frames in expected directions"
+        )
+
+        HUDToast.shared.showLoading(
+            title: "Display Detected",
+            subtitle: "Loading Work…",
+            tint: .indigo
+        )
+        expect(
+            HUDToast.shared.panelForTesting?.isVisible == true,
+            "HUDToast.showLoading must present the floating HUD panel"
+        )
+        let twoLineSize = HUDToast.measuredSize(
+            title: "Work",
+            subtitle: "2 Displays · 3 windows placed",
+            symbol: "checkmark.circle.fill"
+        )
+        expect(
+            twoLineSize.height >= 50,
+            "HUDToast with subtitle must size taller than single-line pill"
+        )
+        HUDToast.shared.dismiss()
+        expect(
+            HUDToast.shared.panelForTesting?.isVisible != true,
+            "HUDToast.dismiss must hide the loading HUD panel"
+        )
 
         expect(
             DisplayPresetKind.builtInTemplates.contains(.maximized)

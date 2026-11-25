@@ -991,6 +991,7 @@ struct MenuBarPopoverView: View {
     @ObservedObject private var callControls = ModuleRegistry.shared.callControls
     @ObservedObject private var windowSnapper = ModuleRegistry.shared.windowSnapper
     @ObservedObject private var overlayController = ZoneOverlayController.shared
+    @ObservedObject private var displayRegistry = DisplayRegistry.shared
     @ObservedObject private var updateManager = UpdateManager.shared
     @ObservedObject var layoutAnimator: MenuBarPopoverLayoutAnimator
     var layoutRevision: Int
@@ -1432,9 +1433,27 @@ struct MenuBarPopoverView: View {
 
                 CollapsibleBlock(progress: p.windowProfiles, isInteractive: isAppEnabled) {
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("Workspace Profiles")
-                            .toolboxFont(.caption2.weight(.semibold))
-                            .foregroundStyle(.secondary)
+                        HStack(spacing: 6) {
+                            Text("Workspace Profiles")
+                                .toolboxFont(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            if displayRegistry.connectedDisplays.count >= 3 {
+                                Button {
+                                    windowSnapper.swapExternalDisplays()
+                                } label: {
+                                    HStack(spacing: 3) {
+                                        Image(systemName: "arrow.left.arrow.right")
+                                        Text("Swap Externals")
+                                    }
+                                    .toolboxFont(.caption2.weight(.medium))
+                                    .foregroundStyle(ToolboxTheme.readableAccentText(for: .indigo))
+                                }
+                                .buttonStyle(.plain)
+                                .focusEffectDisabled()
+                                .pointerCursor(isAppEnabled && p.windowProfiles > 0.99)
+                            }
+                        }
 
                         ForEach(activeProfiles.prefix(4)) { profile in
                             let isActiveProfile = configManager.config.windowSnapper.activeProfileID == profile.id

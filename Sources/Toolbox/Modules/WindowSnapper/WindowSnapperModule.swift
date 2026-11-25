@@ -489,6 +489,41 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
             self.preSnapStore.clearRecord(pid: pid, windowNumber: windowNumber, sizeAX: nil)
             self.persistPreSnapStore()
         }
+        displayRegistry.onDisplaysReconfigurationBegan = { [weak self] isRemoved in
+            guard let self else { return }
+            self.glassPaneController.dismiss()
+            self.profileEngine.cancelInFlightApply()
+            if self.isRunning,
+               ConfigManager.shared.config.general.appEnabled,
+               self.config.showSnapHUDToasts,
+               !PermissionsManager.isRunningInDiagnosticMode {
+                let autoProfile = self.config.autoApplyProfileID.flatMap { id in
+                    self.config.profiles.first(where: { $0.id == id })
+                }
+                if let autoProfile {
+                    HUDToast.shared.showLoading(
+                        title: isRemoved ? "Display Disconnected" : "Display Detected",
+                        subtitle: isRemoved ? "Adjusting \(autoProfile.name)…" : "Loading \(autoProfile.name)…",
+                        tint: .indigo,
+                        maxDuration: 5.0
+                    )
+                } else if self.config.displayConnectMode == .alwaysExtend && !isRemoved {
+                    HUDToast.shared.showLoading(
+                        title: "Display Detected",
+                        subtitle: "Extending displays…",
+                        tint: .indigo,
+                        maxDuration: 5.0
+                    )
+                } else if self.config.displayConnectMode == .alwaysMirror && !isRemoved {
+                    HUDToast.shared.showLoading(
+                        title: "Display Detected",
+                        subtitle: "Mirroring displays…",
+                        tint: .indigo,
+                        maxDuration: 5.0
+                    )
+                }
+            }
+        }
         displayRegistry.onDisplaysReconfigured = { [weak self] connected, _ in
             guard let self else { return }
             self.glassPaneController.dismiss()
@@ -498,6 +533,11 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
                 config: self.config
             ) { [weak self] batch in
                 self?.recordBatchInPreSnapStore(batch)
+            }
+            if !self.profileEngine.isApplyingProfile,
+               self.profileEngine.suggestedTopologyProfileID == nil,
+               self.config.autoApplyProfileID == nil {
+                HUDToast.shared.dismiss()
             }
             if self.overlayController.isLivePreviewActive {
                 self.overlayController.showLiveSettingsPreview(displays: connected, config: self.config)
@@ -1451,7 +1491,8 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
                 )
                 if self.config.showSnapHUDToasts {
                     HUDToast.shared.show(
-                        title: "\(window.appName) → \(targetZone.name)",
+                        title: window.appName,
+                        subtitle: "Snapped to \(targetZone.name)",
                         symbol: "rectangle.3.group",
                         tint: .indigo,
                         duration: 1.4
@@ -1757,8 +1798,87 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
         }
     }
 
+    /// Applies a profile unconditionally without toggle-restoring the previous workspace
+    /// (used by Save & Apply in the Profile Editor).
+    func applyProfileDirectly(_ profile: WorkspaceProfile) {
+        glassPaneController.dismiss()
+        guard ensureAccessibilityForAction() else { return }
+        profileEngine.cancelInFlightApply()
+        profileEngine.applyProfile(profile) { [weak self] batch in
+            self?.recordBatchInPreSnapStore(batch)
+        }
+    }
+
     func triggerProfileShortcut(_ profile: WorkspaceProfile) {
         applyProfile(profile)
+    }
+
+    func swapExternalDisplays() {
+        var cfg = ConfigManager.shared.config.windowSnapper
+        cfg.swapExternalDisplays.toggle()
+        ConfigManager.shared.config.windowSnapper = cfg
+
+        let targetProfile = cfg.activeProfileID.flatMap { id in cfg.profiles.first(where: { $0.id == id }) }
+            ?? cfg.autoApplyProfileID.flatMap { id in cfg.profiles.first(where: { $0.id == id }) }
+
+        if displayRegistry.connectedDisplays.count >= 3,
+           let profile = targetProfile,
+           ensureAccessibilityForAction() {
+            glassPaneController.dismiss()
+            profileEngine.applyProfile(profile) { [weak self] batch in
+                self?.recordBatchInPreSnapStore(batch)
+            }
+        } else if cfg.showSnapHUDToasts {
+            HUDToast.shared.show(
+                title: cfg.swapExternalDisplays ? "Swapped External Displays" : "Restored External Order",
+                subtitle: "External 1 & External 2",
+                symbol: "arrow.left.arrow.right",
+                tint: .indigo
+            )
+        }
+    }
+
+    func applyDisplayConnectModeNow() {
+        let cfg = ConfigManager.shared.config.windowSnapper
+        let mode = cfg.displayConnectMode
+        guard mode != .systemDefault else { return }
+        let changed = displayRegistry.applyDisplayConnectMode(mode)
+        if cfg.showSnapHUDToasts {
+            let title: String
+            switch mode {
+            case .alwaysExtend:
+                title = changed ? "Extended Displays" : "Already Extended"
+            case .alwaysMirror:
+                title = changed ? "Mirrored Displays" : "Already Mirrored"
+            case .systemDefault:
+                return
+            }
+            HUDToast.shared.show(
+                title: title,
+                symbol: "display.2",
+                tint: .indigo
+            )
+        }
+    }
+
+    func identifyDisplays() {
+        overlayController.showDisplayIdentification(
+            displays: displayRegistry.connectedDisplays,
+            swapExternalDisplays: ConfigManager.shared.config.windowSnapper.swapExternalDisplays,
+            style: ConfigManager.shared.config.windowSnapper.overlayStyle,
+            duration: 2.2
+        )
+    }
+
+    func captureOpenWindowsForVariant(
+        displayCount: Int,
+        completion: @escaping @MainActor (ProfileDisplayVariant) -> Void
+    ) {
+        profileEngine.captureCurrentWindowsForVariant(
+            displayCount: displayCount,
+            config: ConfigManager.shared.config.windowSnapper,
+            completion: completion
+        )
     }
 
     private func placeGlassPaneCandidate(

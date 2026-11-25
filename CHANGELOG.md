@@ -9,6 +9,18 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 
 ## [Unreleased]
 
+### Added
+- **Window Snapper (Multi-Display Profiles)** — design 1-, 2-, and 3-display layout variants inside one Workspace Profile, choose a profile to auto-apply when monitors connect, set an Always Extend or Always Mirror display-connect preference, identify screens on-screen, capture open windows into a view, and swap External 1 & 2 in one click
+- **Window Snapper (Smooth Profile Transitions)** — choreographed entry, reposition, and exit animations across profile switches and display changes, paired with an instant display-detect and loading HUD pill
+
+### Changed
+- **Window Snapper (Profiles & Top Edge Panel)** — decluttered profile cards and a calmer Profile Editor with drag-to-assign apps, drag-to-swap zones, an auto-collapsing layout picker, Save & Apply, and a refined frosted-glass Top Edge Panel with smooth drop-down arrival
+- **HUD Toasts** — upgraded floating toasts with tinted icon badges, subtitles, and smooth fade-in transitions
+
+### Fixed
+- **Window Snapper** — prevented duplicate or orphaned app rules from launching unintended apps, eliminated window flashing while connecting displays, and ensured Save & Apply always applies the profile instead of toggling restore
+- **Dock Minimize** — moved Dock icon inspection to a background cache so Dock clicks stay responsive without stalling input delivery
+
 ## [1.6.1] - 2026-11-23
 
 ### Added

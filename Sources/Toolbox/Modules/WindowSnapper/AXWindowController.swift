@@ -393,7 +393,11 @@ final class AXWindowController: @unchecked Sendable {
     static let unsnapResizeAnimationDuration: TimeInterval = WindowAnimationSpeed.smooth.unsnapResizeDuration
 
     private let axQueue = DispatchQueue(label: "app.toolbox.window-snapping.ax", qos: .userInteractive)
-    private let animationQueue = DispatchQueue(label: "app.toolbox.window-snapping.anim", qos: .userInteractive)
+    private let animationQueue = DispatchQueue(
+        label: "app.toolbox.window-snapping.anim",
+        qos: .userInteractive,
+        attributes: .concurrent
+    )
     private let cacheLock = NSLock()
     private var elementCacheByUndoID: [String: AXElementBox] = [:]
     private let animationLock = NSLock()
@@ -1212,6 +1216,7 @@ final class AXWindowController: @unchecked Sendable {
         sourceDisplayFrameAX: CGRect?,
         targetDisplayFrameAX: CGRect?,
         animationSpeed: WindowAnimationSpeed = .off,
+        entryStartFrameAX: CGRect? = nil,
         completion: @escaping @MainActor (WindowSnapExecutionResult?) -> Void
     ) {
         let selfPID = ProcessInfo.processInfo.processIdentifier
@@ -1273,7 +1278,14 @@ final class AXWindowController: @unchecked Sendable {
             }
             let element = window.elementBox.element
             Self.applyTimeout(to: element)
-            let startFrame = Self.copyFrameAX(of: element) ?? window.frameAX
+            let startFrame: CGRect
+            if let entryStart = entryStartFrameAX {
+                _ = Self.setSizeAX(entryStart.size, on: element)
+                _ = Self.setPositionAX(entryStart.origin, on: element)
+                startFrame = entryStart
+            } else {
+                startFrame = Self.copyFrameAX(of: element) ?? window.frameAX
+            }
 
             let delta = max(
                 abs(startFrame.minX - targetFrame.minX),
@@ -1346,6 +1358,68 @@ final class AXWindowController: @unchecked Sendable {
             Task { @MainActor in
                 completion(result)
             }
+        }
+    }
+
+    func animateWindowsExit(
+        _ windows: [(window: DiscoveredAXWindow, exitFrameAX: CGRect)],
+        animationSpeed: WindowAnimationSpeed,
+        completion: @escaping @MainActor () -> Void
+    ) {
+        guard animationSpeed.isAnimated, !windows.isEmpty else {
+            Task { @MainActor in completion() }
+            return
+        }
+        let duration = min(0.14, animationSpeed.unsnapResizeDuration)
+        guard duration > 0 else {
+            Task { @MainActor in completion() }
+            return
+        }
+
+        let group = DispatchGroup()
+        for item in windows {
+            let win = item.window
+            let exitFrame = item.exitFrameAX
+            let pid = win.pid != 0 ? win.pid : pidForBox(win.elementBox)
+            let token = bumpAnimationToken(for: pid)
+
+            group.enter()
+            animationQueue.async { [weak self] in
+                defer { group.leave() }
+                guard let self, self.isAnimationTokenActive(token, for: pid) else { return }
+                let element = win.elementBox.element
+                Self.applyTimeout(to: element)
+                let startFrame = Self.copyFrameAX(of: element) ?? win.frameAX
+
+                let startTime = CACurrentMediaTime()
+                let frameBudget: TimeInterval = 1.0 / 60.0
+                var lastAppliedRect = CGRect(
+                    x: round(startFrame.minX),
+                    y: round(startFrame.minY),
+                    width: round(startFrame.width),
+                    height: round(startFrame.height)
+                )
+                while true {
+                    guard self.isAnimationTokenActive(token, for: pid) else { return }
+                    let now = CACurrentMediaTime()
+                    let progress = CGFloat(min(1.0, max(0.0, (now - startTime) / duration)))
+                    if progress >= 1.0 { break }
+                    let stepRect = SnapGeometry.interpolatedRect(from: startFrame, to: exitFrame, progress: progress)
+                    if stepRect != lastAppliedRect {
+                        let ipcStart = CACurrentMediaTime()
+                        _ = Self.setPositionAX(stepRect.origin, on: element)
+                        lastAppliedRect = stepRect
+                        if CACurrentMediaTime() - ipcStart >= 0.085 { break }
+                    }
+                    let sleepTime = frameBudget - (CACurrentMediaTime() - now)
+                    if sleepTime > 0.002 {
+                        Thread.sleep(forTimeInterval: min(sleepTime, 0.016))
+                    }
+                }
+            }
+        }
+        group.notify(queue: .main) {
+            Task { @MainActor in completion() }
         }
     }
 

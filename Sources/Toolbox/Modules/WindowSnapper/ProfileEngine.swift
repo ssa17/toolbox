@@ -66,6 +66,14 @@ final class ProfileEngine: ObservableObject {
         self.overlayController = overlayController
     }
 
+    func cancelInFlightApply() {
+        applyGeneration &+= 1
+        isApplyingProfile = false
+        placementTrackerTask?.cancel()
+        placementTrackerTask = nil
+        activeRulePlacements.removeAll()
+    }
+
     func stopAllWatchers() {
         applyGeneration &+= 1
         isApplyingProfile = false
@@ -133,20 +141,38 @@ final class ProfileEngine: ObservableObject {
     static func resolveTargetDisplay(
         for target: ProfileTargetDisplay,
         fallback: ProfileDisconnectedFallback,
-        displays: [ConnectedDisplay]
+        displays: [ConnectedDisplay],
+        swapExternalDisplays: Bool = false
     ) -> (display: ConnectedDisplay, usedFallback: Bool)? {
         guard !displays.isEmpty else { return nil }
-        let main = displays.first(where: \.isMain) ?? displays.first!
+        let roles = DisplayRegistry.assignLogicalRoles(for: displays, swapExternalDisplays: swapExternalDisplays)
+        let main = roles[.main] ?? displays.first(where: \.isMain) ?? displays[0]
 
         switch target {
         case .main:
             return (main, false)
         case .anyExternal:
-            if let external = displays.first(where: { !$0.isMain }) {
+            if let external = roles[.external1] {
                 return (external, false)
             }
             switch fallback {
             case .moveToMainDisplay, .moveToNextAvailableDisplay:
+                return (main, true)
+            case .skipRule:
+                return nil
+            }
+        case .externalSlot(let idx):
+            let role: ProfileDisplayRole = idx <= 0 ? .external1 : .external2
+            if let matched = roles[role] {
+                return (matched, false)
+            }
+            switch fallback {
+            case .moveToMainDisplay:
+                return (main, true)
+            case .moveToNextAvailableDisplay:
+                if let anyExt = roles[.external1] ?? roles[.external2] {
+                    return (anyExt, true)
+                }
                 return (main, true)
             case .skipRule:
                 return nil
@@ -171,12 +197,18 @@ final class ProfileEngine: ObservableObject {
         rule: ProfileAppRule,
         profile: WorkspaceProfile,
         on display: ConnectedDisplay,
+        displays: [ConnectedDisplay] = [],
         config: WindowSnapperConfig
     ) -> ResolvedZone? {
+        let effectiveDisplays = displays.isEmpty ? [display] : displays
+        let effectiveOverrides = profile.effectiveDisplayLayoutOverrides(
+            for: effectiveDisplays,
+            swapExternalDisplays: config.swapExternalDisplays
+        )
         let layout = DisplayRegistry.layout(
             for: display.signature,
             in: config.displayLayouts,
-            overrides: profile.displayLayoutOverrides
+            overrides: effectiveOverrides
         )
         if let resolved = SnapGeometry.resolveUniversalOrBuiltInZone(
             id: rule.targetZoneID,
@@ -280,11 +312,13 @@ final class ProfileEngine: ObservableObject {
     ) -> [CGDirectDisplayID: [ProfilePreviewOverlayItem]] {
         var result: [CGDirectDisplayID: [ProfilePreviewOverlayItem]] = [:]
 
-        for rule in profile.appRules where rule.enabled {
+        let effectiveRules = profile.effectiveAppRules(forDisplayCount: displays.count)
+        for rule in effectiveRules where rule.enabled {
             guard let resolvedTarget = resolveTargetDisplay(
                 for: rule.targetDisplay,
                 fallback: profile.disconnectedFallback,
-                displays: displays
+                displays: displays,
+                swapExternalDisplays: config.swapExternalDisplays
             ) else {
                 continue
             }
@@ -292,6 +326,7 @@ final class ProfileEngine: ObservableObject {
                 rule: rule,
                 profile: profile,
                 on: resolvedTarget.display,
+                displays: displays,
                 config: config
             ) else {
                 continue
@@ -474,7 +509,8 @@ final class ProfileEngine: ObservableObject {
     ) {
         displayRegistry.refresh(gaps: config.gaps)
         let displays = displayRegistry.connectedDisplays
-        if profile.appRules.filter(\.enabled).isEmpty {
+        let effectiveRules = profile.effectiveAppRules(forDisplayCount: displays.count)
+        if effectiveRules.filter(\.enabled).isEmpty {
             overlayController.showLayoutProfilePreview(
                 profile: profile,
                 displays: displays,
@@ -525,6 +561,18 @@ final class ProfileEngine: ObservableObject {
         let displays = displayRegistry.connectedDisplays
         let ignored = Set(initialCfg.ignoredBundleIDs)
 
+        if initialCfg.showSnapHUDToasts && !PermissionsManager.isRunningInDiagnosticMode {
+            let matchedCount = min(max(displays.count, 1), profile.maxDisplayCount)
+            let subtitle = profile.maxDisplayCount > 1
+                ? "\(matchedCount) \(matchedCount == 1 ? "Display" : "Displays") · Arranging windows…"
+                : "Arranging windows…"
+            HUDToast.shared.showLoading(
+                title: "Applying \(profile.name)",
+                subtitle: subtitle,
+                tint: .indigo
+            )
+        }
+
         let previousActiveProfileID = initialCfg.activeProfileID
         let previousDisplayLayouts = initialCfg.displayLayouts
         let previouslyFrontmostBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
@@ -533,7 +581,12 @@ final class ProfileEngine: ObservableObject {
             && (MainWindowController.shared.currentWindow?.isVisible == true)
         let selfVisibleWindows = AXWindowController.standardSelfWindowsMainActor()
 
-        let enabledRules = profile.appRules.filter(\.enabled)
+        let effectiveRules = profile.effectiveAppRules(forDisplayCount: displays.count)
+        let enabledRules = effectiveRules.filter(\.enabled)
+        let effectiveOverrides = profile.effectiveDisplayLayoutOverrides(
+            for: displays,
+            swapExternalDisplays: initialCfg.swapExternalDisplays
+        )
         let targetBundleIDs = Set(enabledRules.map { $0.bundleIdentifier.lowercased() })
         let targetPIDs = NSWorkspace.shared.runningApplications
             .filter { !$0.isTerminated && targetBundleIDs.contains(($0.bundleIdentifier ?? "").lowercased()) }
@@ -605,7 +658,7 @@ final class ProfileEngine: ObservableObject {
                 // Phase B: Update config, unhide/unminimize target apps, and hide unlisted apps (including Toolbox)
                 var cfg = ConfigManager.shared.config.windowSnapper
                 cfg.activeProfileID = profile.id
-                for overrideLayout in profile.displayLayoutOverrides {
+                for overrideLayout in effectiveOverrides {
                     if let existingIdx = cfg.displayLayouts.firstIndex(where: {
                         DisplayRegistry.matchDisplay(for: overrideLayout.display, among: [$0.display]) != nil
                     }) {
@@ -621,18 +674,25 @@ final class ProfileEngine: ObservableObject {
                 ConfigManager.shared.config.windowSnapper = cfg
 
                 var restoredAnyAppOrWindow = false
+                let alreadyVisibleTargetBIDs = Set(preVisibleWindows.map { $0.bundleIdentifier.lowercased() })
+                var enteringBundleIDs = targetBundleIDs.subtracting(alreadyVisibleTargetBIDs)
+
                 if profile.unminimizeAndUnhideApps {
                     for app in NSWorkspace.shared.runningApplications where !app.isTerminated {
                         let bid = (app.bundleIdentifier ?? "").lowercased()
                         if targetBundleIDs.contains(bid), app.isHidden {
                             _ = app.unhide()
                             snapshot.unhiddenBundleIDs.insert(bid)
+                            enteringBundleIDs.insert(bid)
                             restoredAnyAppOrWindow = true
                         }
                     }
                 }
 
+                var appsToHide: [NSRunningApplication] = []
+                var exitingPairs: [(window: DiscoveredAXWindow, exitFrameAX: CGRect)] = []
                 if profile.hideUnlistedApps {
+                    var hideBIDs = Set<String>()
                     for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular && !app.isTerminated {
                         let bid = app.bundleIdentifier?.lowercased() ?? ""
                         if bid.isEmpty || bid == "com.apple.finder" || bid == selfID {
@@ -640,48 +700,78 @@ final class ProfileEngine: ObservableObject {
                         }
                         if !targetBundleIDs.contains(bid) && !app.isHidden {
                             snapshot.appsHiddenByProfile.insert(bid)
-                            _ = app.hide()
+                            hideBIDs.insert(bid)
+                            appsToHide.append(app)
                         }
                     }
-
-                    if !targetBundleIDs.contains(selfID) && !PermissionsManager.isRunningInDiagnosticMode {
-                        for win in NSApp.windows where !(win is NSPanel) && win.styleMask.contains(.titled) && win.isVisible {
-                            win.orderOut(nil)
+                    if cfg.windowAnimationSpeed.isAnimated {
+                        for win in preVisibleWindows where hideBIDs.contains(win.bundleIdentifier.lowercased()) {
+                            let disp = self.displayRegistry.display(containingAXRect: win.frameAX)
+                                ?? displays.first(where: \.isMain)
+                                ?? displays.first
+                            if let disp {
+                                let exitRect = SnapGeometry.slideOutTargetFrame(for: win.frameAX, inside: disp.usableAX)
+                                exitingPairs.append((window: win, exitFrameAX: exitRect))
+                            }
                         }
                     }
                 }
 
-                self.axController.unminimizeAndFetchWindowsForApps(
-                    pids: targetPIDs,
-                    unminimize: profile.unminimizeAndUnhideApps
-                ) { [weak self] unminimizedElements, _ in
+                let continueAfterExit: @MainActor () -> Void = { [weak self] in
                     guard let self, self.applyGeneration == gen else { return }
-                    if !unminimizedElements.isEmpty {
-                        snapshot.unminimizedElements = unminimizedElements
-                        restoredAnyAppOrWindow = true
+                    for app in appsToHide {
+                        _ = app.hide()
                     }
-                    self.lastRestoreSnapshot = snapshot
-
-                    let runPlacementPass: @MainActor () -> Void = { [weak self] in
-                        self?.performInitialPlacementAndStartTracker(
-                            generation: gen,
-                            profile: profile,
-                            displays: displays,
-                            config: cfg,
-                            ignoredBundleIDs: ignored,
-                            onPushUndoBatch: onPushUndoBatch
-                        )
+                    if profile.hideUnlistedApps && !targetBundleIDs.contains(selfID) && !PermissionsManager.isRunningInDiagnosticMode {
+                        for win in NSApp.windows where !(win is NSPanel) && win.styleMask.contains(.titled) && win.isVisible {
+                            win.orderOut(nil)
+                        }
                     }
 
-                    if restoredAnyAppOrWindow {
-                        Task { @MainActor in
-                            try? await Task.sleep(nanoseconds: 140_000_000)
-                            guard self.applyGeneration == gen else { return }
+                    self.axController.unminimizeAndFetchWindowsForApps(
+                        pids: targetPIDs,
+                        unminimize: profile.unminimizeAndUnhideApps
+                    ) { [weak self] unminimizedElements, _ in
+                        guard let self, self.applyGeneration == gen else { return }
+                        if !unminimizedElements.isEmpty {
+                            snapshot.unminimizedElements = unminimizedElements
+                            restoredAnyAppOrWindow = true
+                        }
+                        self.lastRestoreSnapshot = snapshot
+
+                        let runPlacementPass: @MainActor () -> Void = { [weak self] in
+                            self?.performInitialPlacementAndStartTracker(
+                                generation: gen,
+                                profile: profile,
+                                displays: displays,
+                                config: cfg,
+                                ignoredBundleIDs: ignored,
+                                enteringBundleIDs: enteringBundleIDs,
+                                onPushUndoBatch: onPushUndoBatch
+                            )
+                        }
+
+                        if restoredAnyAppOrWindow {
+                            Task { @MainActor in
+                                try? await Task.sleep(nanoseconds: 140_000_000)
+                                guard self.applyGeneration == gen else { return }
+                                runPlacementPass()
+                            }
+                        } else {
                             runPlacementPass()
                         }
-                    } else {
-                        runPlacementPass()
                     }
+                }
+
+                if !exitingPairs.isEmpty {
+                    self.axController.animateWindowsExit(
+                        exitingPairs,
+                        animationSpeed: cfg.windowAnimationSpeed
+                    ) {
+                        continueAfterExit()
+                    }
+                } else {
+                    continueAfterExit()
                 }
             }
         }
@@ -693,11 +783,13 @@ final class ProfileEngine: ObservableObject {
         displays: [ConnectedDisplay],
         config cfg: WindowSnapperConfig,
         ignoredBundleIDs ignored: Set<String>,
+        enteringBundleIDs: Set<String>,
         onPushUndoBatch: @escaping (WindowSnapUndoBatch) -> Void
     ) {
         guard applyGeneration == gen else { return }
 
-        let enabledRules = profile.appRules.filter(\.enabled)
+        let effectiveRules = profile.effectiveAppRules(forDisplayCount: displays.count)
+        let enabledRules = effectiveRules.filter(\.enabled)
         let targetBundleIDs = Set(enabledRules.map { $0.bundleIdentifier.lowercased() })
         let targetPIDs = NSWorkspace.shared.runningApplications
             .filter { !$0.isTerminated && targetBundleIDs.contains(($0.bundleIdentifier ?? "").lowercased()) }
@@ -719,12 +811,14 @@ final class ProfileEngine: ObservableObject {
                     guard let resolvedTarget = Self.resolveTargetDisplay(
                         for: rule.targetDisplay,
                         fallback: profile.disconnectedFallback,
-                        displays: displays
+                        displays: displays,
+                        swapExternalDisplays: cfg.swapExternalDisplays
                     ),
                     let zone = Self.resolveRuleZone(
                         rule: rule,
                         profile: profile,
                         on: resolvedTarget.display,
+                        displays: displays,
                         config: cfg
                     ) else {
                         continue
@@ -771,13 +865,19 @@ final class ProfileEngine: ObservableObject {
                         for (idx, win) in selected.enumerated() {
                             let targetFrame = frames[idx]
                             let sourceDisp = self.displayRegistry.display(containingAXRect: win.frameAX)
+                            let isEntering = enteringBundleIDs.contains(win.bundleIdentifier.lowercased())
+                            let entryStart = (isEntering && cfg.windowAnimationSpeed.isAnimated)
+                                ? SnapGeometry.slideInStartFrame(for: targetFrame, inside: resolvedTarget.display.usableAX)
+                                : nil
                             group.enter()
                             self.axController.snapWindow(
                                 win,
                                 toAXFrame: targetFrame,
                                 usableAXRect: resolvedTarget.display.usableAX,
                                 sourceDisplayFrameAX: sourceDisp?.frameAX,
-                                targetDisplayFrameAX: resolvedTarget.display.frameAX
+                                targetDisplayFrameAX: resolvedTarget.display.frameAX,
+                                animationSpeed: cfg.windowAnimationSpeed,
+                                entryStartFrameAX: entryStart
                             ) { [weak self] execResult in
                                 if let self, let execResult {
                                     let undoItem = WindowSnapUndoItem(
@@ -873,20 +973,27 @@ final class ProfileEngine: ObservableObject {
                     )
 
                     if cfg.showSnapHUDToasts {
+                        let matchedCount = min(max(displays.count, 1), profile.maxDisplayCount)
+                        let displayPrefix = profile.maxDisplayCount > 1
+                            ? "\(matchedCount) \(matchedCount == 1 ? "Display" : "Displays") · "
+                            : ""
                         if enabledRules.isEmpty {
                             HUDToast.shared.show(
-                                title: "Applied layout '\(profile.name)'",
-                                symbol: "rectangle.3.group",
-                                tint: .indigo
+                                title: profile.name,
+                                subtitle: "\(displayPrefix)Layout applied",
+                                symbol: "checkmark.circle.fill",
+                                tint: .green
                             )
                         } else {
+                            let placedWord = placedCount == 1 ? "window" : "windows"
                             let launchSuffix = launchingNames.isEmpty
                                 ? ""
                                 : ", opening \(launchingNames.joined(separator: ", "))"
                             HUDToast.shared.show(
-                                title: "Applied '\(profile.name)' · \(placedCount) placed\(launchSuffix)",
-                                symbol: "rectangle.3.group",
-                                tint: .indigo
+                                title: profile.name,
+                                subtitle: "\(displayPrefix)\(placedCount) \(placedWord) placed\(launchSuffix)",
+                                symbol: "checkmark.circle.fill",
+                                tint: .green
                             )
                         }
                     }
@@ -918,8 +1025,9 @@ final class ProfileEngine: ObservableObject {
         guard PermissionsManager.isProcessTrusted() else { return }
 
         placementTrackerTask = Task { @MainActor [weak self] in
-            let maxTicks = 36
-            let intervalNs: UInt64 = 220_000_000
+            let maxTicks = 22
+            let intervalSeconds = max(0.38, cfg.windowAnimationSpeed.snapDuration + 0.16)
+            let intervalNs = UInt64(intervalSeconds * 1_000_000_000)
 
             for tick in 0..<maxTicks {
                 try? await Task.sleep(nanoseconds: intervalNs)
@@ -1041,12 +1149,17 @@ final class ProfileEngine: ObservableObject {
 
                             self.recordPreSnapWindowIfUnseen(win)
                             let sourceDisp = self.displayRegistry.display(containingAXRect: win.frameAX)
+                            let entryStart = (entry.didTriggerLaunchOrReopen && entry.snapAttempts == 1 && cfg.windowAnimationSpeed.isAnimated)
+                                ? SnapGeometry.slideInStartFrame(for: targetFrame, inside: entry.targetDisplay.usableAX)
+                                : nil
                             self.axController.snapWindow(
                                 win,
                                 toAXFrame: targetFrame,
                                 usableAXRect: entry.targetDisplay.usableAX,
                                 sourceDisplayFrameAX: sourceDisp?.frameAX,
-                                targetDisplayFrameAX: entry.targetDisplay.frameAX
+                                targetDisplayFrameAX: entry.targetDisplay.frameAX,
+                                animationSpeed: cfg.windowAnimationSpeed,
+                                entryStartFrameAX: entryStart
                             ) { [weak self] execResult in
                                 guard let self, self.applyGeneration == gen, let execResult else { return }
                                 if execResult.clampedForMinSize {
@@ -1103,7 +1216,9 @@ final class ProfileEngine: ObservableObject {
             return
         }
 
-        let autoRules = activeProfile.appRules.filter { $0.enabled && $0.autoPlaceNewWindowsWhileActive }
+        let displays = displayRegistry.connectedDisplays
+        let autoRules = activeProfile.effectiveAppRules(forDisplayCount: displays.count)
+            .filter { $0.enabled && $0.autoPlaceNewWindowsWhileActive }
         guard !autoRules.isEmpty else { return }
 
         for rule in autoRules {
@@ -1166,12 +1281,14 @@ final class ProfileEngine: ObservableObject {
             guard let resolvedTarget = Self.resolveTargetDisplay(
                 for: entry.rule.targetDisplay,
                 fallback: entry.profile.disconnectedFallback,
-                displays: displays
+                displays: displays,
+                swapExternalDisplays: entry.config.swapExternalDisplays
             ),
             let zone = Self.resolveRuleZone(
                 rule: entry.rule,
                 profile: entry.profile,
                 on: resolvedTarget.display,
+                displays: displays,
                 config: entry.config
             ) else {
                 return
@@ -1259,6 +1376,89 @@ final class ProfileEngine: ObservableObject {
         }
     }
 
+    func captureCurrentWindowsForVariant(
+        displayCount: Int,
+        config: WindowSnapperConfig,
+        completion: @escaping @MainActor (ProfileDisplayVariant) -> Void
+    ) {
+        displayRegistry.refresh(gaps: config.gaps)
+        let displays = displayRegistry.connectedDisplays
+        let roles = DisplayRegistry.assignLogicalRoles(
+            for: displays,
+            swapExternalDisplays: config.swapExternalDisplays
+        )
+        let roleByDisplayID = Dictionary(
+            uniqueKeysWithValues: roles.map { ($0.value.displayID, $0.key) }
+        )
+        let ignored = Set(config.ignoredBundleIDs)
+
+        axController.inspectAllVisibleStandardWindows(ignoredBundleIDs: ignored) { visibleWindows in
+            let expectedRoles = ProfileDisplayRole.roles(forDisplayCount: displayCount)
+            var slotLayouts: [ProfileDisplaySlotLayout] = []
+            for role in expectedRoles {
+                if let disp = roles[role],
+                   let existingLayout = DisplayRegistry.layout(for: disp.signature, in: config.displayLayouts) {
+                    slotLayouts.append(
+                        ProfileDisplaySlotLayout(
+                            role: role,
+                            presetID: existingLayout.presetID,
+                            division: existingLayout.division,
+                            customZones: existingLayout.customZones,
+                            outerMarginPoints: existingLayout.outerMarginPoints,
+                            innerGapPoints: existingLayout.innerGapPoints
+                        )
+                    )
+                } else {
+                    slotLayouts.append(ProfileDisplaySlotLayout(role: role))
+                }
+            }
+
+            var capturedRules: [ProfileAppRule] = []
+            var seenBundles = Set<String>()
+
+            for win in visibleWindows {
+                guard !win.bundleIdentifier.isEmpty,
+                      seenBundles.insert(win.bundleIdentifier.lowercased()).inserted else {
+                    continue
+                }
+                let display = displays.first {
+                    $0.frameAX.contains(CGPoint(x: win.frameAX.midX, y: win.frameAX.midY))
+                } ?? displays.first(where: \.isMain) ?? displays.first
+                guard let display else { continue }
+
+                let role = roleByDisplayID[display.displayID] ?? .main
+                guard expectedRoles.contains(role) else { continue }
+
+                let layout = DisplayRegistry.layout(for: display.signature, in: config.displayLayouts)
+                let zones = SnapGeometry.resolveZones(
+                    layout: layout,
+                    usableAXRect: display.usableAX,
+                    primaryScreenHeight: display.primaryScreenHeight,
+                    gaps: config.gaps
+                )
+                let matchedZoneID = SnapGeometry.closestZoneID(forAXFrame: win.frameAX, in: zones)
+                let normRect = SnapGeometry.normalizedRect(forAXFrame: win.frameAX, inUsableAXRect: display.usableAX)
+
+                capturedRules.append(ProfileAppRule(
+                    bundleIdentifier: win.bundleIdentifier,
+                    appName: win.appName,
+                    targetDisplay: role.targetDisplay,
+                    targetZoneID: matchedZoneID ?? "cell:0:0",
+                    fallbackRect: normRect,
+                    windowPolicy: .frontmost,
+                    launchIfNotRunning: true
+                ))
+            }
+
+            let variant = ProfileDisplayVariant(
+                displayCount: displayCount,
+                slotLayouts: slotLayouts,
+                appRules: capturedRules
+            )
+            completion(variant)
+        }
+    }
+
     // MARK: - Display Topology Auto-Trigger
 
     func handleDisplaysReconfigured(
@@ -1267,8 +1467,17 @@ final class ProfileEngine: ObservableObject {
         onPushUndoBatch: @escaping (WindowSnapUndoBatch) -> Void
     ) {
         let connectedSigs = connectedDisplays.map(\.signature)
-        let topologyKey = connectedSigs.map(\.stableStorageKey).sorted().joined(separator: "|")
+        let topologyKey = "\(connectedDisplays.count)|\(config.swapExternalDisplays)|\(connectedSigs.map(\.stableStorageKey).sorted().joined(separator: "|"))"
         guard topologyKey != lastAutoTriggeredTopologyKey else { return }
+
+        if let autoID = config.autoApplyProfileID,
+           let autoProfile = config.profiles.first(where: { $0.id == autoID }) {
+            lastAutoTriggeredTopologyKey = topologyKey
+            suggestedTopologyProfileID = nil
+            cancelInFlightApply()
+            applyProfile(autoProfile, onPushUndoBatch: onPushUndoBatch)
+            return
+        }
 
         for profile in config.profiles where profile.topologyTriggerMode != .off && !profile.boundDisplaySignatures.isEmpty {
             if DisplayRegistry.topologiesMatch(bound: profile.boundDisplaySignatures, connected: connectedSigs) {
@@ -1285,6 +1494,7 @@ final class ProfileEngine: ObservableObject {
                         duration: 4.0
                     )
                 case .autoApply:
+                    cancelInFlightApply()
                     applyProfile(profile, onPushUndoBatch: onPushUndoBatch)
                 }
                 return

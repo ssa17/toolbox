@@ -2,6 +2,11 @@ import AppKit
 import ApplicationServices
 import SwiftUI
 
+/// File-scope so both the main-actor module state and the nonisolated
+/// background cache build can share one timeout value (Swift 6 isolates
+/// `@MainActor` static stored properties).
+fileprivate let dockMinimizeAXTimeoutSeconds: Float = 0.1
+
 @MainActor
 final class DockMinimizeModule: ToolboxModule, ObservableObject {
     let id = "dock_minimize"
@@ -22,7 +27,7 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
     @Published private(set) var isRunning = false
     @Published private(set) var lastError: String?
 
-    private static let axTimeoutSeconds: Float = 0.1
+    private static let axTimeoutSeconds: Float = dockMinimizeAXTimeoutSeconds
     private static let minimizeActivationGraceInterval: TimeInterval = 0.35
     private static let hiddenUnderlyingSkipInterval: TimeInterval = 0.5
     /// Pointer travel (in points) beyond which a Dock-icon press is treated as a
@@ -49,7 +54,18 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
         let title: String?
     }
 
-    private struct WindowInspection {
+    /// One Dock icon: identity plus on-screen frame. The snapshot is rebuilt in
+    /// the background; the event-tap callback only performs in-memory point-in-
+    /// rect tests against it so a slow Dock/AX server can never stall the main
+    /// run loop (and with it every other app's event delivery).
+    private struct DockItemEntry {
+        let bundleID: String?
+        let bundleURLPath: String?
+        let title: String?
+        let frame: CGRect
+    }
+
+    struct WindowInspection {
         var openWindows: [AXUIElement] = []
         var minimizableOpenWindows: [AXUIElement] = []
         var minimizedWindows: [AXUIElement] = []
@@ -62,9 +78,11 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
         var hasActiveFullscreen = false
     }
 
-    /// The action to take for a Dock click, decided at mouse-down and executed at
-    /// mouse-up once we know the gesture was a click and not a drag.
-    private enum DockClickAction {
+    /// The action to take for a Dock click. For our own app the decision is made
+    /// at mouse-down (in-memory window inspection); for external apps it is made
+    /// at mouse-up (`action == nil` while pending) so the expensive Accessibility
+    /// inspection never runs inside the mouse-down tap callback.
+    enum DockClickAction {
         case unhideAndFocus
         case restore
         case hideApp
@@ -75,13 +93,14 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
 
     /// A Dock-icon press awaiting its mouse-up so a click (act) can be told apart
     /// from a drag (replay the press and let the Dock reposition the icon).
+    /// `action` is `nil` for external apps until the mouse-up decision runs.
     private struct PendingDockClick {
         let downLocation: CGPoint
         let flags: CGEventFlags
         let clickCount: Int64
         let app: NSRunningApplication
         let isSelf: Bool
-        let action: DockClickAction
+        let action: DockClickAction?
         var maxTravel: CGFloat = 0
         var forwardedDownToDock = false
     }
@@ -103,6 +122,12 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
     private var lastMinimizeTime: [pid_t: Date] = [:]
     private var hiddenByDockClick: Set<pid_t> = []
     private var recentlyHiddenAt: [pid_t: Date] = [:]
+    private var dockItemCache: [DockItemEntry] = []
+    private var dockItemCacheDate: Date?
+    private var dockItemCacheDockPID: pid_t?
+    private let dockCacheQueue = DispatchQueue(label: "toolbox.dockminimize.dock-item-cache", qos: .utility)
+    private var dockCacheTimer: DispatchSourceTimer?
+    private var appChangeObservers: [NSObjectProtocol] = []
 
     init() {
         if let front = NSWorkspace.shared.frontmostApplication, front.activationPolicy == .regular {
@@ -302,10 +327,12 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
                 MainActor.assumeIsolated {
                     if self?.isRunning == true {
                         self?.installExposeObserver()
+                        self?.resetDockItemCache()
                     }
                 }
             }
         }
+        startDockItemCacheMaintenance()
     }
 
     func stop() {
@@ -323,6 +350,10 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
             dockLaunchObserver = nil
         }
+        stopDockItemCacheMaintenance()
+        dockItemCache = []
+        dockItemCacheDate = nil
+        dockItemCacheDockPID = nil
         teardownExposeObserver()
         eventTap = nil
         runLoopSource = nil
@@ -462,6 +493,9 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
             // this drag event in order so the Dock can take over and reposition the icon.
             pending.forwardedDownToDock = true
             pendingDockClick = pending
+            // The user is repositioning a Dock icon, so the cached icon geometry
+            // goes stale as soon as the drop lands. Refresh shortly after.
+            scheduleDockItemCacheRefresh(delay: 2)
             postSyntheticMouseEvent(
                 type: .leftMouseDown,
                 location: pending.downLocation,
@@ -512,12 +546,53 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
             // stuck highlight), and we consume the release after running the action.
             let frontmost = NSWorkspace.shared.frontmostApplication
             let isFrontmost = frontmost?.processIdentifier == pending.app.processIdentifier
-            let handled = pending.isSelf
-                ? executeSelfDockClick(pending.action, app: pending.app, frontmost: frontmost)
-                : executeExternalAppDockClick(pending.action, app: pending.app, frontmost: frontmost)
+            let pid = pending.app.processIdentifier
+
+            var handled = false
+            if pending.isSelf {
+                // Own-app decisions inspect NSApp.windows only (in-memory) and were
+                // already made at mouse-down.
+                if let action = pending.action {
+                    handled = executeSelfDockClick(action, app: pending.app, frontmost: frontmost)
+                }
+            } else {
+                // External apps decide here, at mouse-up: the press is over, so even
+                // a slow per-window inspection only delays the action itself, never
+                // the event stream of other apps.
+                let inspection = inspectWindows(of: pid)
+                if let action = decideExternalAppDockClick(
+                    pending.app,
+                    frontmost: frontmost,
+                    isFrontmost: isFrontmost,
+                    inspection: inspection
+                ) {
+                    handled = executeExternalAppDockClick(
+                        action,
+                        app: pending.app,
+                        frontmost: frontmost,
+                        inspection: inspection
+                    )
+                } else {
+                    // Nothing to do (fullscreen app, no restorable windows, not
+                    // frontmost, ...): replay the held press natively so the
+                    // app/Dock still receive the click.
+                    postSyntheticMouseEvent(
+                        type: .leftMouseDown,
+                        location: pending.downLocation,
+                        flags: pending.flags,
+                        clickCount: pending.clickCount
+                    )
+                    postSyntheticMouseEvent(
+                        type: .leftMouseUp,
+                        location: location,
+                        flags: flags,
+                        clickCount: pending.clickCount
+                    )
+                }
+            }
 
             if handled {
-                let appLabel = pending.app.localizedName ?? pending.app.bundleIdentifier ?? "PID \(pending.app.processIdentifier)"
+                let appLabel = pending.app.localizedName ?? pending.app.bundleIdentifier ?? "PID \(pid)"
                 DeveloperEventLog.shared.record(
                     .dock,
                     "Handled dock click on \(appLabel)",
@@ -548,7 +623,7 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
             return false
         }
 
-        guard let clicked = dockAppIdentity(at: location) else {
+        guard let clicked = resolveClickedDockItem(at: location) else {
             return false
         }
 
@@ -570,11 +645,33 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
 
         let frontmost = NSWorkspace.shared.frontmostApplication
         let isFrontmost = frontmost?.processIdentifier == clickedApp.processIdentifier
+        let pid = clickedApp.processIdentifier
 
-        let isSelf = clickedApp.processIdentifier == ProcessInfo.processInfo.processIdentifier
-        guard let action = isSelf
-            ? decideSelfDockClick(clickedApp, frontmost: frontmost, isFrontmost: isFrontmost)
-            : decideExternalAppDockClick(clickedApp, frontmost: frontmost, isFrontmost: isFrontmost) else {
+        // Everything from here on must stay cheap: this runs inside the event-tap
+        // callback on the main run loop, ahead of every other app's event delivery.
+
+        if clickedApp.processIdentifier == ProcessInfo.processInfo.processIdentifier {
+            // Own app: the decision inspects NSApp.windows only (in-memory), so it
+            // stays synchronous, including the "never hold a fullscreen app" rule.
+            guard let action = decideSelfDockClick(clickedApp, frontmost: frontmost, isFrontmost: isFrontmost) else {
+                return false
+            }
+            pendingDockClick = PendingDockClick(
+                downLocation: location,
+                flags: flags,
+                clickCount: clickCount,
+                app: clickedApp,
+                isSelf: true,
+                action: action
+            )
+            return true
+        }
+
+        // External app: the heavy per-window inspection is deferred to mouse-up.
+        // Only a 2-call fullscreen precheck runs here to preserve the "never hold
+        // a fullscreen app" rule; otherwise the press is held with `action == nil`
+        // and the decision runs once the gesture is known to be a click.
+        if focusedWindowIsFullscreen(pid) {
             return false
         }
 
@@ -586,8 +683,8 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
             flags: flags,
             clickCount: clickCount,
             app: clickedApp,
-            isSelf: isSelf,
-            action: action
+            isSelf: false,
+            action: nil
         )
         return true
     }
@@ -696,24 +793,44 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
     private func decideExternalAppDockClick(
         _ clickedApp: NSRunningApplication,
         frontmost: NSRunningApplication?,
-        isFrontmost: Bool
+        isFrontmost: Bool,
+        inspection: WindowInspection
     ) -> DockClickAction? {
         let pid = clickedApp.processIdentifier
-        let inspection = inspectWindows(of: pid)
+        return Self.decideExternalClickAction(
+            actionMode: config.actionMode,
+            isFrontmost: isFrontmost,
+            isHidden: isAppHidden(clickedApp),
+            inspection: inspection,
+            hasLayerZeroWindow: hasOnScreenLayerZeroWindow(pid: pid),
+            wasHiddenByDockClick: hiddenByDockClick.contains(pid)
+        )
+    }
+
+    /// Pure decision core for external-app Dock clicks (no Accessibility IPC), so
+    /// the click-vs-action matrix is unit-testable from SelfTestRunner.
+    static func decideExternalClickAction(
+        actionMode: DockActionMode,
+        isFrontmost: Bool,
+        isHidden: Bool,
+        inspection: WindowInspection,
+        hasLayerZeroWindow: Bool,
+        wasHiddenByDockClick: Bool
+    ) -> DockClickAction? {
         if inspection.hasActiveFullscreen {
             return nil
         }
 
         // Step A: Hidden app clicked -> bring its windows straight back to the front.
-        if isAppHidden(clickedApp) {
-            if !inspection.openWindows.isEmpty || !inspection.minimizedWindows.isEmpty || hiddenByDockClick.contains(pid) {
+        if isHidden {
+            if !inspection.openWindows.isEmpty || !inspection.minimizedWindows.isEmpty || wasHiddenByDockClick {
                 return .unhideAndFocus
             }
             return nil
         }
 
         // Step B: All windows minimized in Dock tray -> restore and focus.
-        if config.actionMode != .sendToBack,
+        if actionMode != .sendToBack,
            inspection.openWindows.isEmpty,
            !inspection.minimizedWindows.isEmpty {
             return .restore
@@ -724,14 +841,14 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
             return nil
         }
 
-        switch config.actionMode {
+        switch actionMode {
         case .hideApp:
-            guard !inspection.openWindows.isEmpty || hasOnScreenLayerZeroWindow(pid: pid) else {
+            guard !inspection.openWindows.isEmpty || hasLayerZeroWindow else {
                 return nil
             }
             return .hideApp
         case .sendToBack:
-            guard !inspection.openWindows.isEmpty || hasOnScreenLayerZeroWindow(pid: pid) else {
+            guard !inspection.openWindows.isEmpty || hasLayerZeroWindow else {
                 return nil
             }
             return .sendToBack
@@ -747,10 +864,10 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
     private func executeExternalAppDockClick(
         _ action: DockClickAction,
         app: NSRunningApplication,
-        frontmost: NSRunningApplication?
+        frontmost: NSRunningApplication?,
+        inspection: WindowInspection
     ) -> Bool {
         let pid = app.processIdentifier
-        let inspection = inspectWindows(of: pid)
 
         switch action {
         case .unhideAndFocus:
@@ -1044,6 +1161,44 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
         return true
     }
 
+    /// Resolves the Dock item under `point` for the event-tap hot path.
+    ///
+    /// Preferred: a pure in-memory point-in-rect test against the background-
+    /// maintained geometry cache (zero Accessibility IPC). Cold cache: a single
+    /// AX hit-test plus a short parent walk, then a background cache build.
+    /// The full per-icon geometry scan that used to run synchronously here —
+    /// dozens of AX IPCs on *every* in-band click that was not on an icon — now
+    /// only runs in the background, so a slow Dock/AX server can no longer stall
+    /// the main run loop (and with it every other app's event delivery).
+    private func resolveClickedDockItem(at point: CGPoint) -> DockAppIdentity? {
+        let currentDockPID = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first?.processIdentifier
+
+        if !dockItemCache.isEmpty, dockItemCacheDockPID == currentDockPID {
+            if let hit = dockItemCache.first(where: { $0.frame.contains(point) }) {
+                if let cachedDate = dockItemCacheDate, Date().timeIntervalSince(cachedDate) > 5 {
+                    scheduleDockItemCacheRefresh()
+                }
+                return DockAppIdentity(bundleID: hit.bundleID, bundleURLPath: hit.bundleURLPath, title: hit.title)
+            }
+            // In-band click not on a cached icon: pass through; rebuild in the
+            // background if the snapshot is getting stale (a just-launched app's
+            // icon would otherwise take up to the periodic refresh to appear).
+            if let cachedDate = dockItemCacheDate, Date().timeIntervalSince(cachedDate) > 10 {
+                scheduleDockItemCacheRefresh()
+            }
+            return nil
+        }
+
+        // Cold cache (or Dock restarted): the bounded hit-test path, plus a
+        // background build so subsequent presses use the cache.
+        let identity = dockAppIdentity(at: point)
+        scheduleDockItemCacheRefresh()
+        return identity
+    }
+
+    /// Bounded fallback used only while the geometry cache is cold: one AX
+    /// hit-test plus a short parent walk. The full per-icon geometry scan no
+    /// longer runs here.
     private func dockAppIdentity(at point: CGPoint) -> DockAppIdentity? {
         guard let dockPID = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first?.processIdentifier else {
             return nil
@@ -1051,7 +1206,6 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
 
         let dockElement = applicationElement(for: dockPID)
 
-        // 1) Direct AX hit-test against the Dock process
         var elementRef: AXUIElement?
         if AXUIElementCopyElementAtPosition(dockElement, Float(point.x), Float(point.y), &elementRef) == .success,
            let element = elementRef,
@@ -1059,12 +1213,119 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
             return identity
         }
 
-        // 2) Fallback: scan AXApplicationDockItem rects directly (handles badges/edges cleanly)
-        if let identity = dockItemByGeometry(in: dockElement, point: point) {
-            return identity
+        return nil
+    }
+
+    /// Minimal-cost fullscreen precheck for the tap callback: the focused
+    /// window only (two AX calls), preserving the "never hold a fullscreen
+    /// app" rule while the full per-window inspection is deferred to mouse-up.
+    private func focusedWindowIsFullscreen(_ pid: pid_t) -> Bool {
+        let appElement = applicationElement(for: pid)
+        var focusedValue: AnyObject?
+        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedValue) == .success,
+              let rawFocused = focusedValue,
+              CFGetTypeID(rawFocused) == AXUIElementGetTypeID() else {
+            return false
+        }
+        return isAXWindowFullscreen(rawFocused as! AXUIElement)
+    }
+
+    // MARK: - Dock icon geometry cache
+
+    /// Starts (or restarts) the background maintenance of the Dock icon snapshot:
+    /// an initial rebuild plus a 5 s periodic rebuild and app launch/quit
+    /// triggers. All Accessibility work happens on `dockCacheQueue`; only the
+    /// final snapshot install touches the main actor.
+    private func startDockItemCacheMaintenance() {
+        stopDockItemCacheMaintenance()
+        scheduleDockItemCacheRefresh()
+
+        let timer = DispatchSource.makeTimerSource(queue: dockCacheQueue)
+        timer.schedule(deadline: .now() + 5, repeating: 5)
+        timer.setEventHandler { [weak self] in
+            self?.rebuildDockItemCache()
+        }
+        timer.resume()
+        dockCacheTimer = timer
+
+        let center = NSWorkspace.shared.notificationCenter
+        appChangeObservers = [
+            center.addObserver(
+                forName: NSWorkspace.didLaunchApplicationNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] note in
+                let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+                guard let app, app.activationPolicy == .regular else { return }
+                MainActor.assumeIsolated {
+                    self?.scheduleDockItemCacheRefresh()
+                }
+            },
+            center.addObserver(
+                forName: NSWorkspace.didTerminateApplicationNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] note in
+                let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+                guard let app, app.activationPolicy == .regular else { return }
+                MainActor.assumeIsolated {
+                    self?.scheduleDockItemCacheRefresh()
+                }
+            }
+        ]
+    }
+
+    private func stopDockItemCacheMaintenance() {
+        dockCacheTimer?.cancel()
+        dockCacheTimer = nil
+        for observer in appChangeObservers {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+        }
+        appChangeObservers = []
+    }
+
+    private func scheduleDockItemCacheRefresh(delay: TimeInterval = 0) {
+        dockCacheQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.rebuildDockItemCache()
+        }
+    }
+
+    private func resetDockItemCache() {
+        dockItemCache = []
+        dockItemCacheDate = nil
+        dockItemCacheDockPID = nil
+        scheduleDockItemCacheRefresh()
+    }
+
+    /// Runs on `dockCacheQueue`. Rebuilds the full Dock icon snapshot via a
+    /// background scan (the former synchronous fallback, now off the hot path)
+    /// and installs it on the main actor. The serial queue keeps builds from
+    /// overlapping; if the Dock is unreachable the first call times out and the
+    /// build aborts cheaply, so a hung Dock cannot build up a storm of scans.
+    nonisolated private func rebuildDockItemCache() {
+        guard let dockPID = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first?.processIdentifier else {
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self.dockItemCache = []
+                    self.dockItemCacheDate = nil
+                    self.dockItemCacheDockPID = nil
+                }
+            }
+            return
         }
 
-        return nil
+        let entries = buildDockItemSnapshot(dockPID: dockPID, axTimeout: dockMinimizeAXTimeoutSeconds)
+
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                guard self.isRunning else { return }
+                self.dockItemCache = entries.map {
+                    DockItemEntry(bundleID: $0.bundleID, bundleURLPath: $0.bundleURLPath, title: $0.title, frame: $0.frame)
+                }
+                self.dockItemCacheDate = Date()
+                self.dockItemCacheDockPID = dockPID
+            }
+        }
     }
 
     private func extractIdentity(fromElementOrParent start: AXUIElement) -> DockAppIdentity? {
@@ -1084,50 +1345,6 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
                 break
             }
             current = (parent as! AXUIElement)
-        }
-        return nil
-    }
-
-    private func dockItemByGeometry(in dockElement: AXUIElement, point: CGPoint) -> DockAppIdentity? {
-        var childrenVal: AnyObject?
-        guard AXUIElementCopyAttributeValue(dockElement, kAXChildrenAttribute as CFString, &childrenVal) == .success,
-              let children = childrenVal as? [AXUIElement] else {
-            return nil
-        }
-
-        for list in children {
-            AXUIElementSetMessagingTimeout(list, Self.axTimeoutSeconds)
-            var itemsVal: AnyObject?
-            guard AXUIElementCopyAttributeValue(list, kAXChildrenAttribute as CFString, &itemsVal) == .success,
-                  let items = itemsVal as? [AXUIElement] else {
-                continue
-            }
-            for item in items {
-                AXUIElementSetMessagingTimeout(item, Self.axTimeoutSeconds)
-                var posVal: AnyObject?
-                var sizeVal: AnyObject?
-                guard AXUIElementCopyAttributeValue(item, kAXPositionAttribute as CFString, &posVal) == .success,
-                      AXUIElementCopyAttributeValue(item, kAXSizeAttribute as CFString, &sizeVal) == .success,
-                      let posAX = posVal,
-                      let sizeAX = sizeVal,
-                      CFGetTypeID(posAX) == AXValueGetTypeID(),
-                      CFGetTypeID(sizeAX) == AXValueGetTypeID() else {
-                    continue
-                }
-                var origin = CGPoint.zero
-                var size = CGSize.zero
-                AXValueGetValue(posAX as! AXValue, .cgPoint, &origin)
-                AXValueGetValue(sizeAX as! AXValue, .cgSize, &size)
-
-                let rect = CGRect(origin: origin, size: size)
-                if rect.contains(point) {
-                    var subroleVal: AnyObject?
-                    AXUIElementCopyAttributeValue(item, kAXSubroleAttribute as CFString, &subroleVal)
-                    if (subroleVal as? String) == "AXApplicationDockItem" {
-                        return identity(fromDockItem: item)
-                    }
-                }
-            }
         }
         return nil
     }
@@ -1438,4 +1655,73 @@ final class DockMinimizeModule: ToolboxModule, ObservableObject {
         let activated = target.activate()
         return axResult == .success || activated
     }
+}
+
+/// Background scan backing `DockMinimizeModule`'s Dock icon geometry cache.
+/// Free function so it can run on a utility queue without touching main-actor
+/// state. Returns every `AXApplicationDockItem` with its frame and identity.
+/// If the first call (children) fails — Dock not running or hung — it aborts
+/// cheaply so a sick Dock cannot queue up a storm of full scans.
+fileprivate func buildDockItemSnapshot(
+    dockPID: pid_t,
+    axTimeout: Float
+) -> [(bundleID: String?, bundleURLPath: String?, title: String?, frame: CGRect)] {
+    let dockElement = AXUIElementCreateApplication(dockPID)
+    AXUIElementSetMessagingTimeout(dockElement, axTimeout)
+
+    var childrenVal: AnyObject?
+    guard AXUIElementCopyAttributeValue(dockElement, kAXChildrenAttribute as CFString, &childrenVal) == .success,
+          let children = childrenVal as? [AXUIElement] else {
+        return []
+    }
+
+    var entries: [(bundleID: String?, bundleURLPath: String?, title: String?, frame: CGRect)] = []
+    for list in children {
+        AXUIElementSetMessagingTimeout(list, axTimeout)
+        var itemsVal: AnyObject?
+        guard AXUIElementCopyAttributeValue(list, kAXChildrenAttribute as CFString, &itemsVal) == .success,
+              let items = itemsVal as? [AXUIElement] else {
+            continue
+        }
+        for item in items {
+            AXUIElementSetMessagingTimeout(item, axTimeout)
+            var subroleVal: AnyObject?
+            AXUIElementCopyAttributeValue(item, kAXSubroleAttribute as CFString, &subroleVal)
+            guard (subroleVal as? String) == "AXApplicationDockItem" else { continue }
+
+            var posVal: AnyObject?
+            var sizeVal: AnyObject?
+            guard AXUIElementCopyAttributeValue(item, kAXPositionAttribute as CFString, &posVal) == .success,
+                  AXUIElementCopyAttributeValue(item, kAXSizeAttribute as CFString, &sizeVal) == .success,
+                  let posAX = posVal, CFGetTypeID(posAX) == AXValueGetTypeID(),
+                  let sizeAX = sizeVal, CFGetTypeID(sizeAX) == AXValueGetTypeID() else {
+                continue
+            }
+            var origin = CGPoint.zero
+            var size = CGSize.zero
+            AXValueGetValue(posAX as! AXValue, .cgPoint, &origin)
+            AXValueGetValue(sizeAX as! AXValue, .cgSize, &size)
+
+            var bundleID: String?
+            var bundleURLPath: String?
+            var urlValue: AnyObject?
+            if AXUIElementCopyAttributeValue(item, kAXURLAttribute as CFString, &urlValue) == .success,
+               let url = urlValue as? URL {
+                bundleURLPath = url.standardizedFileURL.path
+                if let bundle = Bundle(url: url) {
+                    bundleID = bundle.bundleIdentifier
+                }
+            }
+            var titleValue: AnyObject?
+            AXUIElementCopyAttributeValue(item, kAXTitleAttribute as CFString, &titleValue)
+
+            entries.append((
+                bundleID: bundleID,
+                bundleURLPath: bundleURLPath,
+                title: titleValue as? String,
+                frame: CGRect(origin: origin, size: size)
+            ))
+        }
+    }
+    return entries
 }

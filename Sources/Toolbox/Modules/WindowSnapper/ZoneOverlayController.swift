@@ -124,6 +124,11 @@ enum OverlayDisplayMode: Equatable, Sendable {
         displayTitle: String,
         style: OverlayStyleConfig
     )
+    case identifyDisplay(
+        roleTitle: String,
+        displayName: String,
+        style: OverlayStyleConfig
+    )
 }
 
 @MainActor
@@ -352,11 +357,15 @@ final class ZoneOverlayController: ObservableObject {
         let activeIDs = Set(displays.map(\.displayID))
         hideUnlistedPassivePanels(keeping: activeIDs)
 
+        let effectiveOverrides = profile.effectiveDisplayLayoutOverrides(
+            for: displays,
+            swapExternalDisplays: config.swapExternalDisplays
+        )
         for display in displays {
             let layout = DisplayRegistry.layout(
                 for: display.signature,
                 in: config.displayLayouts,
-                overrides: profile.displayLayoutOverrides
+                overrides: effectiveOverrides
             )
             let zones = SnapGeometry.resolveZones(
                 layout: layout,
@@ -376,6 +385,46 @@ final class ZoneOverlayController: ObservableObject {
         }
 
         schedulePreviewAutoHide(after: autoHideAfter)
+    }
+
+    func showDisplayIdentification(
+        displays: [ConnectedDisplay],
+        swapExternalDisplays: Bool,
+        style: OverlayStyleConfig,
+        duration: TimeInterval = 2.2
+    ) {
+        onBeforeBlockingOverlayShown?()
+        cancelFlash()
+        cancelPreviewAutoHide()
+        isDryRunPreviewActive = false
+        isLivePreviewActive = false
+        activeDryRunProfileID = nil
+
+        let roles = DisplayRegistry.assignLogicalRoles(
+            for: displays,
+            swapExternalDisplays: swapExternalDisplays
+        )
+        let roleByDisplayID = Dictionary(
+            uniqueKeysWithValues: roles.map { ($0.value.displayID, $0.key) }
+        )
+
+        let activeIDs = Set(displays.map(\.displayID))
+        hideUnlistedPassivePanels(keeping: activeIDs)
+
+        for display in displays {
+            let role = roleByDisplayID[display.displayID] ?? .main
+            let entry = ensurePassivePanel(for: display)
+            entry.state.displayFrameAX = display.frameAX
+            entry.state.usableAXRect = display.usableAX
+            entry.state.mode = .identifyDisplay(
+                roleTitle: role.label,
+                displayName: display.signature.localizedName,
+                style: style
+            )
+            positionAndShow(entry.panel, for: display)
+        }
+
+        schedulePreviewAutoHide(after: duration)
     }
 
     func showProfileDryRunPreview(
@@ -998,6 +1047,31 @@ struct ZoneOverlayPreviewCanvasView: View {
                     text: "Profile Dry-Run: \(profileName) (\(displayTitle))",
                     tint: .indigo
                 )
+
+            case .identifyDisplay(let roleTitle, let displayName, _):
+                VStack(spacing: 8) {
+                    Image(systemName: "display")
+                        .font(.system(size: 32, weight: .semibold))
+                        .foregroundStyle(.indigo)
+                    Text(roleTitle)
+                        .font(.system(size: 26, weight: .bold))
+                        .foregroundStyle(.white)
+                    Text(displayName)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Color.white.opacity(0.75))
+                }
+                .padding(.horizontal, 28)
+                .padding(.vertical, 20)
+                .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.35), radius: 20, y: 8)
+                .position(
+                    x: max(1, displayFrameAX.width) / 2,
+                    y: max(1, displayFrameAX.height) / 2
+                )
             }
         }
         .frame(
@@ -1221,91 +1295,121 @@ struct ZoneOverlayPreviewCanvasView: View {
         let tint = baseTint(style: style)
         let strokeColor = style.tintColor.readableStrokeColor
 
+        let borderGradient = LinearGradient(
+            colors: [Color.white.opacity(0.28), Color.white.opacity(0.08)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        let dividerGradient = LinearGradient(
+            colors: [Color.white.opacity(0.02), Color.white.opacity(0.22), Color.white.opacity(0.02)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+
         return ZStack(alignment: .topLeading) {
-            ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(.ultraThickMaterial)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.22), lineWidth: 1)
-                    )
-                    .frame(width: pillW, height: pillH)
-                    .shadow(color: .black.opacity(0.45), radius: 16, y: 6)
-
-                if let leftDividerX = layout.leftDividerX {
-                    Capsule()
-                        .fill(Color.white.opacity(0.18))
-                        .frame(width: 1, height: pillH - 22)
-                        .offset(
-                            x: (leftDividerX - layout.pickerFrameAX.minX) - 0.5,
-                            y: 11
+            TopEdgePickerArrivalWrapper {
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(.ultraThickMaterial)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .strokeBorder(borderGradient, lineWidth: 1)
                         )
-                }
+                        .frame(width: pillW, height: pillH)
+                        .shadow(color: .black.opacity(0.42), radius: 24, y: 10)
+                        .shadow(color: .black.opacity(0.22), radius: 4, y: 1)
 
-                if let rightDividerX = layout.rightDividerX {
-                    Capsule()
-                        .fill(Color.white.opacity(0.18))
-                        .frame(width: 1, height: pillH - 22)
-                        .offset(
-                            x: (rightDividerX - layout.pickerFrameAX.minX) - 0.5,
-                            y: 11
+                    if let leftDividerX = layout.leftDividerX {
+                        Capsule()
+                            .fill(dividerGradient)
+                            .frame(width: 1, height: pillH - 20)
+                            .offset(
+                                x: (leftDividerX - layout.pickerFrameAX.minX) - 0.5,
+                                y: 10
+                            )
+                    }
+
+                    if let rightDividerX = layout.rightDividerX {
+                        Capsule()
+                            .fill(dividerGradient)
+                            .frame(width: 1, height: pillH - 20)
+                            .offset(
+                                x: (rightDividerX - layout.pickerFrameAX.minX) - 0.5,
+                                y: 10
+                            )
+                    }
+
+                    ForEach(layout.slots) { slotFrame in
+                        let isActive = slotFrame.item.kind == activeSlot
+                        let slotX = slotFrame.frameAX.minX - layout.pickerFrameAX.minX
+                        let slotY = slotFrame.frameAX.minY - layout.pickerFrameAX.minY
+
+                        TopEdgePickerSlotTile(
+                            kind: slotFrame.item.kind,
+                            isActive: isActive,
+                            hoveredCellIndex: isActive ? hoveredCellIndex : nil,
+                            tint: tint,
+                            strokeColor: strokeColor
                         )
+                        .frame(width: slotFrame.frameAX.width, height: slotFrame.frameAX.height)
+                        .offset(x: slotX, y: slotY)
+                    }
                 }
-
-                ForEach(layout.slots) { slotFrame in
-                    let isActive = slotFrame.item.kind == activeSlot
-                    let slotX = slotFrame.frameAX.minX - layout.pickerFrameAX.minX
-                    let slotY = slotFrame.frameAX.minY - layout.pickerFrameAX.minY
-
-                    TopEdgePickerSlotTile(
-                        kind: slotFrame.item.kind,
-                        isActive: isActive,
-                        hoveredCellIndex: isActive ? hoveredCellIndex : nil,
-                        tint: tint,
-                        strokeColor: strokeColor
-                    )
-                    .frame(width: slotFrame.frameAX.width, height: slotFrame.frameAX.height)
-                    .offset(x: slotX, y: slotY)
-                }
+                .frame(width: pillW, height: pillH, alignment: .topLeading)
             }
-            .frame(width: pillW, height: pillH, alignment: .topLeading)
             .offset(x: localX, y: localY)
             .animation(.easeOut(duration: 0.12), value: activeSlot)
             .animation(.easeOut(duration: 0.08), value: hoveredCellIndex)
 
             if let activeSlot {
-                let captionText: String = {
-                    switch activeSlot {
-                    case .maximize:
-                        return "Maximize · Release to fill screen"
-                    case .template(let preset):
-                        if let highlightedZone {
-                            return "\(preset.label) · \(highlightedZone.name) · Release to snap"
-                        }
-                        return "\(preset.label) · Hover a cell and release"
-                    }
-                }()
                 let centerX = (layout.maximizeSlot?.frameAX.midX ?? layout.pickerFrameAX.midX) - displayFrameAX.minX
-                let pillTopY = (layout.pickerFrameAX.maxY - displayFrameAX.minY) + 8
+                let pillTopY = (layout.pickerFrameAX.maxY - displayFrameAX.minY) + 10
 
                 HStack(spacing: 6) {
                     Circle()
                         .fill(strokeColor)
                         .frame(width: 6, height: 6)
-                    Text(captionText)
-                        .toolboxFont(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
+
+                    switch activeSlot {
+                    case .maximize:
+                        Text("Maximize")
+                            .toolboxFont(.caption.weight(.bold))
+                            .foregroundStyle(.white)
+                        Text("Release to fill screen")
+                            .toolboxFont(.caption.weight(.medium))
+                            .foregroundStyle(Color.white.opacity(0.66))
+                    case .template(let preset):
+                        Text(preset.label)
+                            .toolboxFont(.caption.weight(.bold))
+                            .foregroundStyle(.white)
+                        if let highlightedZone {
+                            Image(systemName: "chevron.right")
+                                .toolboxFont(.system(size: 9, weight: .bold))
+                                .foregroundStyle(Color.white.opacity(0.55))
+                            Text(highlightedZone.name)
+                                .toolboxFont(.caption.weight(.semibold))
+                                .foregroundStyle(strokeColor)
+                            Text("· Release to snap")
+                                .toolboxFont(.caption.weight(.medium))
+                                .foregroundStyle(Color.white.opacity(0.66))
+                        } else {
+                            Text("· Hover a cell to snap")
+                                .toolboxFont(.caption.weight(.medium))
+                                .foregroundStyle(Color.white.opacity(0.66))
+                        }
+                    }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
+                .lineLimit(1)
+                .padding(.horizontal, 13)
+                .padding(.vertical, 6)
                 .background(.ultraThickMaterial, in: Capsule())
                 .overlay(
                     Capsule()
-                        .strokeBorder(Color.white.opacity(0.18), lineWidth: 0.75)
+                        .strokeBorder(borderGradient, lineWidth: 0.75)
                 )
-                .shadow(color: .black.opacity(0.35), radius: 8, y: 3)
-                .position(x: centerX, y: pillTopY + 12)
+                .shadow(color: .black.opacity(0.35), radius: 10, y: 4)
+                .position(x: centerX, y: pillTopY + 13)
+                .animation(.easeOut(duration: 0.10), value: highlightedZone?.id)
             }
         }
     }
@@ -1354,6 +1458,29 @@ struct ZoneOverlayPreviewCanvasView: View {
     }
 }
 
+@MainActor
+private final class TopEdgePickerArrivalState: ObservableObject {
+    @Published var hasArrived: Bool = PermissionsManager.isRunningInDiagnosticMode
+}
+
+private struct TopEdgePickerArrivalWrapper<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+    @StateObject private var state = TopEdgePickerArrivalState()
+
+    var body: some View {
+        content()
+            .offset(y: state.hasArrived ? 0 : -22)
+            .scaleEffect(state.hasArrived ? 1.0 : 0.95, anchor: .top)
+            .opacity(state.hasArrived ? 1.0 : 0.0)
+            .onAppear {
+                guard !state.hasArrived else { return }
+                withAnimation(.spring(response: 0.26, dampingFraction: 0.80)) {
+                    state.hasArrived = true
+                }
+            }
+    }
+}
+
 struct TopEdgePickerSlotTile: View {
     let kind: TopEdgePanelSlotKind
     let isActive: Bool
@@ -1363,13 +1490,13 @@ struct TopEdgePickerSlotTile: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isActive ? tint.opacity(0.18) : Color.white.opacity(0.06))
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(isActive ? tint.opacity(0.20) : Color.white.opacity(0.05))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .strokeBorder(
-                            isActive ? strokeColor.opacity(0.72) : Color.white.opacity(0.18),
-                            lineWidth: isActive ? 1.25 : 0.75
+                            isActive ? strokeColor.opacity(0.85) : Color.white.opacity(0.14),
+                            lineWidth: isActive ? 1.4 : 0.75
                         )
                 )
 
@@ -1379,19 +1506,19 @@ struct TopEdgePickerSlotTile: View {
                     let pad = TopEdgePanelGeometry.slotInnerPadding
                     let innerW = max(12, geo.size.width - pad * 2)
                     let innerH = max(12, geo.size.height - pad * 2)
-                    RoundedRectangle(cornerRadius: 3.5, style: .continuous)
-                        .fill(isActive ? tint.opacity(0.80) : Color.white.opacity(0.16))
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(isActive ? tint.opacity(0.76) : Color.white.opacity(0.12))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 3.5, style: .continuous)
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
                                 .strokeBorder(
-                                    isActive ? strokeColor : Color.white.opacity(0.42),
-                                    lineWidth: isActive ? 1.25 : 1.0
+                                    isActive ? strokeColor : Color.white.opacity(0.32),
+                                    lineWidth: isActive ? 1.25 : 0.9
                                 )
                         )
                         .overlay(
                             Image(systemName: "arrow.up.left.and.arrow.down.right")
                                 .toolboxFont(.system(size: 13, weight: .bold))
-                                .foregroundStyle(isActive ? .white : Color.white.opacity(0.86))
+                                .foregroundStyle(isActive ? .white : Color.white.opacity(0.84))
                         )
                         .frame(width: innerW, height: innerH)
                         .offset(x: pad, y: pad)
@@ -1400,16 +1527,19 @@ struct TopEdgePickerSlotTile: View {
             case .template(let preset):
                 TemplateMiniThumbnailView(
                     preset: preset,
-                    cellFill: isActive ? Color.white.opacity(0.22) : Color.white.opacity(0.30),
-                    cellStroke: isActive ? Color.white.opacity(0.32) : Color.white.opacity(0.35),
+                    cellFill: isActive ? Color.white.opacity(0.18) : Color.white.opacity(0.20),
+                    cellStroke: isActive ? Color.white.opacity(0.28) : Color.white.opacity(0.26),
                     highlightedCellIndex: isActive ? hoveredCellIndex : nil,
-                    highlightedCellFill: tint == .white ? Color.white.opacity(0.90) : strokeColor.opacity(0.92),
-                    highlightedCellStroke: Color.white.opacity(0.95),
+                    highlightedCellFill: tint == .white ? Color.white.opacity(0.90) : strokeColor.opacity(0.95),
+                    highlightedCellStroke: Color.white.opacity(0.96),
                     padding: TopEdgePanelGeometry.slotInnerPadding,
                     cellGap: TopEdgePanelGeometry.miniCellGap
                 )
             }
         }
+        .scaleEffect(isActive ? 1.04 : 1.0)
+        .shadow(color: isActive ? tint.opacity(0.32) : .clear, radius: 8, y: 2)
+        .animation(.spring(response: 0.20, dampingFraction: 0.82), value: isActive)
     }
 }
 
@@ -1432,15 +1562,16 @@ struct TemplateMiniThumbnailView: View {
                 let nr = rawRect.clamped
                 let cellW = max(3, CGFloat(nr.width) * innerW - cellGap * 2)
                 let cellH = max(3, CGFloat(nr.height) * innerH - cellGap * 2)
-                RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                RoundedRectangle(cornerRadius: 3.5, style: .continuous)
                     .fill(isCellHighlighted ? highlightedCellFill : cellFill)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                        RoundedRectangle(cornerRadius: 3.5, style: .continuous)
                             .strokeBorder(
                                 isCellHighlighted ? highlightedCellStroke : cellStroke,
                                 lineWidth: isCellHighlighted ? 1.25 : 0.5
                             )
                     )
+                    .shadow(color: isCellHighlighted ? highlightedCellFill.opacity(0.45) : .clear, radius: 4, y: 1)
                     .frame(width: cellW, height: cellH)
                     .offset(
                         x: padding + CGFloat(nr.x) * innerW + cellGap,
