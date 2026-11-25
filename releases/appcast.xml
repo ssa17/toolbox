@@ -3,21 +3,27 @@
     <channel>
         <title>Toolbox</title>
         <item>
-            <title>1.6.1</title>
-            <pubDate>Mon, 23 Nov 2026 08:17:54 +0000</pubDate>
-            <sparkle:version>1.6.1</sparkle:version>
-            <sparkle:shortVersionString>1.6.1</sparkle:shortVersionString>
+            <title>1.6.2</title>
+            <pubDate>Wed, 25 Nov 2026 01:22:40 +0000</pubDate>
+            <sparkle:version>1.6.2</sparkle:version>
+            <sparkle:shortVersionString>1.6.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <description sparkle:format="markdown"><![CDATA[
 ### Added
-- **Software Updates** — link to the full release notes on GitHub from the update dialog, the pending-update card in Settings, and the About Toolbox section, so you can see what's new even when you're up to date
+- **Window Snapper (Multi-Display Profiles)** — design 1-, 2-, and 3-display layout variants inside one Workspace Profile, choose a profile to auto-apply when monitors connect, set an Always Extend or Always Mirror display-connect preference, identify screens on-screen, capture open windows into a view, and swap External 1 & 2 in one click
+- **Window Snapper (Smooth Profile Transitions)** — choreographed entry, reposition, and exit animations across profile switches and display changes, paired with an instant display-detect and loading HUD pill
 
 ### Changed
-- **Window Snapper** — pressing an active Workspace Profile again restores the previous workspace from every activation path — keyboard shortcut, Apply button, and status bar menu — with a **Restore** affordance (button label + status bar pill) when a restore is available
+- **Window Snapper (Profiles & Top Edge Panel)** — decluttered profile cards and a calmer Profile Editor with drag-to-assign apps, drag-to-swap zones, an auto-collapsing layout picker, Save & Apply, and a refined frosted-glass Top Edge Panel with smooth drop-down arrival
+- **HUD Toasts** — upgraded floating toasts with tinted icon badges, subtitles, and smooth fade-in transitions
+
+### Fixed
+- **Window Snapper** — prevented duplicate or orphaned app rules from launching unintended apps, eliminated window flashing while connecting displays, and ensured Save & Apply always applies the profile instead of toggling restore
+- **Dock Minimize** — moved Dock icon inspection to a background cache so Dock clicks stay responsive without stalling input delivery
 
 ]]></description>
-            <enclosure url="https://github.com/ssa17/toolbox/releases/download/v1.6.1/Toolbox-1.6.1.zip" length="7314070" type="application/octet-stream" sparkle:edSignature="2I9K2ME2k0gxa5AayBJucEl/pIfivdTCnXKO3YKxWaDnCzq8ppKYXQl+9SwzuN201y1wGF5zINcKCtldaGxeDg=="/>
+            <enclosure url="https://github.com/ssa17/toolbox/releases/download/v1.6.2/Toolbox-1.6.2.zip" length="7558742" type="application/octet-stream" sparkle:edSignature="SRHjFcMQX7lFi9GIKmb8X7Av7LLDu6EVaaJCXLjg7vLRvyuMG+uUcJ7raVtkJdEszPEei47b1N2MgVsg0lMmBw=="/>
         </item>
     </channel>
 </rss>
