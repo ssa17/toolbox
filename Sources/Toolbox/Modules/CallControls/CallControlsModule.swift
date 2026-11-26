@@ -255,6 +255,9 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
         }
     }
     @Published private(set) var lastSimulationOutcome: String? = nil
+    @Published private(set) var bluetoothMicLockState = BluetoothMicLockState()
+    /// Apps that opened the Bluetooth mic themselves, so the mic guard cannot protect stereo.
+    @Published private(set) var pinnedBluetoothMicAppNames: [String] = []
 
     private var config = CallControlsConfig()
     private var appEnabled = true
@@ -263,6 +266,13 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
     private let callRemapper = CallShortcutRemapper()
     private let typingGuard = TypingMicGuard()
     private let floatingIndicator = FloatingMicIndicatorPanel()
+    private lazy var bluetoothMicLock = BluetoothMicLockController(
+        listDevices: { CoreAudioController.listDevices() },
+        setDefaultInputDevice: { [weak self] uid in
+            guard let self else { return false }
+            return self.coreAudio.setDefaultInputDevice(uid: uid)
+        }
+    )
     private var appLifecycleObservers: [NSObjectProtocol] = []
     private var callAppPollTimer: Timer?
     private let callAppInspectionQueue = DispatchQueue(label: "app.toolbox.call-app-ax-poll", qos: .utility)
@@ -270,15 +280,24 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
     private var consecutiveNilCallAppPolls: Int = 0
     private var pendingSmartUnmuteOnly: Bool = false
     private var simulatedTypingBurstTask: Task<Void, Never>?
+    private var reportedPinnedBluetoothMicApps: Set<String> = []
+    #if DEBUG
+    private var pinnedBluetoothMicAppsDiagnosticOverride: [String]?
+    #endif
 
     init() {
         coreAudio.onDevicesChanged = { [weak self] in
-            self?.refreshAudioDevices()
+            guard let self else { return }
+            self.refreshAudioDevices()
+            self.bluetoothMicLock.handleDevicesChanged()
+            self.refreshPinnedBluetoothMicApps()
         }
         coreAudio.onDefaultInputChanged = { [weak self] _ in
             guard let self else { return }
             self.restoreTypingMuteIfNeeded(forceUnmuteCurrentDevice: true)
             self.refreshAudioDevices()
+            self.bluetoothMicLock.handleDefaultInputChanged()
+            self.refreshPinnedBluetoothMicApps()
         }
         coreAudio.onDefaultOutputChanged = { [weak self] _ in
             self?.refreshAudioDevices()
@@ -291,6 +310,21 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
         }
         coreAudio.onCameraStateChanged = { [weak self] in
             self?.refreshCameraStatus()
+        }
+
+        bluetoothMicLock.onStateChanged = { [weak self] in
+            guard let self else { return }
+            if self.bluetoothMicLockState != self.bluetoothMicLock.state {
+                self.bluetoothMicLockState = self.bluetoothMicLock.state
+            }
+        }
+        bluetoothMicLock.onReverted = { [weak self] from, to in
+            guard let self else { return }
+            self.handleBluetoothMicReverted(from: from, to: to)
+        }
+        bluetoothMicLock.onLoopBreakerTripped = { [weak self] device, resumeAt in
+            guard let self else { return }
+            self.handleBluetoothMicLockThrottled(for: device, resumeAt: resumeAt)
         }
 
         callRemapper.onRemapTriggered = { [weak self] action, mapping, targetShortcut, deliveredToCallApp, preRelayAppMuted in
@@ -452,6 +486,10 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
         restoreTypingMuteIfNeeded(forceUnmuteCurrentDevice: true)
         typingGuard.uninstall()
         isTypingTapInstalled = false
+        bluetoothMicLock.invalidate()
+        bluetoothMicLockState = bluetoothMicLock.state
+        pinnedBluetoothMicAppNames = []
+        reportedPinnedBluetoothMicApps.removeAll()
 
         if developerSimulation == nil {
             callRemapper.uninstall()
@@ -506,6 +544,280 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
         syncTypingMicGuard()
         syncCallAppPollTimer()
         syncFloatingIndicator()
+        syncBluetoothMicLock()
+    }
+
+    // MARK: - Bluetooth Mic Lock
+
+    /// Keeps AirPods / Bluetooth headsets in high-quality stereo by holding the default input
+    /// on a non-Bluetooth microphone whenever a call app opens the headset mic.
+    private func syncBluetoothMicLock() {
+        let shouldEngage = isRunning && appEnabled && config.enabled && config.preventBluetoothMicSwitch
+        // configure() already schedules an evaluation when the guard engages or the fallback
+        // changes, so no extra evaluateSoon() here (it would restart the 150 ms debounce on
+        // every unrelated config reload).
+        bluetoothMicLock.configure(
+            enabled: shouldEngage,
+            fallbackUID: config.bluetoothMicLockFallbackUID
+        )
+        if bluetoothMicLockState != bluetoothMicLock.state {
+            bluetoothMicLockState = bluetoothMicLock.state
+        }
+        refreshPinnedBluetoothMicApps()
+    }
+
+    private func handleBluetoothMicReverted(from bluetooth: AudioDeviceInfo, to fallback: AudioDeviceInfo) {
+        // Re-sync this module's mute state and the typing guard against the new default device.
+        refreshAudioDevices()
+        syncTypingMicGuard()
+        refreshPinnedBluetoothMicApps()
+        DeveloperEventLog.shared.record(
+            .callControls,
+            "Kept Bluetooth audio in stereo",
+            detail: "\(bluetooth.name) mic -> \(fallback.name)"
+        )
+        if config.showToasts && config.showBluetoothMicLockToast {
+            HUDToast.shared.show(
+                title: "\(bluetooth.name) kept in stereo",
+                subtitle: "Apps now use \(fallback.name) - not the headset mic",
+                symbol: "dot.radiowaves.left.and.right",
+                tint: .blue
+            )
+        }
+        ModuleRegistry.shared.notifyChanged()
+    }
+
+    private func handleBluetoothMicLockThrottled(for device: AudioDeviceInfo, resumeAt: TimeInterval) {
+        let seconds = max(1, Int((resumeAt - ProcessInfo.processInfo.systemUptime).rounded()))
+        DeveloperEventLog.shared.record(
+            .callControls,
+            "Bluetooth mic lock paused",
+            detail: "\(device.name) re-selected too often; retrying in \(seconds)s"
+        )
+        ModuleRegistry.shared.notifyChanged()
+    }
+
+    /// Detects apps that opened the Bluetooth microphone directly. Those apps force the headset
+    /// into hands-free call mode regardless of the system default input, so the only real fix is
+    /// for the user to point that app at "Same as System".
+    private func refreshPinnedBluetoothMicApps() {
+        #if DEBUG
+        if let override = pinnedBluetoothMicAppsDiagnosticOverride {
+            if pinnedBluetoothMicAppNames != override {
+                pinnedBluetoothMicAppNames = override
+            }
+            return
+        }
+        #endif
+        let guardEngaged = isRunning && appEnabled && config.enabled && config.preventBluetoothMicSwitch
+        guard guardEngaged else {
+            if !pinnedBluetoothMicAppNames.isEmpty {
+                pinnedBluetoothMicAppNames = []
+            }
+            if !reportedPinnedBluetoothMicApps.isEmpty {
+                // Re-engaging the guard must announce hijacking apps again.
+                reportedPinnedBluetoothMicApps.removeAll()
+            }
+            return
+        }
+
+        let devices = CoreAudioController.listDevices()
+        let defaultInputUID = devices.first(where: \.isDefaultInput)?.uid
+        let pinnedBundleIDs = BluetoothMicLockPolicy.pinnedBluetoothMicBundleIDs(
+            captures: CoreAudioController.activeInputProcessCaptures(),
+            devices: devices,
+            defaultInputUID: defaultInputUID
+        )
+
+        let names = pinnedBundleIDs
+            .filter { !$0.isEmpty }
+            .map { displayName(forBundleID: $0) }
+            .reduce(into: [String]()) { unique, name in
+                if !unique.contains(name) { unique.append(name) }
+            }
+        if pinnedBluetoothMicAppNames != names {
+            pinnedBluetoothMicAppNames = names
+        }
+
+        for bundleID in pinnedBundleIDs where !reportedPinnedBluetoothMicApps.contains(bundleID) {
+            reportedPinnedBluetoothMicApps.insert(bundleID)
+            let appName = displayName(forBundleID: bundleID)
+            DeveloperEventLog.shared.record(
+                .callControls,
+                "App opened the Bluetooth mic directly",
+                detail: "\(appName) (\(bundleID)) - set its mic to Same as System"
+            )
+            showToast(
+                title: "\(appName) is using the headset mic",
+                subtitle: "Set its microphone to \"Same as System\" to keep stereo",
+                symbol: "exclamationmark.triangle.fill",
+                tint: .orange
+            )
+        }
+    }
+
+    /// Best-effort friendly name for a process bundle ID (call app presets → running app → ID).
+    func displayName(forBundleID bundleID: String) -> String {
+        let trimmed = bundleID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "An app" }
+        let low = trimmed.lowercased()
+
+        for mapping in config.appShortcutMappings {
+            let matched = mapping.bundleIdentifiers.contains { candidate in
+                let preset = candidate.lowercased()
+                return low == preset || low.hasPrefix(preset + ".")
+            }
+            if matched {
+                return mapping.appName
+            }
+        }
+        if let app = NSRunningApplication.runningApplications(withBundleIdentifier: trimmed).first,
+           let name = app.localizedName,
+           !name.isEmpty {
+            return name
+        }
+        // Helper processes report as "com.acme.app.helper"; fall back to the owning app.
+        if let parent = NSWorkspace.shared.runningApplications.first(where: { app in
+            guard let appBundle = app.bundleIdentifier?.lowercased() else { return false }
+            return !app.isTerminated && low.hasPrefix(appBundle + ".")
+        }), let name = parent.localizedName, !name.isEmpty {
+            return name
+        }
+        return trimmed
+    }
+
+    #if DEBUG
+    /// Snapshot / self-test hook: the pinned-app warning can only be rendered on screen when a
+    /// real app is hijacking a Bluetooth mic, so allow diagnostics to fake it.
+    func setPinnedBluetoothMicAppsForDiagnostics(_ appNames: [String]?) {
+        pinnedBluetoothMicAppsDiagnosticOverride = appNames
+        pinnedBluetoothMicAppNames = appNames ?? []
+        ModuleRegistry.shared.notifyChanged()
+    }
+    #endif
+
+    /// One-line actionable hint for the menu bar and Settings warning.
+    func pinnedBluetoothMicHint(for appName: String) -> String {
+        "\(appName) opened the headset's mic itself, so Toolbox can't keep stereo. Set \(appName)'s microphone to \"Same as System\"."
+    }
+
+    /// Non-Bluetooth microphones that can serve as the mic-lock fallback.
+    var bluetoothMicFallbackOptions: [AudioDeviceInfo] {
+        BluetoothMicLockPolicy.fallbackCandidates(from: devices)
+    }
+
+    /// Bluetooth headsets currently connected with an input (AirPods, Beats, headsets).
+    var connectedBluetoothInputs: [AudioDeviceInfo] {
+        inputDevices.filter { $0.transport == .bluetooth }
+    }
+
+    var isBluetoothMicLockAvailable: Bool {
+        !connectedBluetoothInputs.isEmpty && !bluetoothMicFallbackOptions.isEmpty
+    }
+
+    var isBluetoothMicLockEnabled: Bool {
+        bluetoothMicLockState.isEnabled
+    }
+
+    var isBluetoothMicBypassed: Bool {
+        bluetoothMicLockState.isBluetoothMicBypassed
+    }
+
+    /// Short one-line description for the menu bar row and Settings status row.
+    func bluetoothMicLockStatusText(in cfg: CallControlsConfig) -> String {
+        guard cfg.preventBluetoothMicSwitch else { return "Off - apps may use the headset mic" }
+        guard !connectedBluetoothInputs.isEmpty else { return "No Bluetooth headset connected" }
+        if let bypassed = bluetoothMicLockState.bypassedBluetoothName {
+            return "Using \(bypassed)'s mic - audio is in call mode until it disconnects"
+        }
+        if let pinnedApp = pinnedBluetoothMicAppNames.first {
+            return "\(pinnedApp) is using the headset mic - set it to Same as System"
+        }
+        if bluetoothMicLockState.isThrottled {
+            return "Paused - an app keeps re-opening the headset mic"
+        }
+        if let fallback = bluetoothMicLockState.resolvedFallbackName {
+            return "Stereo kept - apps use \(fallback)"
+        }
+        return "Stereo kept - no other microphone available yet"
+    }
+
+    /// "Allow Headset Mic" (until disconnect): arms the temporary override and, when needed,
+    /// switches the default input to the headset so the user can walk away from the desk.
+    func allowBluetoothMicUntilDisconnect() {
+        let target = connectedBluetoothInputs.first(where: \.isDefaultInput) ?? connectedBluetoothInputs.first
+        guard let target else {
+            showToast(
+                title: "No Bluetooth headset connected",
+                symbol: "dot.radiowaves.left.and.right",
+                tint: .orange,
+                force: true
+            )
+            return
+        }
+
+        if !target.isDefaultInput {
+            restoreTypingMuteIfNeeded(forceUnmuteCurrentDevice: true)
+            guard coreAudio.setDefaultInputDevice(uid: target.uid) else {
+                refreshAudioDevices()
+                showToast(
+                    title: "Could not switch to \(target.name) mic",
+                    subtitle: "The microphone stayed where it was",
+                    symbol: "exclamationmark.triangle.fill",
+                    tint: .orange,
+                    force: true
+                )
+                return
+            }
+        }
+        // Only arm the override once the headset mic really is the active input.
+        bluetoothMicLock.armBypass(bluetoothUID: target.uid)
+        refreshAudioDevices()
+        refreshPinnedBluetoothMicApps()
+        bluetoothMicLockState = bluetoothMicLock.state
+        DeveloperEventLog.shared.record(.callControls, "Using Bluetooth headset mic until disconnect", detail: target.name)
+        showToast(
+            title: "Using \(target.name)'s mic",
+            subtitle: "Audio drops to call quality until the headset disconnects",
+            symbol: "dot.radiowaves.left.and.right",
+            tint: .blue
+        )
+        ModuleRegistry.shared.notifyChanged()
+    }
+
+    /// Re-arms the guard immediately (clears the temporary override and reverts the mic).
+    func restoreBluetoothMicLock() {
+        bluetoothMicLock.clearBypass()
+        let outcome = bluetoothMicLock.evaluate()
+        bluetoothMicLockState = bluetoothMicLock.state
+        switch outcome {
+        case .reverted, .suppressedByBypass:
+            break // The revert handler already logged and toasted the device switch.
+        case .suppressedByLoopBreaker:
+            showToast(
+                title: "Mic switch paused",
+                subtitle: "An app keeps re-opening the headset mic - retrying shortly",
+                symbol: "pause.circle.fill",
+                tint: .orange
+            )
+        case .suppressedByNoFallback, .revertFailed:
+            showToast(
+                title: "No other microphone available",
+                subtitle: "The headset's mic has to be used",
+                symbol: "mic.slash",
+                tint: .orange,
+                force: true
+            )
+        case .idle:
+            showToast(
+                title: connectedBluetoothInputs.isEmpty
+                    ? "No Bluetooth headset connected"
+                    : "Back to stereo",
+                symbol: "waveform",
+                tint: .secondary
+            )
+        }
+        ModuleRegistry.shared.notifyChanged()
     }
 
     private func registerHotKeys() {
@@ -1182,6 +1494,7 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
         if isMicStreamActive != active {
             isMicStreamActive = active
         }
+        refreshPinnedBluetoothMicApps()
         if !active && !isCameraActive && !hasActiveCallAppSession && callAppMutedState != nil {
             callAppMutedState = nil
         }
@@ -1600,7 +1913,28 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
         guard device.hasInput else { return false }
         restoreTypingMuteIfNeeded(forceUnmuteCurrentDevice: true)
         let ok = coreAudio.setDefaultInputDevice(uid: device.uid)
+        // Reconcile the temporary override with the device the user actually landed on: an explicit
+        // Bluetooth pick must win until the headset disconnects, while picking a wired mic is an
+        // explicit "back to stereo" that drops the bypass. A failed switch changes nothing.
+        switch BluetoothMicLockPolicy.bypassActionAfterManualInputSelection(
+            selectedUID: device.uid,
+            selectedIsBluetooth: device.transport == .bluetooth,
+            switchSucceeded: ok,
+            guardEnabled: config.preventBluetoothMicSwitch,
+            currentlyBypassed: bluetoothMicLock.bypassedUID != nil
+        ) {
+        case .arm(let uid):
+            bluetoothMicLock.armBypass(bluetoothUID: uid)
+        case .clear:
+            bluetoothMicLock.clearBypass()
+        case .unchanged:
+            break
+        }
         refreshAudioDevices()
+        refreshPinnedBluetoothMicApps()
+        if bluetoothMicLockState != bluetoothMicLock.state {
+            bluetoothMicLockState = bluetoothMicLock.state
+        }
         if ok {
             DeveloperEventLog.shared.record(.callControls, "Switched input device", detail: device.name)
             showToast(
@@ -2156,9 +2490,15 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
         updateEffectiveMuteState()
     }
 
-    private func showToast(title: String, symbol: String, tint: Color, force: Bool = false) {
+    private func showToast(
+        title: String,
+        subtitle: String? = nil,
+        symbol: String,
+        tint: Color,
+        force: Bool = false
+    ) {
         guard force || config.showToasts else { return }
-        HUDToast.shared.show(title: title, symbol: symbol, tint: tint)
+        HUDToast.shared.show(title: title, subtitle: subtitle, symbol: symbol, tint: tint)
     }
 
     // MARK: - App Running Status Tracking

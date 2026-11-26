@@ -1323,70 +1323,133 @@ struct MenuBarPopoverView: View {
                 }
 
                 CollapsibleBlock(progress: p.callControlsActions, isInteractive: isAppEnabled) {
-                    HStack(spacing: 8) {
-                        Button {
-                            callControls.toggleSmartMicMute()
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: callControls.isInputMuted ? "mic.slash.fill" : "mic.fill")
-                                    .toolboxFont(.caption.weight(.semibold))
-                                    .foregroundStyle(callControls.isInputMuted ? .red : .green)
-                                Text(callControls.isInputMuted ? "Mic Muted" : "Mic Live")
-                                    .toolboxFont(.caption.weight(.medium))
-                                    .foregroundStyle(.primary)
-                                    .lineLimit(1)
+                    VStack(spacing: 0) {
+                        HStack(spacing: 8) {
+                            Button {
+                                callControls.toggleSmartMicMute()
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: callControls.isInputMuted ? "mic.slash.fill" : "mic.fill")
+                                        .toolboxFont(.caption.weight(.semibold))
+                                        .foregroundStyle(callControls.isInputMuted ? .red : .green)
+                                    Text(callControls.isInputMuted ? "Mic Muted" : "Mic Live")
+                                        .toolboxFont(.caption.weight(.medium))
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(1)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 7)
+                                .background(
+                                    (callControls.isInputMuted ? Color.red : Color.green).opacity(0.12),
+                                    in: RoundedRectangle(cornerRadius: 8)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .strokeBorder(
+                                            (callControls.isInputMuted ? Color.red : Color.green).opacity(0.35),
+                                            lineWidth: 0.75
+                                        )
+                                )
+                                .contentShape(RoundedRectangle(cornerRadius: 8))
                             }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 7)
-                            .background(
-                                (callControls.isInputMuted ? Color.red : Color.green).opacity(0.12),
-                                in: RoundedRectangle(cornerRadius: 8)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .strokeBorder(
-                                        (callControls.isInputMuted ? Color.red : Color.green).opacity(0.35),
-                                        lineWidth: 0.75
-                                    )
-                            )
-                            .contentShape(RoundedRectangle(cornerRadius: 8))
-                        }
-                        .buttonStyle(.plain)
-                        .focusEffectDisabled()
-                        .help(callControls.isInputMuted ? "Unmute default microphone" : "Mute default microphone")
-                        .pointerCursor(isAppEnabled && p.callControlsActions > 0.99)
-                        .menuRowHover(cornerRadius: 8)
+                            .buttonStyle(.plain)
+                            .focusEffectDisabled()
+                            .help(callControls.isInputMuted ? "Unmute default microphone" : "Mute default microphone")
+                            .pointerCursor(isAppEnabled && p.callControlsActions > 0.99)
+                            .menuRowHover(cornerRadius: 8)
 
-                        Button {
-                            callControls.cycleOutputDevice()
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: callControls.defaultOutputDevice?.transport.symbolName(isInput: false) ?? "speaker.wave.2")
-                                    .toolboxFont(.caption.weight(.semibold))
-                                    .foregroundStyle(.blue)
-                                Text(callControls.defaultOutputDevice?.name ?? "Cycle Output")
-                                    .toolboxFont(.caption.weight(.medium))
-                                    .foregroundStyle(.primary)
+                            Button {
+                                callControls.cycleOutputDevice()
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: callControls.defaultOutputDevice?.transport.symbolName(isInput: false) ?? "speaker.wave.2")
+                                        .toolboxFont(.caption.weight(.semibold))
+                                        .foregroundStyle(.blue)
+                                    Text(callControls.defaultOutputDevice?.name ?? "Cycle Output")
+                                        .toolboxFont(.caption.weight(.medium))
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 7)
+                                .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.75)
+                                )
+                                .contentShape(RoundedRectangle(cornerRadius: 8))
+                            }
+                            .buttonStyle(.plain)
+                            .focusEffectDisabled()
+                            .help("Cycle favorite output audio devices")
+                            .pointerCursor(isAppEnabled && p.callControlsActions > 0.99)
+                            .menuRowHover(cornerRadius: 8)
+                        }
+                        .padding(.top, 12)
+
+                        if callControls.isBluetoothMicLockEnabled,
+                           callControls.isBluetoothMicLockAvailable {
+                            Button {
+                                if callControls.isBluetoothMicBypassed {
+                                    callControls.restoreBluetoothMicLock()
+                                } else {
+                                    callControls.allowBluetoothMicUntilDisconnect()
+                                }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: callControls.isBluetoothMicBypassed
+                                        ? "lock.fill"
+                                        : "dot.radiowaves.left.and.right")
+                                        .toolboxFont(.caption.weight(.semibold))
+                                        .foregroundStyle(callControls.isBluetoothMicBypassed ? .orange : .blue)
+                                    Text(callControls.isBluetoothMicBypassed
+                                        ? "Back to Stereo"
+                                        : "Use Headset Mic")
+                                        .toolboxFont(.caption.weight(.medium))
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(1)
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 6)
+                                .frame(maxWidth: .infinity)
+                                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.75)
+                                )
+                                .contentShape(RoundedRectangle(cornerRadius: 8))
+                            }
+                            .buttonStyle(.plain)
+                            .focusEffectDisabled()
+                            .help(callControls.isBluetoothMicBypassed
+                                ? "Use your Mac microphone again and restore stereo audio"
+                                : "Use the headset's own mic (and its call-mode audio) until it disconnects")
+                            .pointerCursor(isAppEnabled && p.callControlsActions > 0.99)
+                            .menuRowHover(cornerRadius: 8)
+                            .padding(.top, 6)
+                        }
+
+                        if callControls.isBluetoothMicLockEnabled,
+                           let pinnedApp = callControls.pinnedBluetoothMicAppNames.first {
+                            HStack(spacing: 5) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .toolboxFont(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(.orange)
+                                Text("\(pinnedApp) is using the headset mic")
+                                    .toolboxFont(.system(size: 10))
+                                    .foregroundStyle(.secondary)
                                     .lineLimit(1)
                                     .truncationMode(.tail)
+                                Spacer(minLength: 0)
                             }
-                            .frame(maxWidth: .infinity)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 7)
-                            .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.75)
-                            )
-                            .contentShape(RoundedRectangle(cornerRadius: 8))
+                            .padding(.top, 6)
+                            .padding(.horizontal, 2)
+                            .help(callControls.pinnedBluetoothMicHint(for: pinnedApp))
                         }
-                        .buttonStyle(.plain)
-                        .focusEffectDisabled()
-                        .help("Cycle favorite output audio devices")
-                        .pointerCursor(isAppEnabled && p.callControlsActions > 0.99)
-                        .menuRowHover(cornerRadius: 8)
                     }
-                    .padding(.top, 12)
                 }
 
                 CollapsibleBlock(progress: p.gapAfterQuickActions, isInteractive: false) {

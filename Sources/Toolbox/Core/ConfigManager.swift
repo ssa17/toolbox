@@ -721,6 +721,12 @@ struct CallControlsConfig: Codable, Equatable, Sendable {
     var favoriteOutputUIDs: [String] = []
     var favoriteInputUIDs: [String] = []
     var appShortcutMappings: [CallAppShortcutMapping] = CallAppShortcutMapping.defaults
+    /// Keeps the system default input off Bluetooth headsets so AirPods stay in high-quality stereo.
+    var preventBluetoothMicSwitch: Bool = false
+    /// Explicit fallback microphone `deviceUID`; `nil` means `Auto: USB → Built-in`.
+    var bluetoothMicLockFallbackUID: String? = nil
+    /// Shows a HUD toast each time the guard moves the mic back to the fallback device.
+    var showBluetoothMicLockToast: Bool = true
 
     init() {}
 
@@ -743,6 +749,10 @@ struct CallControlsConfig: Codable, Equatable, Sendable {
         favoriteOutputUIDs = try c.decodeIfPresent([String].self, forKey: .favoriteOutputUIDs) ?? []
         favoriteInputUIDs = try c.decodeIfPresent([String].self, forKey: .favoriteInputUIDs) ?? []
         appShortcutMappings = try c.decodeIfPresent([CallAppShortcutMapping].self, forKey: .appShortcutMappings) ?? CallAppShortcutMapping.defaults
+        preventBluetoothMicSwitch = try c.decodeIfPresent(Bool.self, forKey: .preventBluetoothMicSwitch) ?? false
+        let decodedFallbackUID = try c.decodeIfPresent(String.self, forKey: .bluetoothMicLockFallbackUID)
+        bluetoothMicLockFallbackUID = (decodedFallbackUID?.isEmpty == true) ? nil : decodedFallbackUID
+        showBluetoothMicLockToast = try c.decodeIfPresent(Bool.self, forKey: .showBluetoothMicLockToast) ?? true
     }
 
     static func clampedTypingDelayMs(_ ms: Int) -> Int {
@@ -2552,7 +2562,7 @@ struct ToolboxConfig: Codable, Equatable, Sendable {
         case windowSnapping
     }
 
-    var schemaVersion: Int = 12
+    var schemaVersion: Int = 13
     var general: GeneralConfig = GeneralConfig()
     var dockMinimize: DockMinimizeConfig = DockMinimizeConfig()
     var clipboard: ClipboardConfig = ClipboardConfig()
@@ -2596,7 +2606,7 @@ struct ToolboxConfig: Codable, Equatable, Sendable {
         if decodedSchema < 8 {
             decodedCallControls.showFloatingPillOnlyDuringCalls = true
         }
-        schemaVersion = max(decodedSchema, 12)
+        schemaVersion = max(decodedSchema, 13)
         callControls = decodedCallControls
         windowSnapper = try c.decodeIfPresent(WindowSnapperConfig.self, forKey: .windowSnapper)
             ?? legacyContainer.decodeIfPresent(WindowSnapperConfig.self, forKey: .windowSnapping)

@@ -9,6 +9,9 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 
 ## [Unreleased]
 
+### Added
+- **Call Controls (Bluetooth Headphone Stereo)** — keeps AirPods and Bluetooth headsets in rich stereo without the "hearing yourself" effect by using your Mac or USB microphone when an app asks for a Bluetooth mic (Bluetooth can't carry stereo and a headset mic at once), with a picker for the substitute mic, a one-click "Allow Headset Mic" override until the headset disconnects, toasts explaining each switch, and a clear warning naming any app (e.g. Teams) that grabbed the headset mic itself, with the exact setting to change
+
 ## [1.6.2] - 2026-11-25
 
 ### Added

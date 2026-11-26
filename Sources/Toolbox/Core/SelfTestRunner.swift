@@ -1,5 +1,6 @@
 import AppKit
 import Carbon
+import CoreAudio
 import CoreGraphics
 import Foundation
 import SwiftUI
@@ -44,6 +45,7 @@ enum SelfTestRunner {
         testCallControlsTypingMicStateMachine()
         testCallControlsHotKeyConflictsAndLifecycle()
         testCallControlsDeveloperSimulation()
+        testCallControlsBluetoothMicLock()
         testScreenOCRConfigAndLifecycle()
         testScreenOCREngineRecognition()
         testMultiScreenOnboardingClipboardScrollAndMicSync()
@@ -58,7 +60,7 @@ enum SelfTestRunner {
         testWindowDragMonitorEndToEndLifecycle()
 
         if failures.isEmpty {
-            print("All 41 self-test suites passed.")
+            print("All 42 self-test suites passed.")
             return 0
         } else {
             for f in failures {
@@ -1453,7 +1455,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(cfg),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.scrollDirection == cfg.scrollDirection, "ScrollDirectionConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 12, "ToolboxConfig schemaVersion should be 12")
+            expect(decoded.schemaVersion == 13, "ToolboxConfig schemaVersion should be 13")
         } else {
             failures.append("ToolboxConfig Codable encode/decode failed")
         }
@@ -2440,7 +2442,7 @@ enum SelfTestRunner {
 
     private static func testCallControlsConfigAndCoreAudioEnumeration() {
         let cfg = ToolboxConfig()
-        expect(cfg.schemaVersion == 12, "ToolboxConfig schemaVersion should be 12")
+        expect(cfg.schemaVersion == 13, "ToolboxConfig schemaVersion should be 13")
         expect(!cfg.callControls.enabled, "Call Controls should default to disabled")
         expect(cfg.callControls.overrideScope == .everywhere, "Default overrideScope should be everywhere")
         expect(cfg.callControls.typingUnmuteDelayMs == 450, "Default typingUnmuteDelayMs should be 450")
@@ -2475,7 +2477,7 @@ enum SelfTestRunner {
         let legacyJSON = "{\"schemaVersion\": 5, \"general\": {\"appEnabled\": true}}"
         if let data = legacyJSON.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 12, "Legacy config should upgrade to schemaVersion 12")
+            expect(migrated.schemaVersion == 13, "Legacy config should upgrade to schemaVersion 13")
             expect(!migrated.callControls.enabled, "Legacy config must migrate callControls.enabled = false")
             expect(migrated.callControls.overrideScope == .everywhere, "Migrated default overrideScope should be everywhere")
             expect(migrated.callControls.showFloatingPillOnlyDuringCalls, "Legacy config must migrate showFloatingPillOnlyDuringCalls = true")
@@ -2490,7 +2492,7 @@ enum SelfTestRunner {
         """
         if let data = v6JSON.data(using: .utf8),
            let upgraded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgraded.schemaVersion == 12, "v6 config should migrate to schemaVersion 12")
+            expect(upgraded.schemaVersion == 13, "v6 config should migrate to schemaVersion 13")
             expect(upgraded.callControls.overrideScope == .everywhere, "v6 active_call_app_only should upgrade to everywhere")
             expect(upgraded.callControls.showFloatingPillOnlyDuringCalls, "v6 config should upgrade showFloatingPillOnlyDuringCalls to true")
         } else {
@@ -2503,7 +2505,7 @@ enum SelfTestRunner {
         """
         if let data = v7JSON.data(using: .utf8),
            let upgradedV7 = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgradedV7.schemaVersion == 12, "v7 config should migrate to schemaVersion 12")
+            expect(upgradedV7.schemaVersion == 13, "v7 config should migrate to schemaVersion 13")
             expect(upgradedV7.callControls.showFloatingPillOnlyDuringCalls, "v7 showFloatingPillOnlyDuringCalls should upgrade to true")
         } else {
             failures.append("Failed to migrate v7 audioGuard config")
@@ -2515,7 +2517,7 @@ enum SelfTestRunner {
         """
         if let data = v8JSON.data(using: .utf8),
            let upgradedV8 = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgradedV8.schemaVersion == 12, "v8 config should migrate to schemaVersion 12")
+            expect(upgradedV8.schemaVersion == 13, "v8 config should migrate to schemaVersion 13")
             expect(upgradedV8.callControls.enabled, "v8 audioGuard.enabled must migrate to callControls.enabled")
             expect(upgradedV8.callControls.typingUnmuteDelayMs == 725, "v8 audioGuard fields must be preserved in callControls")
             expect(
@@ -3267,6 +3269,532 @@ enum SelfTestRunner {
         DeveloperEventLog.shared.clear()
     }
 
+
+    private static func testCallControlsBluetoothMicLock() {
+        func makeDevice(
+            _ uid: String,
+            _ name: String,
+            _ transport: AudioTransportType,
+            hasInput: Bool = true,
+            hasOutput: Bool = false,
+            isDefaultInput: Bool = false
+        ) -> AudioDeviceInfo {
+            AudioDeviceInfo(
+                deviceID: AudioDeviceID(abs(uid.hashValue % 4096) + 1),
+                uid: uid,
+                name: name,
+                transport: transport,
+                inputChannelCount: hasInput ? 1 : 0,
+                outputChannelCount: hasOutput ? 2 : 0,
+                isDefaultInput: isDefaultInput,
+                isDefaultOutput: false,
+                isInputMuted: false,
+                isOutputMuted: false,
+                inputVolumeScalar: hasInput ? 0.8 : nil,
+                outputVolumeScalar: hasOutput ? 0.8 : nil,
+                supportsHardwareInputMute: true
+            )
+        }
+
+        let airpods = makeDevice("bt-airpods", "AirPods Pro", .bluetooth, hasOutput: true)
+        let usbMic = makeDevice("usb-yeti", "Blue Yeti", .usb)
+        let builtInMic = makeDevice("builtin-mic", "MacBook Pro Microphone", .builtIn)
+        let loopback = makeDevice("virtual-loopback", "Loopback Audio", .virtual)
+
+        // 1. Pure policy: preferred fallback wins over everything else.
+        expect(
+            BluetoothMicLockPolicy.resolveRevertTarget(
+                currentDefaultInput: airpods,
+                availableInputs: [airpods, builtInMic, usbMic],
+                preferredFallbackUID: "builtin-mic",
+                lastNonBluetoothUID: "usb-yeti",
+                bypassedBluetoothUID: nil
+            )?.uid == "builtin-mic",
+            "Preferred fallback must win over last-used and USB priority"
+        )
+
+        // 2. Unplugged preferred USB mic falls back to the last known non-Bluetooth default.
+        expect(
+            BluetoothMicLockPolicy.resolveRevertTarget(
+                currentDefaultInput: airpods,
+                availableInputs: [airpods, builtInMic],
+                preferredFallbackUID: "usb-yeti",
+                lastNonBluetoothUID: "builtin-mic",
+                bypassedBluetoothUID: nil
+            )?.uid == "builtin-mic",
+            "Unplugged preferred fallback must fall through to the last known non-Bluetooth mic"
+        )
+
+        // 3. Auto priority: USB before built-in when nothing is preferred or remembered.
+        expect(
+            BluetoothMicLockPolicy.resolveRevertTarget(
+                currentDefaultInput: airpods,
+                availableInputs: [airpods, builtInMic, usbMic],
+                preferredFallbackUID: nil,
+                lastNonBluetoothUID: nil,
+                bypassedBluetoothUID: nil
+            )?.uid == "usb-yeti",
+            "Auto fallback must prefer a USB microphone over the built-in mic"
+        )
+        expect(
+            BluetoothMicLockPolicy.resolveRevertTarget(
+                currentDefaultInput: airpods,
+                availableInputs: [airpods, builtInMic],
+                preferredFallbackUID: nil,
+                lastNonBluetoothUID: nil,
+                bypassedBluetoothUID: nil
+            )?.uid == "builtin-mic",
+            "Auto fallback must use the built-in mic when no USB mic exists"
+        )
+
+        // 4. Never leave the user without a microphone (Mac mini / Mac Studio with only AirPods).
+        expect(
+            BluetoothMicLockPolicy.resolveRevertTarget(
+                currentDefaultInput: airpods,
+                availableInputs: [airpods],
+                preferredFallbackUID: nil,
+                lastNonBluetoothUID: nil,
+                bypassedBluetoothUID: nil
+            ) == nil,
+            "Policy must return nil when the Bluetooth headset is the only microphone"
+        )
+
+        // 5. Non-Bluetooth default never triggers a revert.
+        expect(
+            BluetoothMicLockPolicy.resolveRevertTarget(
+                currentDefaultInput: builtInMic,
+                availableInputs: [airpods, builtInMic],
+                preferredFallbackUID: nil,
+                lastNonBluetoothUID: nil,
+                bypassedBluetoothUID: nil
+            ) == nil,
+            "Policy must not revert when the default input is already a wired mic"
+        )
+
+        // 6. Temporary bypass suppresses the revert for that device only.
+        expect(
+            BluetoothMicLockPolicy.resolveRevertTarget(
+                currentDefaultInput: airpods,
+                availableInputs: [airpods, builtInMic, usbMic],
+                preferredFallbackUID: nil,
+                lastNonBluetoothUID: nil,
+                bypassedBluetoothUID: "bt-airpods"
+            ) == nil,
+            "Bypassed Bluetooth UID must suppress the revert"
+        )
+
+        // 7. Virtual / aggregate devices are avoided unless nothing else exists.
+        expect(
+            BluetoothMicLockPolicy.fallbackCandidates(from: [airpods, builtInMic, loopback]).map(\.uid) == ["builtin-mic"],
+            "Fallback candidates must exclude virtual devices when a physical mic exists"
+        )
+        expect(
+            BluetoothMicLockPolicy.fallbackCandidates(from: [airpods, loopback]).map(\.uid) == ["virtual-loopback"],
+            "Fallback candidates must allow virtual devices when nothing physical remains"
+        )
+
+        // 7b. Pinned-app detection: an app that opens the Bluetooth mic itself defeats the guard.
+        let zoomCapture = ProcessInputCapture(
+            pid: 4242,
+            bundleID: "us.zoom.xos",
+            deviceIDs: [airpods.deviceID]
+        )
+        let meetCapture = ProcessInputCapture(
+            pid: 4343,
+            bundleID: "com.google.Chrome",
+            deviceIDs: [builtInMic.deviceID]
+        )
+        expect(
+            BluetoothMicLockPolicy.pinnedBluetoothMicBundleIDs(
+                captures: [zoomCapture],
+                devices: [airpods, builtInMic],
+                defaultInputUID: "builtin-mic"
+            ) == ["us.zoom.xos"],
+            "An app capturing the Bluetooth mic while the default is a wired mic must be reported as pinned"
+        )
+        expect(
+            BluetoothMicLockPolicy.pinnedBluetoothMicBundleIDs(
+                captures: [meetCapture],
+                devices: [airpods, builtInMic],
+                defaultInputUID: "builtin-mic"
+            ).isEmpty,
+            "An app capturing the fallback mic must not be reported as pinned"
+        )
+        expect(
+            BluetoothMicLockPolicy.pinnedBluetoothMicBundleIDs(
+                captures: [zoomCapture],
+                devices: [airpods, builtInMic],
+                defaultInputUID: "bt-airpods"
+            ).isEmpty,
+            "Capturing the Bluetooth mic that IS the system default is expected, not pinned"
+        )
+        expect(
+            BluetoothMicLockPolicy.pinnedBluetoothMicBundleIDs(
+                captures: [ProcessInputCapture(pid: 1, bundleID: nil, deviceIDs: [airpods.deviceID])],
+                devices: [airpods, builtInMic],
+                defaultInputUID: "builtin-mic"
+            ).isEmpty,
+            "Captures without a bundle ID must be ignored (nothing actionable to report)"
+        )
+        expect(
+            BluetoothMicLockPolicy.pinnedBluetoothMicBundleIDs(
+                captures: [
+                    zoomCapture,
+                    ProcessInputCapture(pid: 4444, bundleID: "us.zoom.xos", deviceIDs: [airpods.deviceID])
+                ],
+                devices: [airpods, builtInMic],
+                defaultInputUID: "builtin-mic"
+            ) == ["us.zoom.xos"],
+            "Pinned bundle IDs must be deduplicated"
+        )
+        expect(
+            BluetoothMicLockPolicy.pinnedBluetoothMicBundleIDs(
+                captures: [zoomCapture],
+                devices: [builtInMic, usbMic],
+                defaultInputUID: "builtin-mic"
+            ).isEmpty,
+            "No connected Bluetooth input means nothing can be pinned to it"
+        )
+        expect(
+            zoomCapture.isCapturing(anyDeviceIn: [airpods.deviceID]),
+            "ProcessInputCapture.isCapturing must match on shared device IDs"
+        )
+        expect(
+            BluetoothMicLockPolicy.isActionableCaptureBundleID("us.zoom.xos")
+                && BluetoothMicLockPolicy.isActionableCaptureBundleID("com.google.Chrome")
+                && BluetoothMicLockPolicy.isActionableCaptureBundleID("com.apple.Safari"),
+            "Real user-facing apps (Zoom, Chrome, Safari) must stay actionable"
+        )
+        expect(
+            !BluetoothMicLockPolicy.isActionableCaptureBundleID("com.apple.Siri")
+                && !BluetoothMicLockPolicy.isActionableCaptureBundleID("com.apple.CoreSpeech")
+                && !BluetoothMicLockPolicy.isActionableCaptureBundleID("systemsoundserverd"),
+            "Assistants and audio daemons must be excluded so the warning never cries wolf"
+        )
+        expect(
+            BluetoothMicLockPolicy.pinnedBluetoothMicBundleIDs(
+                captures: [
+                    ProcessInputCapture(pid: 99, bundleID: "com.apple.Siri", deviceIDs: [airpods.deviceID]),
+                    zoomCapture
+                ],
+                devices: [airpods, builtInMic],
+                defaultInputUID: "builtin-mic"
+            ) == ["us.zoom.xos"],
+            "Siri opening the headset mic must not be reported, but Zoom must be"
+        )
+
+        // 7c. Manual device selection must not desynchronise the temporary override.
+        expect(
+            BluetoothMicLockPolicy.bypassActionAfterManualInputSelection(
+                selectedUID: "bt-airpods", selectedIsBluetooth: true,
+                switchSucceeded: true, guardEnabled: true, currentlyBypassed: false
+            ) == .arm("bt-airpods"),
+            "Picking a Bluetooth mic while the guard is on must arm the override"
+        )
+        expect(
+            BluetoothMicLockPolicy.bypassActionAfterManualInputSelection(
+                selectedUID: "builtin-mic", selectedIsBluetooth: false,
+                switchSucceeded: true, guardEnabled: true, currentlyBypassed: true
+            ) == .clear,
+            "Picking a wired mic while bypassed must clear the override (back to stereo)"
+        )
+        expect(
+            BluetoothMicLockPolicy.bypassActionAfterManualInputSelection(
+                selectedUID: "builtin-mic", selectedIsBluetooth: false,
+                switchSucceeded: true, guardEnabled: true, currentlyBypassed: false
+            ) == .unchanged,
+            "Picking a wired mic with no override active must change nothing"
+        )
+        expect(
+            BluetoothMicLockPolicy.bypassActionAfterManualInputSelection(
+                selectedUID: "bt-airpods", selectedIsBluetooth: true,
+                switchSucceeded: false, guardEnabled: true, currentlyBypassed: false
+            ) == .unchanged,
+            "A failed device switch must never arm the override"
+        )
+        expect(
+            BluetoothMicLockPolicy.bypassActionAfterManualInputSelection(
+                selectedUID: "bt-airpods", selectedIsBluetooth: true,
+                switchSucceeded: true, guardEnabled: false, currentlyBypassed: false
+            ) == .unchanged,
+            "Selecting a Bluetooth mic with the guard off must not arm an override"
+        )
+        expect(
+            BluetoothMicLockPolicy.bypassActionAfterManualInputSelection(
+                selectedUID: "bt-airpods", selectedIsBluetooth: false,
+                switchSucceeded: false, guardEnabled: true, currentlyBypassed: true
+            ) == .unchanged,
+            "A failed switch must leave an existing override untouched"
+        )
+
+        // 7d. The fallback picker must keep a valid selection when its saved mic is unplugged.
+        expect(
+            BluetoothMicLockPolicy.disconnectedFallbackUID("usb-yeti", available: [builtInMic]) == "usb-yeti",
+            "A saved fallback UID that is no longer connected must be reported as disconnected"
+        )
+        expect(
+            BluetoothMicLockPolicy.disconnectedFallbackUID("usb-yeti", available: [usbMic, builtInMic]) == nil,
+            "A connected saved fallback UID must not be flagged"
+        )
+        expect(
+            BluetoothMicLockPolicy.disconnectedFallbackUID(nil, available: [builtInMic]) == nil
+                && BluetoothMicLockPolicy.disconnectedFallbackUID("", available: [builtInMic]) == nil,
+            "Auto (nil/empty) fallback must never be flagged as disconnected"
+        )
+
+        // 8. Loop breaker: the 5th revert inside a 5 s window pauses auto-revert for 15 s.
+        var breaker = BluetoothMicRevertLoopBreaker()
+        for idx in 0..<BluetoothMicRevertLoopBreaker.maxRevertsPerWindow {
+            expect(
+                !breaker.registerRevert(at: 1000 + Double(idx) * 0.5),
+                "Revert \(idx + 1) inside the window must not trip the loop breaker"
+            )
+        }
+        expect(!breaker.isPaused(at: 1002.5), "Loop breaker must stay armed at 4 reverts")
+        expect(
+            breaker.registerRevert(at: 1002.6),
+            "The 5th revert inside 5 s must trip the loop breaker"
+        )
+        expect(breaker.isPaused(at: 1003), "Loop breaker must pause immediately after tripping")
+        expect(
+            breaker.isPaused(at: 1002.6 + BluetoothMicRevertLoopBreaker.pauseSeconds - 0.5),
+            "Loop breaker pause must last ~15 s"
+        )
+        expect(
+            !breaker.isPaused(at: 1002.6 + BluetoothMicRevertLoopBreaker.pauseSeconds + 0.5),
+            "Loop breaker must resume after the 15 s pause"
+        )
+
+        // 9. Controller end-to-end against a fake CoreAudio store.
+        var fakeNow: TimeInterval = 5000
+        var connected: [AudioDeviceInfo] = [airpods, usbMic, builtInMic]
+        var defaultInputUID = "bt-airpods"
+        var revertCount = 0
+        var lastRevertPair: (String, String)?
+
+        func fakeSnapshot() -> [AudioDeviceInfo] {
+            connected.map { device in
+                AudioDeviceInfo(
+                    deviceID: device.deviceID,
+                    uid: device.uid,
+                    name: device.name,
+                    transport: device.transport,
+                    inputChannelCount: device.inputChannelCount,
+                    outputChannelCount: device.outputChannelCount,
+                    isDefaultInput: device.uid == defaultInputUID,
+                    isDefaultOutput: false,
+                    isInputMuted: false,
+                    isOutputMuted: false,
+                    inputVolumeScalar: device.inputVolumeScalar,
+                    outputVolumeScalar: device.outputVolumeScalar,
+                    supportsHardwareInputMute: true
+                )
+            }
+        }
+
+        let controller = BluetoothMicLockController(
+            listDevices: { fakeSnapshot() },
+            setDefaultInputDevice: { uid in
+                guard connected.contains(where: { $0.uid == uid && $0.hasInput }) else { return false }
+                defaultInputUID = uid
+                return true
+            },
+            now: { fakeNow }
+        )
+        controller.onReverted = { from, to in
+            revertCount += 1
+            lastRevertPair = (from.name, to.name)
+        }
+
+        controller.configure(enabled: true, fallbackUID: "builtin-mic")
+        var outcome = controller.evaluate()
+        expect(outcome == .reverted(targetUID: "builtin-mic"), "Controller must revert a Bluetooth default to the preferred mic (got: \(outcome))")
+        expect(defaultInputUID == "builtin-mic", "Controller must move the default input off the Bluetooth headset")
+        expect(revertCount == 1 && lastRevertPair?.1 == "MacBook Pro Microphone", "Revert callback must report the new fallback mic")
+        expect(controller.state.resolvedFallbackName == "MacBook Pro Microphone", "State must expose the resolved fallback microphone")
+
+        // Temporary override until disconnect.
+        defaultInputUID = "bt-airpods"
+        controller.armBypass(bluetoothUID: "bt-airpods")
+        outcome = controller.evaluate()
+        expect(outcome == .suppressedByBypass(bluetoothUID: "bt-airpods"), "Bypass must suppress the revert (got: \(outcome))")
+        expect(defaultInputUID == "bt-airpods", "Bypassed controller must leave the Bluetooth mic selected")
+        expect(controller.state.isBluetoothMicBypassed, "State must report the temporary override")
+
+        // Disconnecting the headset clears the override automatically.
+        connected = [usbMic, builtInMic]
+        controller.handleDevicesChanged()
+        expect(!controller.state.isBluetoothMicBypassed, "Bypass must clear once the headset disconnects")
+        connected = [airpods, usbMic, builtInMic]
+        defaultInputUID = "usb-yeti"
+        controller.configure(enabled: true, fallbackUID: nil)
+        _ = controller.evaluate()
+        expect(defaultInputUID == "usb-yeti", "Cleared bypass must leave a non-Bluetooth default untouched")
+
+        // Rapid Bluetooth re-selection trips the loop breaker (and never thrashes CoreAudio).
+        var loopDefaultUID = "bt-airpods"
+        var loopReverts = 0
+        let loopController = BluetoothMicLockController(
+            listDevices: {
+                [airpods, usbMic, builtInMic].map { device in
+                    AudioDeviceInfo(
+                        deviceID: device.deviceID,
+                        uid: device.uid,
+                        name: device.name,
+                        transport: device.transport,
+                        inputChannelCount: device.inputChannelCount,
+                        outputChannelCount: device.outputChannelCount,
+                        isDefaultInput: device.uid == loopDefaultUID,
+                        isDefaultOutput: false,
+                        isInputMuted: false,
+                        isOutputMuted: false,
+                        inputVolumeScalar: device.inputVolumeScalar,
+                        outputVolumeScalar: device.outputVolumeScalar,
+                        supportsHardwareInputMute: true
+                    )
+                }
+            },
+            setDefaultInputDevice: { uid in
+                loopDefaultUID = uid
+                return true
+            },
+            now: { fakeNow }
+        )
+        loopController.onReverted = { _, _ in loopReverts += 1 }
+        loopController.configure(enabled: true, fallbackUID: "builtin-mic")
+
+        var lastOutcome = BluetoothMicLockOutcome.idle
+        for idx in 0..<5 {
+            fakeNow = 6000 + Double(idx) * 0.2
+            loopDefaultUID = "bt-airpods"
+            lastOutcome = loopController.evaluate()
+        }
+        expect(lastOutcome == .reverted(targetUID: "builtin-mic"), "All five rapid reverts must still succeed (got: \(lastOutcome))")
+        expect(loopReverts == 5, "Loop breaker test expected 5 reverts, got \(loopReverts)")
+
+        fakeNow = 6001.0
+        loopDefaultUID = "bt-airpods"
+        expect(
+            loopController.evaluate() == .suppressedByLoopBreaker(bluetoothUID: "bt-airpods"),
+            "A 5th rapid Bluetooth switch must pause auto-revert instead of thrashing CoreAudio"
+        )
+        expect(loopDefaultUID == "bt-airpods", "Paused controller must stop writing the default input device")
+        expect(loopController.state.isThrottled, "State must surface the loop-breaker warning")
+
+        expect(
+            loopController.hasPendingLoopBreakerRetry,
+            "Tripping the loop breaker must schedule the promised automatic retry"
+        )
+
+        fakeNow = 6000.8 + BluetoothMicRevertLoopBreaker.pauseSeconds + 1
+        loopDefaultUID = "bt-airpods"
+        expect(
+            loopController.evaluate() == .reverted(targetUID: "builtin-mic"),
+            "Controller must resume reverting once the 15 s pause elapses"
+        )
+        expect(
+            !loopController.hasPendingLoopBreakerRetry,
+            "A successful revert must clear the pending retry"
+        )
+
+        // A paused guard keeps a retry armed while it suppresses evaluations, so it can never
+        // stay dormant if the call app holds the Bluetooth mic and no further event arrives.
+        loopController.invalidate()
+        loopController.configure(enabled: true, fallbackUID: "builtin-mic")
+        for idx in 0..<5 {
+            fakeNow = 7000 + Double(idx) * 0.2
+            loopDefaultUID = "bt-airpods"
+            _ = loopController.evaluate()
+        }
+        expect(
+            loopController.hasPendingLoopBreakerRetry,
+            "The 5th rapid revert must arm the automatic retry"
+        )
+        loopDefaultUID = "bt-airpods" // the app grabs the headset mic again during the pause
+        expect(
+            loopController.evaluate() == .suppressedByLoopBreaker(bluetoothUID: "bt-airpods"),
+            "The guard must stay paused during the retry window"
+        )
+        expect(
+            loopController.hasPendingLoopBreakerRetry,
+            "A suppressed evaluation must keep the retry armed rather than going dormant"
+        )
+
+        // Disabling the guard drops the retry, the override, and the throttle flag.
+        loopController.armBypass(bluetoothUID: "bt-airpods")
+        loopController.invalidate()
+        expect(!loopController.hasPendingLoopBreakerRetry, "invalidate() must cancel the loop-breaker retry")
+        expect(!loopController.hasPendingEvaluation, "invalidate() must cancel the debounce work")
+        expect(loopController.bypassedUID == nil, "invalidate() must clear the temporary override")
+        expect(!loopController.state.isThrottled, "invalidate() must clear the throttle flag")
+        expect(loopController.state.bypassedBluetoothName == nil, "invalidate() must clear bypassed state")
+        expect(loopController.evaluate() == .idle, "A disabled controller must stay idle after invalidate()")
+
+        // No fallback microphone at all: the headset stays the mic.
+        let soloController = BluetoothMicLockController(
+            listDevices: { [makeDevice("bt-airpods", "AirPods Pro", .bluetooth, isDefaultInput: true)] },
+            setDefaultInputDevice: { _ in
+                failures.append("Controller must not write the default input when no fallback mic exists")
+                return true
+            },
+            now: { fakeNow }
+        )
+        soloController.configure(enabled: true, fallbackUID: nil)
+        expect(
+            soloController.evaluate() == .suppressedByNoFallback(bluetoothUID: "bt-airpods"),
+            "Controller must leave the Bluetooth mic alone when it is the only microphone"
+        )
+
+        // Disabled controller stays inert and drops pending debounce work.
+        controller.configure(enabled: false, fallbackUID: nil)
+        expect(!controller.hasPendingEvaluation, "Disabling the guard must clear pending debounce work")
+        expect(controller.evaluate() == .idle, "Disabled controller must not revert")
+        expect(!controller.state.isEnabled, "Disabled controller state must report isEnabled = false")
+
+        // 9b. Pinned-app warning copy resolves friendly app names from the call app presets.
+        let callModule = ModuleRegistry.shared.callControls
+        expect(
+            callModule.displayName(forBundleID: "us.zoom.xos") == "Zoom",
+            "Known call apps must map to their preset name for the pinned-mic warning"
+        )
+        expect(
+            callModule.displayName(forBundleID: "com.microsoft.teams2.helper") == "Microsoft Teams",
+            "Helper processes must resolve to their owning call app name"
+        )
+        expect(
+            callModule.displayName(forBundleID: "com.example.unknown-app") == "com.example.unknown-app",
+            "Unknown bundle IDs must fall back to the identifier instead of an empty label"
+        )
+        expect(
+            callModule.pinnedBluetoothMicHint(for: "Zoom").contains("Same as System"),
+            "Pinned-mic hint must tell the user exactly what to change"
+        )
+
+        // 10. Backward-compatible config: legacy JSON without the 3 new keys.
+        let legacyCallControlsJSON = "{\"enabled\": true, \"overrideScope\": \"everywhere\", \"showToasts\": true}"
+        if let data = legacyCallControlsJSON.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode(CallControlsConfig.self, from: data) {
+            expect(!decoded.preventBluetoothMicSwitch, "Legacy CallControlsConfig must default preventBluetoothMicSwitch = false")
+            expect(decoded.bluetoothMicLockFallbackUID == nil, "Legacy CallControlsConfig must default bluetoothMicLockFallbackUID = nil")
+            expect(decoded.showBluetoothMicLockToast, "Legacy CallControlsConfig must default showBluetoothMicLockToast = true")
+        } else {
+            failures.append("Failed to decode legacy CallControlsConfig without mic-lock keys")
+        }
+
+        var micLockCfg = ToolboxConfig()
+        micLockCfg.callControls.preventBluetoothMicSwitch = true
+        micLockCfg.callControls.bluetoothMicLockFallbackUID = "usb-yeti"
+        micLockCfg.callControls.showBluetoothMicLockToast = false
+        if let data = try? JSONEncoder().encode(micLockCfg),
+           let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
+            expect(decoded.callControls == micLockCfg.callControls, "CallControlsConfig mic-lock round-trip mismatch")
+            expect(decoded.callControls.bluetoothMicLockFallbackUID == "usb-yeti", "Mic-lock fallback UID must survive a config round-trip")
+            expect(decoded.schemaVersion == 13, "Mic-lock config must serialize at schemaVersion 13")
+        } else {
+            failures.append("CallControlsConfig mic-lock encode/decode failed")
+        }
+    }
+
     private static func testScreenOCRConfigAndLifecycle() {
         // Defaults
         let cfg = ToolboxConfig()
@@ -3289,7 +3817,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(customCfg),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.screenOCR == customCfg.screenOCR, "ScreenOCRConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 12, "ToolboxConfig schemaVersion should be 12")
+            expect(decoded.schemaVersion == 13, "ToolboxConfig schemaVersion should be 13")
         } else {
             failures.append("ToolboxConfig with screenOCR failed Codable encode/decode")
         }
@@ -3299,7 +3827,7 @@ enum SelfTestRunner {
         let legacyJSON = "{\"schemaVersion\": 9, \"general\": {\"appEnabled\": true}}"
         if let data = legacyJSON.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 12, "Legacy v9 config should upgrade to schemaVersion 12")
+            expect(migrated.schemaVersion == 13, "Legacy v9 config should upgrade to schemaVersion 13")
             expect(!migrated.screenOCR.enabled, "Legacy config must migrate screenOCR.enabled = false")
         } else {
             failures.append("Failed to decode pre-ScreenOCR JSON config")
@@ -5495,7 +6023,7 @@ enum SelfTestRunner {
     private static func testWindowSnapperConfigHotKeysProfilesAndLifecycle() {
         // 1. Config defaults, migration from schema 10 -> 11, and lenient partial decode
         let defaultCfg = ToolboxConfig()
-        expect(defaultCfg.schemaVersion == 12, "ToolboxConfig schemaVersion must be 12")
+        expect(defaultCfg.schemaVersion == 13, "ToolboxConfig schemaVersion must be 13")
         expect(!defaultCfg.windowSnapper.enabled, "WindowSnapper should default to disabled")
         expect(
             defaultCfg.windowSnapper.gaps.outerMarginPoints == 0 && defaultCfg.windowSnapper.gaps.innerGapPoints == 0,
@@ -5506,7 +6034,7 @@ enum SelfTestRunner {
         let legacyV10 = "{\"schemaVersion\": 10, \"general\": {\"appEnabled\": true}}"
         if let data = legacyV10.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 12, "v10 config must upgrade to schemaVersion 12")
+            expect(migrated.schemaVersion == 13, "v10 config must upgrade to schemaVersion 13")
             expect(!migrated.windowSnapper.enabled, "Migrated windowSnapper.enabled must default to false")
             expect(
                 migrated.windowSnapper.gaps.outerMarginPoints == 0 && migrated.windowSnapper.gaps.innerGapPoints == 0,

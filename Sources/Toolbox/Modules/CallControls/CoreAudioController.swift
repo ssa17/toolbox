@@ -101,6 +101,20 @@ struct AudioDeviceInfo: Identifiable, Equatable, Sendable {
     var hasOutput: Bool { outputChannelCount > 0 }
 }
 
+/// A process currently capturing audio input, and which devices it opened.
+///
+/// Used to detect apps that pick a Bluetooth microphone themselves (Zoom, Teams, …) - those
+/// apps keep the headset in hands-free call mode no matter what the system default input is.
+struct ProcessInputCapture: Equatable, Sendable {
+    let pid: pid_t
+    let bundleID: String?
+    let deviceIDs: [AudioDeviceID]
+
+    func isCapturing(anyDeviceIn candidates: Set<AudioDeviceID>) -> Bool {
+        !candidates.isDisjoint(with: Set(deviceIDs))
+    }
+}
+
 /// CoreAudio HAL property wrapper for device enumeration, default switching,
 /// hardware microphone mute (with volume-zero fallback), and live device listeners.
 ///
@@ -131,6 +145,7 @@ final class CoreAudioController {
     private nonisolated static let processObjectListSelector: AudioObjectPropertySelector = 0x70727323 // 'prs#'
     private nonisolated static let processIsRunningInputSelector: AudioObjectPropertySelector = 0x70697269 // 'piri'
     private nonisolated static let processBundleIDSelector: AudioObjectPropertySelector = 0x70626964 // 'pbid'
+    private nonisolated static let processPIDSelector: AudioObjectPropertySelector = 0x70706964 // 'ppid'
 
     private var systemListeners: [ListenerToken] = []
     private var inputDeviceListeners: [ListenerToken] = []
@@ -225,23 +240,37 @@ final class CoreAudioController {
             if Self.isNonCallSystemInputBundleID(bid) {
                 continue
             }
-            var addr = AudioObjectPropertyAddress(
-                mSelector: Self.processIsRunningInputSelector,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: kAudioObjectPropertyElementMain
-            )
-            guard AudioObjectHasProperty(processID, &addr) else { continue }
-            let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-                MainActor.assumeIsolated {
-                    self?.onInputStreamActivityChanged?()
+
+            // `piri` only flips when capture starts/stops; `pdv#` on the input scope also fires
+            // when a running app swaps from the headset mic to another device - the exact moment
+            // the "pinned app" warning has to clear.
+            let addresses: [AudioObjectPropertyAddress] = [
+                AudioObjectPropertyAddress(
+                    mSelector: Self.processIsRunningInputSelector,
+                    mScope: kAudioObjectPropertyScopeGlobal,
+                    mElement: kAudioObjectPropertyElementMain
+                ),
+                AudioObjectPropertyAddress(
+                    mSelector: kAudioProcessPropertyDevices,
+                    mScope: kAudioObjectPropertyScopeInput,
+                    mElement: kAudioObjectPropertyElementMain
+                )
+            ]
+
+            for var addr in addresses {
+                guard AudioObjectHasProperty(processID, &addr) else { continue }
+                let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+                    MainActor.assumeIsolated {
+                        self?.onInputStreamActivityChanged?()
+                    }
                 }
-            }
-            if AudioObjectAddPropertyListenerBlock(processID, &addr, DispatchQueue.main, block) == noErr {
-                processInputListeners.append(ListenerToken(
-                    objectID: processID,
-                    address: addr,
-                    block: block
-                ))
+                if AudioObjectAddPropertyListenerBlock(processID, &addr, DispatchQueue.main, block) == noErr {
+                    processInputListeners.append(ListenerToken(
+                        objectID: processID,
+                        address: addr,
+                        block: block
+                    ))
+                }
             }
         }
     }
@@ -425,6 +454,62 @@ final class CoreAudioController {
 
     nonisolated static func activeInputProcessBundleIDs() -> Set<String> {
         Set(activeInputProcesses().compactMap { $0.bundleID }.filter { !$0.isEmpty })
+    }
+
+    /// Processes capturing audio input right now, with the concrete devices each one opened.
+    /// Reading `kAudioProcessPropertyDevices` on the input scope is what lets Toolbox tell
+    /// "the app follows the system default" apart from "the app grabbed the Bluetooth mic".
+    nonisolated static func activeInputProcessCaptures() -> [ProcessInputCapture] {
+        guard hasSystemProcessObjectList() else { return [] }
+        var captures: [ProcessInputCapture] = []
+        for processID in processObjectIDs() {
+            guard let runningInput = readUInt32Property(
+                deviceID: processID,
+                selector: processIsRunningInputSelector,
+                scope: kAudioObjectPropertyScopeGlobal,
+                element: kAudioObjectPropertyElementMain
+            ), runningInput != 0 else {
+                continue
+            }
+            let bundleID = readStringProperty(deviceID: processID, selector: processBundleIDSelector)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if isNonCallSystemInputBundleID(bundleID) {
+                continue
+            }
+            let rawPID = readUInt32Property(
+                deviceID: processID,
+                selector: processPIDSelector,
+                scope: kAudioObjectPropertyScopeGlobal,
+                element: kAudioObjectPropertyElementMain
+            ) ?? 0
+            captures.append(ProcessInputCapture(
+                pid: pid_t(clamping: rawPID),
+                bundleID: (bundleID?.isEmpty == false) ? bundleID : nil,
+                deviceIDs: inputDeviceIDs(inUseBy: processID)
+            ))
+        }
+        return captures
+    }
+
+    private nonisolated static func inputDeviceIDs(inUseBy processID: AudioObjectID) -> [AudioDeviceID] {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioProcessPropertyDevices,
+            mScope: kAudioObjectPropertyScopeInput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        guard AudioObjectHasProperty(processID, &address) else { return [] }
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(processID, &address, 0, nil, &size) == noErr, size > 0 else {
+            return []
+        }
+        let count = Int(size) / MemoryLayout<AudioDeviceID>.stride
+        guard count > 0 else { return [] }
+        var ids = [AudioDeviceID](repeating: 0, count: count)
+        let status = ids.withUnsafeMutableBytes { raw -> OSStatus in
+            AudioObjectGetPropertyData(processID, &address, 0, nil, &size, raw.baseAddress!)
+        }
+        guard status == noErr else { return [] }
+        return ids.filter { $0 != AudioDeviceID(kAudioObjectUnknown) }
     }
 
     nonisolated static func bundleID(

@@ -30,7 +30,6 @@ Ordered from zero-permission, self-contained utilities to modules that interact 
 
 | Target Module | Enhancement | Category | Default Shortcut | Permissions Needed | Key macOS Frameworks | Spec |
 |---|---|---|---|---|---|---|
-| `call_controls` | **AirPods & Bluetooth Mic Lock** | System & Power | None *(Automatic CoreAudio guard)* | None | `CoreAudio`, `AudioToolbox` | [`call_controls_bluetooth_mic_lock.md`](feature-specs/call_controls_bluetooth_mic_lock.md) |
 | `clipboard` | **Image History Support** | Clipboard & Text | `⌥ ⌘ V` *(existing Clipboard hotkey)* | None *(optional Accessibility for auto-paste)* | `AppKit`, `CryptoKit`, `ImageIO` | [`clipboard_image_history.md`](feature-specs/clipboard_image_history.md) |
 
 *All default shortcuts across the 10 shipped and 9 planned modules are verified collision-free (`⌃ ⌥ ⌘ C` is reserved by `WindowSnapper` Center, so `ColorPicker` uses `⌃ ⌥ ⌘ E`).*
@@ -51,7 +50,7 @@ Complete reference of all shipped modules in `Sources/Toolbox/Modules/` (5 found
 | **Localhost Port Killer** | `port_killer` | Roadmap | Developer Tools | `⌃ ⌥ ⌘ P` | None | `Foundation`, `Darwin` (`libproc`), `Network` (tests) | [`port_killer.md`](feature-specs/port_killer.md) |
 | **Screen OCR (Text Grabber)** | `screen_ocr` | Roadmap | Developer Tools | `⇧ ⌘ 0` | Screen Recording (OS-managed via `screencapture`) | `Vision`, `CoreGraphics`, `AppKit` | [`screen_ocr.md`](feature-specs/screen_ocr.md) |
 | **Keyboard & Trackpad Clean Lock** | `clean_lock` | Roadmap | System & Power | None *(Button / Menu Bar only)* | Accessibility (required) | `CoreGraphics` (`CGEventTap`), `AppKit` | [`clean_lock.md`](feature-specs/clean_lock.md) |
-| **Call Controls** | `call_controls` | Roadmap | System & Power | `⌃ ⌥ ⌘ M` (Mic) & `⌃ ⌥ ⌘ V` (Video), customizable per user | Accessibility (optional: Unified Call Keybind Override & Auto-Mute While Typing) | `CoreAudio`, `AudioToolbox`, `CoreMediaIO`, `CoreGraphics`, `ApplicationServices` | [`call_controls.md`](feature-specs/call_controls.md) · *(Planned upgrade: [`call_controls_bluetooth_mic_lock.md`](feature-specs/call_controls_bluetooth_mic_lock.md))* |
+| **Call Controls** *(incl. AirPods & Bluetooth Mic Lock)* | `call_controls` | Roadmap | System & Power | `⌃ ⌥ ⌘ M` (Mic) & `⌃ ⌥ ⌘ V` (Video), customizable per user | Accessibility (optional: Unified Call Keybind Override & Auto-Mute While Typing) | `CoreAudio`, `AudioToolbox`, `CoreMediaIO`, `CoreGraphics`, `ApplicationServices` | [`call_controls.md`](feature-specs/call_controls.md) · [`call_controls_bluetooth_mic_lock.md`](feature-specs/call_controls_bluetooth_mic_lock.md) |
 | **Window Snapper** | `window_snapper` | Roadmap | Window & Dock | `⌃ ⌥ ⌘ ←/→/↑/↓` (plus halves, thirds, quarters, restore pre-snap size, and profile shortcuts) | Accessibility (required) | `ApplicationServices` (AX), `CoreGraphics`, `AppKit`, `Carbon` | [`window_snapper.md`](feature-specs/window_snapper.md) |
 
 ---

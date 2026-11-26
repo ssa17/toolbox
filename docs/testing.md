@@ -63,3 +63,15 @@ Every bug fix or behavior change must add or extend an assertion in `Sources/Too
 - Clipboard capture, deduplication, concealed types, pinning, and non-activating `NSPanel` behavior
 - `pmset` parsing and `KeepAwakeModule` activation/deactivation
 - Window Snapper geometry, drag lifecycle, style/trigger previews, and divider editor assertions in `SelfTestRunner.swift`
+
+## 5. Manual Hardware Checks (Not Automatable)
+
+Some behavior depends on real audio hardware and third-party apps, so `--self-test` and `--snapshot-ui` can only cover the logic (the UI warning above is rendered via a `#if DEBUG` diagnostics override). Run these by hand before a release that touches audio:
+
+**Call Controls - Bluetooth headphone stereo**
+1. Connect AirPods / a Bluetooth headset, enable the feature, and play music: confirm stereo stays rich when nothing captures the mic.
+2. Join a Zoom or Teams meeting whose microphone is set to *"Same as System"*: the default input should snap back to the fallback mic, `HUDToast` should fire once, and playback quality must not collapse to call mode.
+3. Repeat with that app's microphone pinned to the headset explicitly: expect the orange **"<App> is using the headset's microphone directly"** warning (Settings + Menu Bar) and exactly one toast per app per session.
+4. Switch that app's microphone to *"Same as System"* and confirm the warning clears on its own once the app reopens the mic.
+5. Use **Allow Headset Mic**, confirm the headset mic activates (call mode, as documented), then **Back to Stereo** restores the fallback mic; also confirm the override disappears on its own after disconnecting the headset.
+6. On a Mac with no non-Bluetooth microphone, confirm Toolbox leaves the headset mic alone.

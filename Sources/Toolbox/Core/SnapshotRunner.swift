@@ -262,24 +262,33 @@ enum SnapshotRunner {
 
         let prevCallMicShortcut = configManager.config.callControls.micShortcut
         let prevCallVideoShortcut = configManager.config.callControls.videoShortcut
+        let prevBluetoothMicLock = configManager.config.callControls.preventBluetoothMicSwitch
         configManager.config.callControls.micShortcut = ShortcutSpec(key: "m", modifiers: [.control, .option, .command])
         configManager.config.callControls.videoShortcut = ShortcutSpec(key: "v", modifiers: [.control, .option, .command])
+        configManager.config.callControls.preventBluetoothMicSwitch = true
+        #if DEBUG
+        ModuleRegistry.shared.callControls.setPinnedBluetoothMicAppsForDiagnostics(["Microsoft Teams"])
+        #endif
 
         let navCallControls = NavigationState()
         navCallControls.selection = .module("call_controls")
         navCallControls.isSidebarVisible = true
         saveViewSnapshot(
             MainWindowController.makeRootView(navState: navCallControls),
-            size: NSSize(width: 940, height: 1760),
+            size: NSSize(width: 940, height: 2380),
             to: outURL.appendingPathComponent("module_call_controls.png")
         )
         saveViewSnapshot(
             MainWindowController.makeRootView(navState: navCallControls),
-            size: NSSize(width: 820, height: 1960),
+            size: NSSize(width: 820, height: 2660),
             to: outURL.appendingPathComponent("module_call_controls_minwidth.png")
         )
         configManager.config.callControls.micShortcut = prevCallMicShortcut
         configManager.config.callControls.videoShortcut = prevCallVideoShortcut
+        configManager.config.callControls.preventBluetoothMicSwitch = prevBluetoothMicLock
+        #if DEBUG
+        ModuleRegistry.shared.callControls.setPinnedBluetoothMicAppsForDiagnostics(nil)
+        #endif
 
         let micPillState = FloatingMicIndicatorState()
         micPillState.isMuted = true

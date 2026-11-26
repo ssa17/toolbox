@@ -1,6 +1,6 @@
 # Call Controls — Feature Spec
 
-> **Status:** Done · **Module:** `Modules/CallControls/` · **Parent:** [Toolbox Feature Roadmap](../feature-roadmap.md)
+> **Status:** Done · **Module:** `Modules/CallControls/` · **Parent:** [Toolbox Feature Roadmap](../feature-roadmap.md) · **Shipped enhancement:** [AirPods & Bluetooth Mic Lock](call_controls_bluetooth_mic_lock.md)
 
 ### Purpose & User Value
 Every video call app uses a different shortcut for Mic Mute (`⌘ ⇧ A` in Zoom, `⌘ ⇧ Space` in Slack, `⌘ ⇧ M` in Teams/Discord, `⌘ D` in Google Meet) and Video Off/On (`⌘ ⇧ V` in Zoom/Slack/Discord, `⌘ ⇧ O` in Teams, `⌘ E` in Google Meet). Worse, macOS isolates camera feeds per app so there is no OS-level video kill switch.

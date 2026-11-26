@@ -47,6 +47,7 @@ struct CallControlsSettingsView: View {
             callAppsSection
             floatingPillAndNotificationsSection
             typingGuardAndFallbackSection
+            bluetoothAudioQualitySection
             audioDevicesSection
         }
         .onAppear {
@@ -1302,6 +1303,196 @@ struct CallControlsSettingsView: View {
                     }
                 }
             }
+        }
+    }
+
+    // MARK: - Bluetooth Audio Quality
+
+    private var bluetoothAudioQualitySection: some View {
+        let cfg = configManager.config.callControls
+        let bluetoothInputs = module.connectedBluetoothInputs
+        let fallbacks = module.bluetoothMicFallbackOptions
+        let statusText = module.bluetoothMicLockStatusText(in: cfg)
+        let statusColor: Color = {
+            guard cfg.preventBluetoothMicSwitch else { return .secondary }
+            if module.isBluetoothMicBypassed { return .orange }
+            if !module.pinnedBluetoothMicAppNames.isEmpty { return .orange }
+            if module.bluetoothMicLockState.isThrottled { return .orange }
+            if bluetoothInputs.isEmpty { return .secondary }
+            return module.bluetoothMicLockState.resolvedFallbackName == nil ? .orange : .green
+        }()
+
+        return FeatureSection(
+            "BLUETOOTH HEADPHONE AUDIO",
+            subtitle: "Bluetooth can't carry stereo sound and a headset microphone at the same time - pick which one Toolbox protects."
+        ) {
+            VStack(alignment: .leading, spacing: 14) {
+                SettingRow(
+                    "Use my Mac's microphone instead of the headset's",
+                    subtitle: "Keeps your headphones in rich stereo and stops the \"hearing yourself\" effect, because a Bluetooth mic that is never opened never puts the headset into call mode. Your voice goes out through the microphone below instead of the headset. Turn this off (or use Allow Headset Mic) when you want the headset's own mic."
+                ) {
+                    Toggle("", isOn: $configManager.config.callControls.preventBluetoothMicSwitch)
+                        .labelsHidden()
+                        .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
+                        .pointerCursor()
+                }
+
+                if cfg.preventBluetoothMicSwitch {
+                    Divider()
+
+                    SettingRow(
+                        "Microphone to use instead",
+                        subtitle: "What apps capture from while your headphones stay in stereo. Auto prefers a USB mic, then the built-in mic."
+                    ) {
+                        Picker("", selection: Binding(
+                            get: { cfg.bluetoothMicLockFallbackUID },
+                            set: { configManager.config.callControls.bluetoothMicLockFallbackUID = $0 }
+                        )) {
+                            Text(BluetoothMicLockPolicy.autoFallbackLabel)
+                                .tag(String?.none)
+                            if let disconnectedUID = BluetoothMicLockPolicy.disconnectedFallbackUID(
+                                cfg.bluetoothMicLockFallbackUID,
+                                available: fallbacks
+                            ) {
+                                // Keeps the picker's selection valid when the saved mic is unplugged,
+                                // and explains that Auto is doing the work in the meantime.
+                                Text("Disconnected microphone (using Auto)")
+                                    .tag(String?.some(disconnectedUID))
+                            }
+                            ForEach(fallbacks) { device in
+                                Text("\(device.name) - \(device.transport.label)")
+                                    .tag(String?.some(device.uid))
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 230)
+                        .pointerCursor()
+                    }
+
+                    Divider()
+
+                    SettingRow(
+                        "Confirm microphone switches with a toast",
+                        subtitle: "Explains each switch, so a sudden change in audio quality never feels mysterious."
+                    ) {
+                        Toggle("", isOn: $configManager.config.callControls.showBluetoothMicLockToast)
+                            .labelsHidden()
+                            .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
+                            .pointerCursor()
+                    }
+
+                    Divider()
+
+                    bluetoothMicLockStatusRow(
+                        statusText: statusText,
+                        statusColor: statusColor,
+                        bluetoothInputs: bluetoothInputs
+                    )
+
+                    if !module.pinnedBluetoothMicAppNames.isEmpty {
+                        pinnedBluetoothMicWarning
+                    }
+
+                    bluetoothMicLockNote
+                }
+            }
+        }
+    }
+
+    private func bluetoothMicLockStatusRow(
+        statusText: String,
+        statusColor: Color,
+        bluetoothInputs: [AudioDeviceInfo]
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .toolboxFont(.caption.weight(.semibold))
+                    .foregroundStyle(statusColor)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(bluetoothInputs.isEmpty ? "Status" : "Status: \(bluetoothInputs.map(\.name).joined(separator: ", "))")
+                        .toolboxFont(.callout.weight(.medium))
+                    Text(statusText)
+                        .toolboxFont(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if module.isBluetoothMicBypassed {
+                    Button {
+                        module.restoreBluetoothMicLock()
+                    } label: {
+                        Label("Back to Stereo", systemImage: "waveform")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .focusEffectDisabled()
+                    .pointerCursor()
+                } else {
+                    Button {
+                        module.allowBluetoothMicUntilDisconnect()
+                    } label: {
+                        Label("Allow Headset Mic", systemImage: "mic.fill")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(bluetoothInputs.isEmpty)
+                    .focusEffectDisabled()
+                    .pointerCursor(!bluetoothInputs.isEmpty)
+                }
+            }
+        }
+        .padding(10)
+        .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+        )
+    }
+
+    /// Names the app that took the headset mic directly - the one case the guard cannot win,
+    /// so the user gets an exact instruction instead of silent failure.
+    private var pinnedBluetoothMicWarning: some View {
+        let apps = module.pinnedBluetoothMicAppNames
+        let appList = apps.count == 1
+            ? apps[0]
+            : apps.dropLast().joined(separator: ", ") + " and " + (apps.last ?? "")
+
+        return HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .toolboxFont(.caption.weight(.semibold))
+                .foregroundStyle(.orange)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("\(appList) \(apps.count == 1 ? "is" : "are") using the headset's microphone directly")
+                    .toolboxFont(.caption.weight(.semibold))
+                Text("Toolbox can't override an app that picks its own device, so your headphones stay in call mode. Set \(appList)'s microphone to \u{201C}Same as System\u{201D} and stereo comes back.")
+                    .toolboxFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.orange.opacity(0.28), lineWidth: 1)
+        )
+    }
+
+    private var bluetoothMicLockNote: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "info.circle")
+                .toolboxFont(.caption)
+                .foregroundStyle(.secondary)
+            Text("Why: a Bluetooth headset can only run one audio profile at a time - high-quality stereo (A2DP) or two-way call audio (HFP). Opening the headset mic forces HFP, which is why music turns mono and tinny and you hear yourself. Keeping the headset mic closed keeps A2DP alive.\n\nApps that pick their own device (Zoom, Teams, Slack, Meet) can open the headset mic directly; set their microphone to “Same as System” so this works. On Macs with no other microphone, Toolbox leaves the headset mic alone so you are never left without one.")
+                .toolboxFont(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
