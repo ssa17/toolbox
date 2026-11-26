@@ -319,7 +319,6 @@ final class MenuBarController: NSObject {
     private var panel: MenuBarPopoverNSPanel?
     private var visualEffectView: MenuBarPopoverChromeView?
     private var hostingView: PointerCursorHostingView<MenuBarPopoverView>?
-    private var isAppActive: Bool = true
     private let menuWidth: CGFloat = 340
     private var outsideClickMonitor: Any?
     private var localMouseMonitor: Any?
@@ -360,7 +359,6 @@ final class MenuBarController: NSObject {
     }
 
     func setVisible(_ visible: Bool, isActive: Bool = true) {
-        self.isAppActive = isActive
         if visible {
             if statusItem == nil {
                 let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -386,13 +384,15 @@ final class MenuBarController: NSObject {
     }
 
     func updateAppearance(isActive: Bool) {
-        self.isAppActive = isActive
         guard let button = statusItem?.button else { return }
         let icon = Self.makeStatusBarIcon(isActive: isActive)
         button.image = icon
         button.image?.isTemplate = true
         button.alphaValue = isActive ? 1.0 : 0.68
-        button.toolTip = isActive ? "Toolbox (Active)" : "Toolbox (Paused)"
+        // No native status bar tooltip: it can linger and mis-fire in the background
+        // (appearing away from the menu bar and with no reliable dismiss path). The icon
+        // state and the popover's header already convey Active/Paused.
+        button.toolTip = nil
     }
 
     @objc
