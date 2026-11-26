@@ -10,16 +10,15 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 ## [Unreleased]
 
 ### Added
-- **Finder Enhancer** — move files in Finder with `⌘ X` → `⌘ V`, open selected items with `Return` (or rename with `F2`) without disrupting inline editing or dialogs, and optionally auto-quit allowlisted or non-excluded apps after their last window closes
-- **Clipboard Image History** — capture screenshots and copied images with thumbnails, filters, metadata previews, pinning, instant paste, Save As export, and configurable local cache limits
+- **Finder Enhancer** — move files in Finder with `⌘ X` → `⌘ V`, open selected items with `Return` (or rename with `F2`), and optionally auto-quit allowlisted or non-excluded apps after their last window closes
+- **Clipboard Image History** — capture screenshots and copied images with thumbnails, filters, pinning, instant paste, Save As export, and configurable local cache limits
 
 ### Changed
-- **Clipboard** — after deleting an item, the highlight moves to the item below it (or the item above it if there is none) instead of jumping back to the top of the list
+- **Clipboard** — after deleting an item, the highlight moves to the item below it (or above it) instead of jumping back to the top of the list
 
 ### Fixed
-- **Status Bar Tooltip** — the "Toolbox (Active)" tooltip could linger and appear away from the menu bar without a reliable way to dismiss it; the status bar icon and popover header now convey the Active/Paused state instead
-- **Window Snapper (Lock, Sleep & Wake)** — locking the screen or letting displays sleep no longer counts as a display change, so waking the Mac keeps your layout instead of re-applying the auto profile and flashing a "Display Detected" loading toast
-- **Window Snapper (Startup)** — turning Window Snapper on no longer re-applies the auto profile when the connected display setup hasn't actually changed, and duplicate reconfigure events no longer stack a second loading toast
+- **Status Bar** — the "Toolbox (Active)" tooltip no longer lingers away from the menu bar; the icon and popover header now show the Active/Paused state
+- **Window Snapper** — locking or letting displays sleep no longer re-applies the auto profile or flashes a loading toast, and turning it on at startup no longer re-applies unchanged display setups
 
 ## [1.6.3] - 2026-11-26
 
