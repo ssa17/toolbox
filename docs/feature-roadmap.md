@@ -1,61 +1,96 @@
 # Toolbox Feature Roadmap
 
-This document is the **parent index** for Toolbox feature planning: it tracks every shipped and planned feature in one overview table, fixes the rollout order, and carries the shared implementation checklist that every module must follow.
+This document is the **parent index** for **all** Toolbox modules: it tracks **Planned** modules and enhancements in **§1**, maintains a complete **Done (Shipped)** reference table (including both the 5 foundational core modules and all shipped roadmap modules) in **§2**, and defines the shared implementation checklist every module must follow in **§3**.
 
-The **detailed implementation spec for each feature** — user flows, file lists, module metadata, macOS API design, configuration schemas, self-test plans, and edge cases — lives in its own file under [`docs/feature-specs/`](feature-specs/), linked in **§2 Feature Specs** below. Done features keep their full spec there as the design record (the shipped code remains the source of truth for behavior); planned features are implemented from their spec file.
+The **detailed implementation spec for each feature** — user flows, file lists, module metadata, macOS API design, configuration schemas, self-test plans, and edge cases — lives in its own file under [`docs/feature-specs/`](feature-specs/), linked in the **Spec** columns below. For `Done` features, shipped code is the source of truth and the spec remains the design record; `Planned` features are implemented from their spec.
+
+**Quick Navigation:** [Planned Modules](#planned-modules) · [Planned Enhancements](#planned-enhancements-to-shipped-modules) · [Done (Shipped)](#2-done-shipped-modules-reference) · [Shared Checklist](#3-shared-implementation-checklist-required-for-every-module) · [Backlog](#4-backlog-unscheduled-ideas)
 
 ---
 
-## 1. Overview & Rollout Strategy
+## 1. Planned Features & Enhancements
 
-### Recommended Implementation Order
+### Planned Modules
 
-Features are ordered from zero-permission, self-contained utilities to modules that interact with Screen Capture, `CGEventTap` input interception, and CoreAudio HAL:
+Ordered from zero-permission, self-contained utilities to modules that interact with Screen Capture, `CGEventTap` input interception, and Accessibility:
 
-| # | Feature | Module ID | Category | Default Shortcut | Permissions Needed | Key macOS Frameworks | Status |
+| # | Feature | Module ID | Category | Default Shortcut | Permissions Needed | Key macOS Frameworks | Spec |
 |---|---|---|---|---|---|---|---|
-| 1 | **Localhost Port Killer** | `port_killer` | Developer Tools | `⌃ ⌥ ⌘ P` | None | `Foundation`, `Darwin` (`libproc`), `Network` (tests) | Done |
-| 2 | **Color Picker & Swatch History** | `color_picker` | Developer Tools | `⌃ ⌥ ⌘ C` | None | `AppKit` (`NSColorSampler`, `NSColorSpace`) | Planned |
-| 3 | **Dev Converter & Scratchpad** | `dev_tools` | Developer Tools | `⌃ ⌥ ⌘ B` | None | `Foundation`, `CryptoKit` | Planned |
-| 4 | **Screen OCR (Text Grabber)** | `screen_ocr` | Developer Tools | `⇧ ⌘ 0` | Screen Recording (OS-managed via `screencapture`) | `Vision`, `CoreGraphics`, `AppKit` | Done |
-| 5 | **Keyboard & Trackpad Clean Lock** | `clean_lock` | System & Power | None *(Button / Menu Bar only)* | Accessibility (required) | `CoreGraphics` (`CGEventTap`), `AppKit` | Done |
-| 6 | **Call Controls** | `call_controls` | System & Power | `⌃ ⌥ ⌘ M` (Mic) & `⌃ ⌥ ⌘ V` (Video), customizable per user | Accessibility (optional: Unified Call Keybind Override & Auto-Mute While Typing) | `CoreAudio`, `AudioToolbox`, `CoreMediaIO`, `CoreGraphics`, `ApplicationServices` | Done |
-| 7 | **Window Snapper** | `window_snapper` | Window & Dock | `⌃ ⌥ ⌘ ←/→/↑/↓` (plus halves, thirds, quarters, restore pre-snap size, and profile shortcuts) | Accessibility (required) | `ApplicationServices` (AX), `CoreGraphics`, `AppKit`, `Carbon` | Done |
+| 1 | **Color Picker & Swatch History** | `color_picker` | Developer Tools | `⌃ ⌥ ⌘ E` | None | `AppKit` (`NSColorSampler`, `NSColorSpace`) | [`color_picker.md`](feature-specs/color_picker.md) |
+| 2 | **Dev Converter & Scratchpad** | `dev_tools` | Developer Tools | `⌃ ⌥ ⌘ B` | None | `Foundation`, `CryptoKit` | [`dev_tools.md`](feature-specs/dev_tools.md) |
+| 3 | **Floating File Drop Shelf** | `drop_shelf` | Clipboard & Text | `⌃ ⌥ ⌘ D` *(+ drag shake)* | None | `AppKit` (`NSPanel`, `NSDraggingDestination`, `NSFilePromiseReceiver`), `UniformTypeIdentifiers` | [`drop_shelf.md`](feature-specs/drop_shelf.md) |
+| 4 | **Local Image Compressor & Cropper** | `image_compressor` | Clipboard & Text | `⌃ ⌥ ⌘ I` | None | `ImageIO`, `CoreImage`, `AppKit`, `UniformTypeIdentifiers` | [`image_compressor.md`](feature-specs/image_compressor.md) |
+| 5 | **Meeting Shield (Presentation Mode)** | `meeting_shield` | System & Power | `⌃ ⌥ ⌘ S` | None *(optional Focus Shortcuts)* | `AppKit`, `IOKit`, `Foundation` | [`meeting_shield.md`](feature-specs/meeting_shield.md) |
+| 6 | **Quick Screenshot** | `quick_screenshot` | Clipboard & Text | `⌃ ⌥ ⌘ 5` | Screen Recording (OS-managed via `screencapture`) | `AppKit`, `CoreGraphics`, `Vision` (optional OCR) | [`quick_screenshot.md`](feature-specs/quick_screenshot.md) |
+| 7 | **Finder Enhancer** | `finder_enhancer` | System & Power | None *(Finder-scoped `⌘ X`/`⌘ V`/`Return` + auto-quit)* | Accessibility (required) | `CoreGraphics` (`CGEventTap`), `ApplicationServices` (AX), `AppKit` | [`finder_enhancer.md`](feature-specs/finder_enhancer.md) |
+| 8 | **Window Switcher (`Alt+Tab`)** | `window_switcher` | Window & Dock | `⌥ Tab` / `⌥ ⇧ Tab` *(opt-in)* | Accessibility (required); Screen Recording (optional, for thumbnails) | `ApplicationServices` (AX), `CoreGraphics`, `ScreenCaptureKit` (optional), `AppKit` | [`window_switcher.md`](feature-specs/window_switcher.md) |
+| 9 | **Keyboard Shortcuts Hub & Caps Lock Hyper Key** | `hyper_key` *(Sidebar: Keyboard Shortcuts)* | Commands & Shortcuts | Hold `Caps Lock` (`⌃ ⌥ ⌘` or `⌃ ⌥ ⇧ ⌘`); Tap `Caps Lock` *(opt-in)* | None *(Shortcuts Hub)*; Accessibility & Input Monitoring *(required for Caps Lock Hyper Key)* | `IOKit` (`IOHIDServiceClientSetProperty`, `IOHIDSetModifierLockState`), `CoreGraphics` (`CGEventTap`), `AppKit`, `Carbon` | [`keyboard_shortcuts_hub.md`](feature-specs/keyboard_shortcuts_hub.md) |
+
+### Planned Enhancements to Shipped Modules
+
+| Target Module | Enhancement | Category | Default Shortcut | Permissions Needed | Key macOS Frameworks | Spec |
+|---|---|---|---|---|---|---|
+| `call_controls` | **AirPods & Bluetooth Mic Lock** | System & Power | None *(Automatic CoreAudio guard)* | None | `CoreAudio`, `AudioToolbox` | [`call_controls_bluetooth_mic_lock.md`](feature-specs/call_controls_bluetooth_mic_lock.md) |
+| `clipboard` | **Image History Support** | Clipboard & Text | `⌥ ⌘ V` *(existing Clipboard hotkey)* | None *(optional Accessibility for auto-paste)* | `AppKit`, `CryptoKit`, `ImageIO` | [`clipboard_image_history.md`](feature-specs/clipboard_image_history.md) |
+
+*All default shortcuts across the 10 shipped and 9 planned modules are verified collision-free (`⌃ ⌥ ⌘ C` is reserved by `WindowSnapper` Center, so `ColorPicker` uses `⌃ ⌥ ⌘ E`).*
 
 ---
 
-### Shared Implementation Checklist (Required for Every Module)
+## 2. Done (Shipped Modules Reference)
 
-Follow these repo invariants (see [AGENTS.md](../AGENTS.md) and [EXTENDING.md](../EXTENDING.md)) whenever implementing any module from this spec:
+Complete reference of all shipped modules in `Sources/Toolbox/Modules/` (5 foundational Core modules + 5 shipped Roadmap modules):
+
+| Feature | Module ID | Origin | Category | Default Shortcut | Permissions Needed | Key macOS Frameworks | Docs / Spec |
+|---|---|---|---|---|---|---|---|
+| **Dock Click to Minimize** | `dock_minimize` | Core | Window & Dock | None *(Dock click)* | Accessibility (required) | `ApplicationServices` (AX), `CoreGraphics`, `AppKit` | [`Modules/DockMinimize/`](../Sources/Toolbox/Modules/DockMinimize/) |
+| **Clipboard History** | `clipboard` | Core | Clipboard & Text | `⌥ ⌘ V` | None *(optional Accessibility for auto-paste)* | `AppKit`, `Carbon` | [`Modules/Clipboard/`](../Sources/Toolbox/Modules/Clipboard/) · *(Planned upgrade: [`clipboard_image_history.md`](feature-specs/clipboard_image_history.md))* |
+| **Keep Awake** | `keep_awake` | Core | System & Power | `⌥ ⌘ K` | None | `IOKit` (`IOPMAssertion`), `CoreGraphics`, `AppKit` | [`Modules/KeepAwake/`](../Sources/Toolbox/Modules/KeepAwake/) |
+| **Custom Commands** | `custom_commands` | Core | Commands & Shortcuts | User-defined *(default presets: `⌥ ⌘ T`, `⇧ ⌥ ⌘ I`, `⇧ ⌥ ⌘ D`)* | None *(optional Accessibility for snippet auto-paste)* | `AppKit`, `Carbon`, `Foundation` | [`Modules/CustomCommands/`](../Sources/Toolbox/Modules/CustomCommands/) |
+| **Scroll Direction** | `scroll_direction` | Core | System & Power | None *(Background `CGEventTap`)* | Accessibility (required) | `CoreGraphics` (`CGEventTap`), `AppKit` | [`scroll-direction.md`](scroll-direction.md) · [`Modules/ScrollDirection/`](../Sources/Toolbox/Modules/ScrollDirection/) |
+| **Localhost Port Killer** | `port_killer` | Roadmap | Developer Tools | `⌃ ⌥ ⌘ P` | None | `Foundation`, `Darwin` (`libproc`), `Network` (tests) | [`port_killer.md`](feature-specs/port_killer.md) |
+| **Screen OCR (Text Grabber)** | `screen_ocr` | Roadmap | Developer Tools | `⇧ ⌘ 0` | Screen Recording (OS-managed via `screencapture`) | `Vision`, `CoreGraphics`, `AppKit` | [`screen_ocr.md`](feature-specs/screen_ocr.md) |
+| **Keyboard & Trackpad Clean Lock** | `clean_lock` | Roadmap | System & Power | None *(Button / Menu Bar only)* | Accessibility (required) | `CoreGraphics` (`CGEventTap`), `AppKit` | [`clean_lock.md`](feature-specs/clean_lock.md) |
+| **Call Controls** | `call_controls` | Roadmap | System & Power | `⌃ ⌥ ⌘ M` (Mic) & `⌃ ⌥ ⌘ V` (Video), customizable per user | Accessibility (optional: Unified Call Keybind Override & Auto-Mute While Typing) | `CoreAudio`, `AudioToolbox`, `CoreMediaIO`, `CoreGraphics`, `ApplicationServices` | [`call_controls.md`](feature-specs/call_controls.md) · *(Planned upgrade: [`call_controls_bluetooth_mic_lock.md`](feature-specs/call_controls_bluetooth_mic_lock.md))* |
+| **Window Snapper** | `window_snapper` | Roadmap | Window & Dock | `⌃ ⌥ ⌘ ←/→/↑/↓` (plus halves, thirds, quarters, restore pre-snap size, and profile shortcuts) | Accessibility (required) | `ApplicationServices` (AX), `CoreGraphics`, `AppKit`, `Carbon` | [`window_snapper.md`](feature-specs/window_snapper.md) |
+
+---
+
+## 3. Shared Implementation Checklist (Required for Every Module)
+
+Follow these repo invariants (see [AGENTS.md](../AGENTS.md) and [EXTENDING.md](../EXTENDING.md)) whenever implementing any module from this roadmap:
 
 1. **Module Isolation (`Sources/Toolbox/Modules/<Feature>/`)**
-   - Separate pure engine/runtime logic (`*Module.swift` + helper engine/tap/scanner files) from SwiftUI views (`*SettingsView.swift`, and `*PopoverView.swift` when the module has a floating HUD/popover).
+   - Separate pure runtime/engine logic (`*Module.swift` + helper engine/tap/scanner files) from SwiftUI views (`*SettingsView.swift`, and `*PopoverView.swift` when the module has a floating HUD/popover).
    - **Apple CLT Constraint:** Do **not** use the `@Observable` macro or import `XCTest`. Use `ObservableObject`, `@Published`, and `@ObservedObject`.
+   - Run any `CGEventTap` or blocking I/O on a dedicated background queue and run loop (never the main run loop), keep callbacks side-effect free, and re-arm taps on `tapDisabledByTimeout` / `tapDisabledByUserInput`.
 2. **Protocol & Category (`Sources/Toolbox/Core/ToolboxModule.swift`)**
-   - Add `case developer = "Developer Tools"` to `ModuleCategory` when implementing the first developer module (Feature 1).
-   - Conform to `ToolboxModule` with complete `id`, `name`, `tagline`, `aboutSummary`, `featureTips`, `symbolName`, `accentColor`, `category`, `requiresAccessibility`, `accessibilityReason`, `isRunning`, `statusText`, `shortcutText`, `start()`, `stop()`, `reload(with:)`, and `makeSettingsView()`.
-3. **Configuration (`Sources/Toolbox/Core/ConfigManager.swift`)**
+   - Reuse an existing `ModuleCategory` (`.windowAndDock`, `.productivity`, `.developer`, `.system`, or `.automation`) unless a genuinely new category is needed.
+   - Conform to `ToolboxModule` with complete `id`, `name`, `tagline`, `aboutSummary`, `featureTips`, `symbolName`, `accentColor`, `category`, `requiresAccessibility`, `accessibilityReason`, `supportsMenuBar`, `supportsEnableToggle`, `isRunning`, `isEnabled(in:)`, `setEnabled(_:in:)`, `statusText(in:accessibilityGranted:)`, `shortcutText(in:)`, `start()`, `stop()`, `reload(with:)`, and `makeSettingsView()`.
+3. **Configuration & Migration (`Sources/Toolbox/Core/ConfigManager.swift`)**
    - Define a dedicated `<Feature>Config: Codable, Equatable, Sendable` struct with safe defaults (`enabled: Bool = false`) and a lenient `init(from decoder: Decoder)` using `decodeIfPresent(...) ?? default` so older config files migrate seamlessly.
-   - Add the property to `ToolboxConfig` (bumping `schemaVersion` when adding a typed config struct) and append the module's `id` to `GeneralConfig.defaultMenuBarModuleOrder`.
+   - Add the property to `ToolboxConfig`, bump `schemaVersion`, and append the module's `id` to `GeneralConfig.defaultMenuBarModuleOrder`.
    - Use `ShortcutSpec` for global shortcuts and register/unregister via `HotKeyManager.shared` using unique `"<module_id>.<action>"` keys.
 4. **Shortcut Conflict Prevention (`Sources/Toolbox/Core/HotKeyManager.swift`)**
-   - **Conflict-free defaults:** Default global shortcuts to 3-modifier chords (`⌃ ⌥ ⌘ <Key>`) or `.none` so enabling a module never breaks common 2-modifier `⌥ ⌘ <Key>` shortcuts in Finder, browsers, or IDEs (such as `⌥ ⌘ P` Path Bar, `⌥ ⌘ B` Bookmarks Bar, `⌥ ⌘ L` Downloads / Format Code, `⌥ ⌘ M` Minimize All, `⌥ ⌘ O` Bookmark Manager).
+   - **Conflict-free defaults:** Default global shortcuts to 3-modifier chords (`⌃ ⌥ ⌘ <Key>`) or `.none` so enabling a module never breaks common 2-modifier `⌥ ⌘` / `⌃ ⌘` shortcuts in macOS, Finder, browsers, or IDEs.
    - **Unregister when inactive:** Always call `HotKeyManager.shared.unregister(...)` in `stop()` and whenever `enabled == false` or `config.general.appEnabled == false` so disabled modules never intercept keystrokes.
-   - **In-app collision detection:** Wire every new module's shortcut(s) into `HotKeyManager.inAppConflictDescription(for:excludingSourceID:in:)` and `HotKeyManager.clearConflictingShortcuts(matching:excludingSourceID:in:)` so `ShortcutRecorderView` surfaces collisions and supports one-click **Assign Here**.
-   - **Common system/app warnings:** Expand `HotKeyManager.wellKnownSystemShortcuts` with well-known macOS/app `⌥ ⌘` chords (`⌥ ⌘ D`, `⌥ ⌘ M`, `⌥ ⌘ L`, `⌥ ⌘ P`, `⌥ ⌘ B`, `⌥ ⌘ I`, `⌥ ⌘ C`) so users see a gentle warning if they manually pick one.
-5. **Module Registry & Lifecycle (`ModuleRegistry.swift`, `ToolboxApp.swift`)**
+   - **In-app collision detection:** Wire every new module's shortcut(s) into `HotKeyManager.inAppConflictDescription(for:excludingSourceID:in:)` and `HotKeyManager.clearConflictingShortcuts(matching:excludingSourceID:in:)` (and `ShortcutCatalog` once [`keyboard_shortcuts_hub.md`](feature-specs/keyboard_shortcuts_hub.md) ships) so `ShortcutRecorderView` and the Keyboard Shortcuts Hub surface collisions and support one-click **Assign Here**.
+   - **Common system/app warnings:** Verify `HotKeyManager.wellKnownSystemShortcuts` covers any relevant macOS or common app chords near the module's shortcuts so users see a gentle warning if they manually pick one.
+5. **Module Registry, Permissions & Lifecycle (`ModuleRegistry.swift`, `PermissionsManager.swift`, `ToolboxApp.swift`)**
    - Instantiate and append the module to `ModuleRegistry.shared.modules`.
    - Ensure `stop()` tears down all timers, monitors, panels, and event taps cleanly when the module is disabled or Toolbox is paused (`config.general.appEnabled == false`).
-   - If the module modifies persistent system state (event-swallowing taps or microphone mute), also hook cleanup into `AppDelegate.applicationWillTerminate(_:)`.
-6. **UI & Design System (`UI/Theme.swift`, `UI/ShortcutRecorderView.swift`, `UI/HUDToast.swift`)**
+   - Keep permission handling non-blocking: modules with `requiresAccessibility = true` wait gracefully until permission is granted, and optional or OS-managed permissions degrade cleanly with clear status text.
+   - If the module modifies persistent system state (such as event-swallowing taps, microphone mute, or sleep assertions), hook guaranteed cleanup into `AppDelegate.applicationWillTerminate(_:)`.
+6. **UI, Popovers & Design System (`UI/Theme.swift`, `UI/ShortcutRecorderView.swift`, `UI/HUDToast.swift`)**
    - Build `*SettingsView.swift` using `FeatureSection("TITLE", subtitle: ...)` blocks, `SettingRow`, `Divider()`, and `ShortcutRecorderView` (never `ShortcutRecorderButton` — the view in `UI/ShortcutRecorderView.swift` is `ShortcutRecorderView`).
    - Apply `.pointerCursor()` to every interactive element (`Button`, `Toggle`, `Picker`, `Stepper`, `Menu`, clickable cards, popover rows).
-   - For floating popovers (Features 1 and 3), mirror `ClipboardModule`: use `NSPanel` with `styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView]`, `hidesOnDeactivate = false`, `level = .popUpMenu`, `collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]`, and paired `NSEvent.addGlobalMonitorForEvents` + `NSEvent.addLocalMonitorForEvents` for outside-click dismissal (plus `Esc` to close).
+   - For floating popovers (e.g., `dev_tools`, `drop_shelf`, `image_compressor`), mirror `ClipboardModule` / `PortKillerModule`: use `NSPanel` with `styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView]`, `hidesOnDeactivate = false`, `acceptsMouseMovedEvents = true`, `level = .popUpMenu`, and `collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]`; host SwiftUI views in `PointerCursorHostingView` (never raw `NSHostingView`); keep hover tooltips in a separate `ignoresMouseEvents = true` child `NSPanel`; and pair `NSEvent.addGlobalMonitorForEvents` + `NSEvent.addLocalMonitorForEvents` for outside-click dismissal (plus `Esc` to close).
 7. **Build Frameworks (`Package.swift`)**
-   - Link any newly required Apple frameworks (such as `Vision` for Feature 4 or `CoreAudio` / `AudioToolbox` for Feature 6) in `Package.swift` under `linkerSettings`.
-8. **Verification (`SelfTestRunner.swift`, `SnapshotRunner.swift`, `CHANGELOG.md`)**
-   - Add unit & lifecycle tests to `Sources/Toolbox/Core/SelfTestRunner.swift` and a view snapshot to `Sources/Toolbox/Core/SnapshotRunner.swift`.
+   - Link any newly required Apple frameworks in `Package.swift` under `linkerSettings`.
+8. **Verification, Diagnostics & Release Hygiene (`SelfTestRunner.swift`, `SnapshotRunner.swift`, `CHANGELOG.md`)**
+   - Add unit, config-migration, and lifecycle tests to `Sources/Toolbox/Core/SelfTestRunner.swift`, a view snapshot to `Sources/Toolbox/Core/SnapshotRunner.swift`, and health checks to `DeveloperHealthChecks.swift` if the module introduces runtime invariants worth validating.
    - Add a concise user-facing bullet under `## [Unreleased]` in `CHANGELOG.md` at commit time (per [`.agents/skills/changelog/SKILL.md`](../.agents/skills/changelog/SKILL.md)).
+   - Follow the **Signing & TCC Permission Invariant** in [AGENTS.md](../AGENTS.md): never overwrite `./build/Toolbox.app` with an ad-hoc build (use `APP_BUNDLE=.work/Toolbox-dev.app ./scripts/build-app.sh --fast --allow-adhoc` when Keychain signing is unavailable).
    - Verify with:
      ```bash
      ./scripts/build-app.sh --fast
@@ -65,22 +100,8 @@ Follow these repo invariants (see [AGENTS.md](../AGENTS.md) and [EXTENDING.md](.
 
 ---
 
-## 2. Feature Specs (detailed breakdowns)
+## 4. Backlog (Unscheduled Ideas)
 
-Each feature's full detailed spec lives in its own file under [`docs/feature-specs/`](feature-specs/):
+*(No pending backlog items — all candidates have been specced and promoted into §1 above.)*
 
-| # | Feature | Status | Detailed Spec |
-|---|---|---|---|
-| 1 | Localhost Port Killer | Done | [`feature-specs/port_killer.md`](feature-specs/port_killer.md) |
-| 2 | Color Picker & Swatch History | Planned | [`feature-specs/color_picker.md`](feature-specs/color_picker.md) |
-| 3 | Dev Converter & Scratchpad | Planned | [`feature-specs/dev_tools.md`](feature-specs/dev_tools.md) |
-| 4 | Screen OCR (Text Grabber) | Done | [`feature-specs/screen_ocr.md`](feature-specs/screen_ocr.md) |
-| 5 | Keyboard & Trackpad Clean Lock | Done | [`feature-specs/clean_lock.md`](feature-specs/clean_lock.md) |
-| 6 | Call Controls | Done | [`feature-specs/call_controls.md`](feature-specs/call_controls.md) |
-| 7 | Window Snapper | Done | [`feature-specs/window_snapper.md`](feature-specs/window_snapper.md) |
-
----
-
-## 3. Backlog (spec draft, not yet in the rollout order)
-
-*(No pending backlog specs — Window Snapper moved to rollout #7 above.)*
+To propose a new feature, draft a spec under `docs/feature-specs/<module_id>.md` (covering user flows, macOS APIs, config schema, self-test plan, and edge cases), list it here until scheduled, and promote it to §1 when ready for implementation.

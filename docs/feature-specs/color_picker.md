@@ -6,7 +6,7 @@
 Designers and frontend/macOS developers frequently need a pixel color from a mockup, browser, or simulator in code-ready formats (`#3B82F6`, `oklch(...)`, `Color(red:green:blue:)`, `rgb(...)`) and want to check WCAG text contrast immediately without opening heavy design tools. **Color Picker** uses macOS's native pixel loupe (`NSColorSampler`), requires **zero permissions**, and retains recent swatches plus a live WCAG 2.1 contrast checker.
 
 ### User Flows & UX
-- **Instant Eyedropper (`⌃ ⌥ ⌘ C` or Pick button):** Summons macOS's native magnifying loupe over the cursor. Clicking any pixel samples the color, formats it in the user's `defaultFormat`, copies it to `NSPasteboard.general`, shows a `HUDToast` with the formatted string (and a color dot), and prepends it to swatch history. Pressing `Esc` cancels cleanly.
+- **Instant Eyedropper (`⌃ ⌥ ⌘ E` or Pick button):** Summons macOS's native magnifying loupe over the cursor. Clicking any pixel samples the color, formats it in the user's `defaultFormat`, copies it to `NSPasteboard.general`, shows a `HUDToast` with the formatted string (and a color dot), and prepends it to swatch history. Pressing `Esc` cancels cleanly. *(Uses `⌃ ⌥ ⌘ E` because `⌃ ⌥ ⌘ C` is reserved by `WindowSnapper` Center.)*
 - **Settings & Studio View (`ColorPickerSettingsView.swift`):**
   - **Sampler & Output** section: global shortcut (`ShortcutRecorderView`), default copy format picker (`HEX`, `RGB`, `HSL`, `OKLCH`, `SwiftUI`, `NSColor`), uppercase HEX toggle, `#` prefix toggle, toast confirmation toggle.
   - **Current Color Inspector** section: large swatch preview with quick-copy pills for **all 6 formats** at once so users can grab any representation without changing their default.
@@ -62,7 +62,7 @@ enum ColorFormat: String, Codable, CaseIterable, Sendable {
 
 struct ColorPickerConfig: Codable, Equatable, Sendable {
     var enabled: Bool = false
-    var shortcut: ShortcutSpec = ShortcutSpec(key: "c", modifiers: [.control, .option, .command])
+    var shortcut: ShortcutSpec = ShortcutSpec(key: "e", modifiers: [.control, .option, .command])
     var defaultFormat: ColorFormat = .hex
     var uppercaseHex: Bool = true
     var includeHashPrefix: Bool = true
