@@ -22,6 +22,7 @@ enum ToolboxConfigSection: String, CaseIterable, Identifiable, Sendable {
     case callControls
     case windowSnapper
     case finderEnhancer
+    case windowSwitcher
 
     var id: String { rawValue }
 
@@ -39,6 +40,7 @@ enum ToolboxConfigSection: String, CaseIterable, Identifiable, Sendable {
         case .callControls: return "Call Controls"
         case .windowSnapper: return "Window Snapper"
         case .finderEnhancer: return "Finder Enhancer"
+        case .windowSwitcher: return "Window Switcher"
         }
     }
 }
@@ -97,6 +99,8 @@ final class ConfigCheckpointStore: ObservableObject {
             next.windowSnapper = WindowSnapperConfig()
         case .finderEnhancer:
             next.finderEnhancer = FinderEnhancerConfig()
+        case .windowSwitcher:
+            next.windowSwitcher = WindowSwitcherConfig()
         }
         ConfigManager.shared.config = next
     }

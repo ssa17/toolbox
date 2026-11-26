@@ -90,6 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if Self.allowImmediateTermination
             || ModuleRegistry.shared.screenOCR.shouldAllowSystemQuitAndReopen
+            || ModuleRegistry.shared.windowSwitcher.shouldAllowSystemQuitAndReopen
             || PermissionsManager.shared.isAwaitingAccessibilityGrant
             || Self.isExternalSystemQuitRequest() {
             return .terminateNow
@@ -126,6 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ModuleRegistry.shared.screenOCR.stop()
         ModuleRegistry.shared.windowSnapper.stop()
         ModuleRegistry.shared.finderEnhancer.stop()
+        ModuleRegistry.shared.windowSwitcher.stop()
     }
 
     private func applyGeneralPreferences(_ general: GeneralConfig) {

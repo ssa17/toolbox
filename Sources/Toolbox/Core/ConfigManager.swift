@@ -140,7 +140,8 @@ struct GeneralConfig: Codable, Equatable, Sendable {
         "scroll_direction",
         "call_controls",
         "window_snapper",
-        "finder_enhancer"
+        "finder_enhancer",
+        "window_switcher"
     ]
 
     var appEnabled: Bool = true
@@ -2641,13 +2642,139 @@ struct FinderEnhancerConfig: Codable, Equatable, Sendable {
     }
 }
 
+enum SwitcherTriggerModifier: String, Codable, CaseIterable, Identifiable, Sendable {
+    case option
+    case control
+    case command
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .option: return "⌥ Option"
+        case .control: return "⌃ Control"
+        case .command: return "⌘ Command"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .option: return "⌥"
+        case .control: return "⌃"
+        case .command: return "⌘"
+        }
+    }
+
+    var cgEventFlag: CGEventFlags {
+        switch self {
+        case .option: return .maskAlternate
+        case .control: return .maskControl
+        case .command: return .maskCommand
+        }
+    }
+
+    var keyModifier: KeyModifier {
+        switch self {
+        case .option: return .option
+        case .control: return .control
+        case .command: return .command
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .option:
+            return "Hold ⌥ Option and press Tab (or ⇧ Tab) to cycle windows without replacing macOS ⌘ Tab."
+        case .control:
+            return "Hold ⌃ Control and press Tab (or ⇧ Tab) to cycle windows cleanly across apps."
+        case .command:
+            return "Replaces macOS's built-in ⌘ Tab app switcher with Toolbox's window-level switcher while active."
+        }
+    }
+}
+
+enum SwitcherLayoutStyle: String, Codable, CaseIterable, Identifiable, Sendable {
+    case strip
+    case list
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .strip: return "Thumbnail Strip"
+        case .list: return "Compact List"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .strip: return "rectangle.split.3x1"
+        case .list: return "list.bullet"
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let raw = (try? decoder.singleValueContainer().decode(String.self)) ?? "strip"
+        switch raw {
+        case "list": self = .list
+        case "strip", "grid": self = .strip
+        default: self = .strip
+        }
+    }
+}
+
+struct WindowSwitcherConfig: Codable, Equatable, Sendable {
+    var enabled: Bool = false
+    var triggerModifier: SwitcherTriggerModifier = .option
+    var triggerKey: String = "tab"
+    var currentAppOnlyShortcut: ShortcutSpec = .none
+    var layoutStyle: SwitcherLayoutStyle = .strip
+    var showThumbnails: Bool = true
+    var includeMinimized: Bool = true
+    var includeHiddenApps: Bool = true
+    var activeSpaceOnly: Bool = false
+    var activeDisplayOnly: Bool = false
+    var enableQuickActions: Bool = true
+    var excludedBundleIDs: [String] = []
+
+    var normalizedTriggerKey: String {
+        let trimmed = triggerKey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return trimmed.isEmpty ? "tab" : trimmed
+    }
+
+    var triggerShortcutSpec: ShortcutSpec {
+        ShortcutSpec(key: normalizedTriggerKey, modifiers: [triggerModifier.keyModifier])
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        triggerModifier = try c.decodeIfPresent(SwitcherTriggerModifier.self, forKey: .triggerModifier) ?? .option
+        let rawKey = (try c.decodeIfPresent(String.self, forKey: .triggerKey) ?? "tab")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        triggerKey = rawKey.isEmpty ? "tab" : rawKey
+        currentAppOnlyShortcut = try c.decodeIfPresent(ShortcutSpec.self, forKey: .currentAppOnlyShortcut) ?? .none
+        layoutStyle = try c.decodeIfPresent(SwitcherLayoutStyle.self, forKey: .layoutStyle) ?? .strip
+        showThumbnails = try c.decodeIfPresent(Bool.self, forKey: .showThumbnails) ?? true
+        includeMinimized = try c.decodeIfPresent(Bool.self, forKey: .includeMinimized) ?? true
+        includeHiddenApps = try c.decodeIfPresent(Bool.self, forKey: .includeHiddenApps) ?? true
+        activeSpaceOnly = try c.decodeIfPresent(Bool.self, forKey: .activeSpaceOnly) ?? false
+        activeDisplayOnly = try c.decodeIfPresent(Bool.self, forKey: .activeDisplayOnly) ?? false
+        enableQuickActions = try c.decodeIfPresent(Bool.self, forKey: .enableQuickActions) ?? true
+        excludedBundleIDs = try c.decodeIfPresent([String].self, forKey: .excludedBundleIDs) ?? []
+    }
+}
+
 struct ToolboxConfig: Codable, Equatable, Sendable {
     private enum LegacyCodingKeys: String, CodingKey {
         case audioGuard
         case windowSnapping
     }
 
-    var schemaVersion: Int = 15
+    var schemaVersion: Int = 16
     var general: GeneralConfig = GeneralConfig()
     var dockMinimize: DockMinimizeConfig = DockMinimizeConfig()
     var clipboard: ClipboardConfig = ClipboardConfig()
@@ -2660,6 +2787,7 @@ struct ToolboxConfig: Codable, Equatable, Sendable {
     var callControls: CallControlsConfig = CallControlsConfig()
     var windowSnapper: WindowSnapperConfig = WindowSnapperConfig()
     var finderEnhancer: FinderEnhancerConfig = FinderEnhancerConfig()
+    var windowSwitcher: WindowSwitcherConfig = WindowSwitcherConfig()
     var extensions: [String: JSONValue] = [:]
 
     init() {}
@@ -2692,12 +2820,13 @@ struct ToolboxConfig: Codable, Equatable, Sendable {
         if decodedSchema < 8 {
             decodedCallControls.showFloatingPillOnlyDuringCalls = true
         }
-        schemaVersion = max(decodedSchema, 15)
+        schemaVersion = max(decodedSchema, 16)
         callControls = decodedCallControls
         windowSnapper = try c.decodeIfPresent(WindowSnapperConfig.self, forKey: .windowSnapper)
             ?? legacyContainer.decodeIfPresent(WindowSnapperConfig.self, forKey: .windowSnapping)
             ?? WindowSnapperConfig()
         finderEnhancer = try c.decodeIfPresent(FinderEnhancerConfig.self, forKey: .finderEnhancer) ?? FinderEnhancerConfig()
+        windowSwitcher = try c.decodeIfPresent(WindowSwitcherConfig.self, forKey: .windowSwitcher) ?? WindowSwitcherConfig()
         extensions = try c.decodeIfPresent([String: JSONValue].self, forKey: .extensions) ?? [:]
     }
 

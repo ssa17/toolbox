@@ -1,6 +1,6 @@
 # Window Switcher (`Alt+Tab`) — Feature Spec
 
-> **Status:** Planned · **Module:** `Modules/WindowSwitcher/` · **Parent:** [Toolbox Feature Roadmap](../feature-roadmap.md)
+> **Status:** Done (Shipped) · **Module:** `Modules/WindowSwitcher/` · **Parent:** [Toolbox Feature Roadmap](../feature-roadmap.md)
 
 ### Purpose & User Value
 macOS `⌘ Tab` switches between *applications*, not individual *windows*, and leaves minimized windows hidden behind Dock icons. Users juggling multiple browser, terminal, or editor windows—especially Windows switchers, developers, and students—have to combine `⌘ Tab`, `⌘ \``, Exposé, and Dock clicks to reach a specific window. **Window Switcher** provides an opt-in, keyboard-first window switcher (`⌥ Tab` / `⌥ ⇧ Tab`) that lists every open and minimized window in MRU order with optional live thumbnails and quick window actions.

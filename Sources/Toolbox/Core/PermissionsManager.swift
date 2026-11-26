@@ -201,6 +201,7 @@ final class PermissionsManager: ObservableObject {
         Self.cachedLiveTrustedState = actual
         applyAccessibilityCheck(actual)
         ModuleRegistry.shared.screenOCR.refreshScreenPermission()
+        ModuleRegistry.shared.windowSwitcher.refreshScreenPermission()
     }
 
     private func scheduleHIServicesCacheResync(force: Bool = false) {

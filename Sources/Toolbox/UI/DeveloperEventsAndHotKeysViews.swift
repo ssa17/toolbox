@@ -312,6 +312,7 @@ struct DeveloperEventsAndTapsView: View {
         case .callControls: return .mint
         case .windowSnapper: return .indigo
         case .finderEnhancer: return .blue
+        case .windowSwitcher: return .indigo
         case .ocr: return .cyan
         case .config: return .teal
         case .updates: return .green

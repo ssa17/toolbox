@@ -63,9 +63,13 @@ enum SelfTestRunner {
         testFinderCutStateMachineAndKeyInterceptor()
         testLastWindowQuitEligibilityAndWindowCounting()
         testFinderEnhancerModuleLifecycleAndRegistry()
+        testWindowSwitcherConfigAndMigration()
+        testWindowEnumeratorFilteringAndMRUOrdering()
+        testWindowSwitcherSelectionStateMachineAndTapDecisions()
+        testWindowSwitcherModuleLifecycleAndRegistry()
 
         if failures.isEmpty {
-            print("All 47 self-test suites passed.")
+            print("All 51 self-test suites passed.")
             return 0
         } else {
             for f in failures {
@@ -1222,7 +1226,9 @@ enum SelfTestRunner {
             "rectangle.and.hand.point.up.left", "macwindow.on.rectangle", "macwindow",
             "list.bullet.indent", "curlybraces", "gearshape.fill",
             "folder.badge.gearshape", "scissors", "lock.shield", "waveform.path.ecg",
-            "checkmark.shield", "nosign"
+            "checkmark.shield", "nosign", "rectangle.stack", "list.bullet",
+            "square.grid.2x2", "magnifyingglass", "minus.circle", "eye.slash",
+            "xmark.circle", "app.dashed", "rectangle.split.3x1"
         ]
         for sym in uiSymbols {
             expect(NSImage(systemSymbolName: sym, accessibilityDescription: nil) != nil,
@@ -1644,7 +1650,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(cfg),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.scrollDirection == cfg.scrollDirection, "ScrollDirectionConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 15, "ToolboxConfig schemaVersion should be 15")
+            expect(decoded.schemaVersion == 16, "ToolboxConfig schemaVersion should be 16")
         } else {
             failures.append("ToolboxConfig Codable encode/decode failed")
         }
@@ -1944,7 +1950,7 @@ enum SelfTestRunner {
     private static func testMenuBarCustomizationOrderAndVisibility() {
         var cfg = ToolboxConfig()
         let registry = ModuleRegistry.shared
-        let expectedDefaultOrder = ["dock_minimize", "clipboard", "port_killer", "screen_ocr", "keep_awake", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer"]
+        let expectedDefaultOrder = ["dock_minimize", "clipboard", "port_killer", "screen_ocr", "keep_awake", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer", "window_switcher"]
 
         expect(!cfg.general.hasCustomMenuBarLayout, "Default config should not report custom menu bar layout")
         expect(cfg.general.showQuickActionsInMenuBar, "Quick actions should be shown in menu bar by default")
@@ -1955,32 +1961,32 @@ enum SelfTestRunner {
         )
         expect(
             registry.visibleMenuBarModules(for: cfg).map(\.id) == expectedDefaultOrder,
-            "All 10 menu-bar-eligible modules should be visible in menu bar by default"
+            "All 11 menu-bar-eligible modules should be visible in menu bar by default"
         )
 
         cfg.general.moveModuleInMenuBar(id: "keep_awake", direction: -1)
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["dock_minimize", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["dock_minimize", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer", "window_switcher"],
             "Moving keep_awake up by 1 should place it before screen_ocr"
         )
         expect(cfg.general.hasCustomMenuBarLayout, "Reordering should mark hasCustomMenuBarLayout = true")
 
         cfg.general.moveModuleInMenuBar(fromId: "scroll_direction", toId: "dock_minimize")
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "dock_minimize", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "call_controls", "window_snapper", "finder_enhancer"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "dock_minimize", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "call_controls", "window_snapper", "finder_enhancer", "window_switcher"],
             "Dragging scroll_direction to dock_minimize should place it first"
         )
 
         cfg.general.setModuleVisibleInMenuBar("dock_minimize", visible: false)
         expect(
-            registry.visibleMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "call_controls", "window_snapper", "finder_enhancer"],
+            registry.visibleMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "call_controls", "window_snapper", "finder_enhancer", "window_switcher"],
             "Hiding dock_minimize from menu bar should omit it from visibleMenuBarModules"
         )
         expect(cfg.dockMinimize.enabled, "Hiding dock_minimize from status bar menu must not disable the module itself")
 
         cfg.general.menuBarModuleOrder = ["keep_awake", "clean_lock", "keep_awake", "unknown_id"]
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["keep_awake", "dock_minimize", "clipboard", "port_killer", "screen_ocr", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["keep_awake", "dock_minimize", "clipboard", "port_killer", "screen_ocr", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer", "window_switcher"],
             "Partial, non-menu-bar, or unknown menuBarModuleOrder must normalize with remaining eligible modules and no duplicates"
         )
 
@@ -2008,7 +2014,7 @@ enum SelfTestRunner {
             return
         }
         expect(settingsLayout.distanceAboveDraggedCenter == 266, "distanceAboveDraggedCenter for index 4 should be 266 (got \(settingsLayout.distanceAboveDraggedCenter))")
-        expect(settingsLayout.distanceBelowDraggedCenter == 326, "distanceBelowDraggedCenter for index 4 of 10 should be 326 (got \(settingsLayout.distanceBelowDraggedCenter))")
+        expect(settingsLayout.distanceBelowDraggedCenter == 386, "distanceBelowDraggedCenter for index 4 of 11 should be 386 (got \(settingsLayout.distanceBelowDraggedCenter))")
         expect(settingsLayout.restingShift(forRowAt: 2, targetIndex: 1) == 60, "Row shifting down past 52pt card + 8pt spacing should shift +60")
 
         let dragState = VerticalDragReorderState<String>()
@@ -2024,7 +2030,7 @@ enum SelfTestRunner {
         }
         expect(!dragState.isDragging, "finishDrag should end active drag")
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["clipboard", "port_killer", "screen_ocr", "keep_awake", "dock_minimize", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["clipboard", "port_killer", "screen_ocr", "keep_awake", "dock_minimize", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer", "window_switcher"],
             "Downward Settings drag should place dock_minimize after keep_awake (got \(registry.orderedMenuBarModules(for: cfg).map(\.id)))"
         )
         expect(!cfg.general.menuBarModuleOrder.contains("clean_lock"), "menuBarModuleOrder must never include non-menu-bar clean_lock")
@@ -2038,7 +2044,7 @@ enum SelfTestRunner {
             cfg.general.moveModuleInMenuBar(fromId: draggedID, toId: targetID, allModuleIDs: eligibleIDs)
         }
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["call_controls", "clipboard", "port_killer", "screen_ocr", "keep_awake", "dock_minimize", "custom_commands", "scroll_direction", "window_snapper", "finder_enhancer"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["call_controls", "clipboard", "port_killer", "screen_ocr", "keep_awake", "dock_minimize", "custom_commands", "scroll_direction", "window_snapper", "finder_enhancer", "window_switcher"],
             "Upward Settings drag should place call_controls at top (got \(registry.orderedMenuBarModules(for: cfg).map(\.id)))"
         )
 
@@ -2631,7 +2637,7 @@ enum SelfTestRunner {
 
     private static func testCallControlsConfigAndCoreAudioEnumeration() {
         let cfg = ToolboxConfig()
-        expect(cfg.schemaVersion == 15, "ToolboxConfig schemaVersion should be 15")
+        expect(cfg.schemaVersion == 16, "ToolboxConfig schemaVersion should be 16")
         expect(!cfg.callControls.enabled, "Call Controls should default to disabled")
         expect(cfg.callControls.overrideScope == .everywhere, "Default overrideScope should be everywhere")
         expect(cfg.callControls.typingUnmuteDelayMs == 450, "Default typingUnmuteDelayMs should be 450")
@@ -2666,7 +2672,7 @@ enum SelfTestRunner {
         let legacyJSON = "{\"schemaVersion\": 5, \"general\": {\"appEnabled\": true}}"
         if let data = legacyJSON.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 15, "Legacy config should upgrade to schemaVersion 15")
+            expect(migrated.schemaVersion == 16, "Legacy config should upgrade to schemaVersion 16")
             expect(!migrated.callControls.enabled, "Legacy config must migrate callControls.enabled = false")
             expect(migrated.callControls.overrideScope == .everywhere, "Migrated default overrideScope should be everywhere")
             expect(migrated.callControls.showFloatingPillOnlyDuringCalls, "Legacy config must migrate showFloatingPillOnlyDuringCalls = true")
@@ -2681,7 +2687,7 @@ enum SelfTestRunner {
         """
         if let data = v6JSON.data(using: .utf8),
            let upgraded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgraded.schemaVersion == 15, "v6 config should migrate to schemaVersion 15")
+            expect(upgraded.schemaVersion == 16, "v6 config should migrate to schemaVersion 16")
             expect(upgraded.callControls.overrideScope == .everywhere, "v6 active_call_app_only should upgrade to everywhere")
             expect(upgraded.callControls.showFloatingPillOnlyDuringCalls, "v6 config should upgrade showFloatingPillOnlyDuringCalls to true")
         } else {
@@ -2694,7 +2700,7 @@ enum SelfTestRunner {
         """
         if let data = v7JSON.data(using: .utf8),
            let upgradedV7 = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgradedV7.schemaVersion == 15, "v7 config should migrate to schemaVersion 15")
+            expect(upgradedV7.schemaVersion == 16, "v7 config should migrate to schemaVersion 16")
             expect(upgradedV7.callControls.showFloatingPillOnlyDuringCalls, "v7 showFloatingPillOnlyDuringCalls should upgrade to true")
         } else {
             failures.append("Failed to migrate v7 audioGuard config")
@@ -2706,7 +2712,7 @@ enum SelfTestRunner {
         """
         if let data = v8JSON.data(using: .utf8),
            let upgradedV8 = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgradedV8.schemaVersion == 15, "v8 config should migrate to schemaVersion 15")
+            expect(upgradedV8.schemaVersion == 16, "v8 config should migrate to schemaVersion 16")
             expect(upgradedV8.callControls.enabled, "v8 audioGuard.enabled must migrate to callControls.enabled")
             expect(upgradedV8.callControls.typingUnmuteDelayMs == 725, "v8 audioGuard fields must be preserved in callControls")
             expect(
@@ -3978,7 +3984,7 @@ enum SelfTestRunner {
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.callControls == micLockCfg.callControls, "CallControlsConfig mic-lock round-trip mismatch")
             expect(decoded.callControls.bluetoothMicLockFallbackUID == "usb-yeti", "Mic-lock fallback UID must survive a config round-trip")
-            expect(decoded.schemaVersion == 15, "Mic-lock config must serialize at schemaVersion 15")
+            expect(decoded.schemaVersion == 16, "Mic-lock config must serialize at schemaVersion 16")
         } else {
             failures.append("CallControlsConfig mic-lock encode/decode failed")
         }
@@ -4006,7 +4012,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(customCfg),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.screenOCR == customCfg.screenOCR, "ScreenOCRConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 15, "ToolboxConfig schemaVersion should be 15")
+            expect(decoded.schemaVersion == 16, "ToolboxConfig schemaVersion should be 16")
         } else {
             failures.append("ToolboxConfig with screenOCR failed Codable encode/decode")
         }
@@ -4016,7 +4022,7 @@ enum SelfTestRunner {
         let legacyJSON = "{\"schemaVersion\": 9, \"general\": {\"appEnabled\": true}}"
         if let data = legacyJSON.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 15, "Legacy v9 config should upgrade to schemaVersion 15")
+            expect(migrated.schemaVersion == 16, "Legacy v9 config should upgrade to schemaVersion 16")
             expect(!migrated.screenOCR.enabled, "Legacy config must migrate screenOCR.enabled = false")
         } else {
             failures.append("Failed to decode pre-ScreenOCR JSON config")
@@ -6213,7 +6219,7 @@ enum SelfTestRunner {
     private static func testWindowSnapperConfigHotKeysProfilesAndLifecycle() {
         // 1. Config defaults, migration from schema 10 -> 11, and lenient partial decode
         let defaultCfg = ToolboxConfig()
-        expect(defaultCfg.schemaVersion == 15, "ToolboxConfig schemaVersion must be 15")
+        expect(defaultCfg.schemaVersion == 16, "ToolboxConfig schemaVersion must be 16")
         expect(!defaultCfg.windowSnapper.enabled, "WindowSnapper should default to disabled")
         expect(
             defaultCfg.windowSnapper.gaps.outerMarginPoints == 0 && defaultCfg.windowSnapper.gaps.innerGapPoints == 0,
@@ -6224,7 +6230,7 @@ enum SelfTestRunner {
         let legacyV10 = "{\"schemaVersion\": 10, \"general\": {\"appEnabled\": true}}"
         if let data = legacyV10.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 15, "v10 config must upgrade to schemaVersion 15")
+            expect(migrated.schemaVersion == 16, "v10 config must upgrade to schemaVersion 16")
             expect(!migrated.windowSnapper.enabled, "Migrated windowSnapper.enabled must default to false")
             expect(
                 migrated.windowSnapper.gaps.outerMarginPoints == 0 && migrated.windowSnapper.gaps.innerGapPoints == 0,
@@ -7947,7 +7953,7 @@ enum SelfTestRunner {
 
     private static func testFinderEnhancerConfigAndMigration() {
         let defaults = ToolboxConfig()
-        expect(defaults.schemaVersion == 15, "ToolboxConfig schemaVersion should be 15")
+        expect(defaults.schemaVersion == 16, "ToolboxConfig schemaVersion should be 16")
         expect(!defaults.finderEnhancer.enabled, "FinderEnhancer should default to disabled")
         expect(defaults.finderEnhancer.enableCutAndPaste, "enableCutAndPaste should default to true")
         expect(defaults.finderEnhancer.showCutToast, "showCutToast should default to true")
@@ -7978,7 +7984,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(custom),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.finderEnhancer == custom.finderEnhancer, "FinderEnhancerConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 15, "Encoded FinderEnhancer config must preserve schemaVersion 15")
+            expect(decoded.schemaVersion == 16, "Encoded FinderEnhancer config must preserve schemaVersion 16")
         } else {
             failures.append("FinderEnhancerConfig Codable encode/decode failed")
         }
@@ -7987,7 +7993,7 @@ enum SelfTestRunner {
         let legacyV14 = "{\"schemaVersion\": 14, \"general\": {\"appEnabled\": true}}"
         if let data = legacyV14.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 15, "v14 config should upgrade to schemaVersion 15")
+            expect(migrated.schemaVersion == 16, "v14 config should upgrade to schemaVersion 16")
             expect(migrated.finderEnhancer == FinderEnhancerConfig(), "Migrated finderEnhancer should equal defaults")
         } else {
             failures.append("Failed to decode legacy v14 config")
@@ -8497,6 +8503,552 @@ enum SelfTestRunner {
         expect(
             DeveloperEventCategory.allCases.contains(.finderEnhancer),
             "DeveloperEventCategory must include .finderEnhancer"
+        )
+    }
+
+    // MARK: - Window Switcher Tests
+
+    private static func testWindowSwitcherConfigAndMigration() {
+        let defaults = ToolboxConfig()
+        expect(defaults.schemaVersion == 16, "ToolboxConfig schemaVersion should be 16")
+        expect(!defaults.windowSwitcher.enabled, "WindowSwitcher should default to disabled")
+        expect(defaults.windowSwitcher.triggerModifier == .option, "Default triggerModifier should be .option")
+        expect(defaults.windowSwitcher.triggerKey == "tab", "Default triggerKey should be 'tab'")
+        expect(defaults.windowSwitcher.currentAppOnlyShortcut == .none, "Default currentAppOnlyShortcut should be .none")
+        expect(defaults.windowSwitcher.layoutStyle == .strip, "Default layoutStyle should be .strip")
+        expect(defaults.windowSwitcher.showThumbnails, "Default showThumbnails should be true")
+        expect(defaults.windowSwitcher.includeMinimized, "Default includeMinimized should be true")
+        expect(defaults.windowSwitcher.includeHiddenApps, "Default includeHiddenApps should be true")
+        expect(!defaults.windowSwitcher.activeSpaceOnly, "Default activeSpaceOnly should be false")
+        expect(!defaults.windowSwitcher.activeDisplayOnly, "Default activeDisplayOnly should be false")
+        expect(defaults.windowSwitcher.enableQuickActions, "Default enableQuickActions should be true")
+        expect(defaults.windowSwitcher.excludedBundleIDs.isEmpty, "Default excludedBundleIDs should be empty")
+
+        var custom = ToolboxConfig()
+        custom.windowSwitcher.enabled = true
+        custom.windowSwitcher.triggerModifier = .control
+        custom.windowSwitcher.triggerKey = "`"
+        custom.windowSwitcher.currentAppOnlyShortcut = ShortcutSpec(key: "w", modifiers: [.control, .option, .command])
+        custom.windowSwitcher.layoutStyle = .list
+        custom.windowSwitcher.showThumbnails = false
+        custom.windowSwitcher.includeMinimized = false
+        custom.windowSwitcher.includeHiddenApps = false
+        custom.windowSwitcher.activeSpaceOnly = true
+        custom.windowSwitcher.activeDisplayOnly = true
+        custom.windowSwitcher.enableQuickActions = false
+        custom.windowSwitcher.excludedBundleIDs = ["com.apple.Terminal"]
+
+        if let data = try? JSONEncoder().encode(custom),
+           let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
+            expect(decoded.windowSwitcher == custom.windowSwitcher, "WindowSwitcherConfig Codable round-trip mismatch")
+            expect(decoded.schemaVersion == 16, "Encoded WindowSwitcher config must preserve schemaVersion 16")
+        } else {
+            failures.append("WindowSwitcherConfig Codable encode/decode failed")
+        }
+
+        // Legacy v15 JSON without windowSwitcher key migrates cleanly
+        let legacyV15 = "{\"schemaVersion\": 15, \"general\": {\"appEnabled\": true}}"
+        if let data = legacyV15.data(using: .utf8),
+           let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
+            expect(migrated.schemaVersion == 16, "v15 config should upgrade to schemaVersion 16")
+            expect(migrated.windowSwitcher == WindowSwitcherConfig(), "Migrated windowSwitcher should equal defaults")
+        } else {
+            failures.append("Failed to decode legacy v15 config")
+        }
+
+        // Partial JSON with empty triggerKey and legacy "grid" layoutStyle normalizes cleanly
+        let partialJSON = """
+        {"schemaVersion": 16, "windowSwitcher": {"enabled": true, "triggerKey": "  ", "layoutStyle": "grid"}}
+        """
+        if let data = partialJSON.data(using: .utf8),
+           let decodedPartial = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
+            expect(decodedPartial.windowSwitcher.enabled, "Partial windowSwitcher.enabled should decode")
+            expect(decodedPartial.windowSwitcher.triggerKey == "tab", "Empty triggerKey should normalize to 'tab'")
+            expect(decodedPartial.windowSwitcher.layoutStyle == .strip, "Legacy 'grid' layoutStyle should map to '.strip'")
+            expect(decodedPartial.windowSwitcher.includeMinimized, "Partial windowSwitcher should fill includeMinimized default")
+        } else {
+            failures.append("Failed to decode partial WindowSwitcherConfig JSON")
+        }
+    }
+
+    private static func testWindowEnumeratorFilteringAndMRUOrdering() {
+        let primaryDisplay = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        let secondaryDisplay = CGRect(x: 1512, y: 0, width: 1920, height: 1080)
+
+        let items: [SwitcherWindowItem] = [
+            SwitcherWindowItem(
+                id: "win-101-1",
+                pid: 101,
+                windowNumber: 1,
+                bundleIdentifier: "com.apple.Safari",
+                appName: "Safari",
+                title: "Swift Documentation",
+                frameAX: CGRect(x: 80, y: 80, width: 900, height: 600),
+                isMinimized: false,
+                isHiddenApp: false,
+                isOnActiveSpace: true,
+                zOrderRank: 0
+            ),
+            SwitcherWindowItem(
+                id: "win-102-2",
+                pid: 102,
+                windowNumber: 2,
+                bundleIdentifier: "com.microsoft.VSCode",
+                appName: "Visual Studio Code",
+                title: "WindowEnumerator.swift — toolbox",
+                frameAX: CGRect(x: 1620, y: 120, width: 1100, height: 740),
+                isMinimized: false,
+                isHiddenApp: false,
+                isOnActiveSpace: false,
+                zOrderRank: 1
+            ),
+            SwitcherWindowItem(
+                id: "win-103-3",
+                pid: 103,
+                windowNumber: 3,
+                bundleIdentifier: "com.apple.Terminal",
+                appName: "Terminal",
+                title: "zsh — build",
+                frameAX: CGRect(x: 120, y: 120, width: 700, height: 480),
+                isMinimized: true,
+                isHiddenApp: false,
+                isOnActiveSpace: false,
+                zOrderRank: Int.max
+            ),
+            SwitcherWindowItem(
+                id: "win-104-4",
+                pid: 104,
+                windowNumber: 4,
+                bundleIdentifier: "com.apple.Notes",
+                appName: "Notes",
+                title: "Release Checklist",
+                frameAX: CGRect(x: 200, y: 160, width: 640, height: 460),
+                isMinimized: false,
+                isHiddenApp: true,
+                isOnActiveSpace: false,
+                zOrderRank: Int.max
+            ),
+            SwitcherWindowItem(
+                id: "win-101-5",
+                pid: 101,
+                windowNumber: 5,
+                bundleIdentifier: "com.apple.Safari",
+                appName: "Safari",
+                title: "GitHub PR #42",
+                frameAX: CGRect(x: 100, y: 100, width: 880, height: 600),
+                isMinimized: false,
+                isHiddenApp: false,
+                isOnActiveSpace: true,
+                zOrderRank: 2
+            )
+        ]
+
+        var tracker = WindowMRUTracker()
+        tracker.recordWindowActivation(windowID: "win-103-3", pid: 103)
+        tracker.recordWindowActivation(windowID: "win-104-4", pid: 104)
+
+        var cfg = WindowSwitcherConfig()
+        let defaultSorted = WindowEnumerator.filterAndSort(
+            items: items,
+            config: cfg,
+            mruTracker: tracker,
+            activeDisplayBoundsAX: primaryDisplay,
+            currentAppOnlyPID: nil,
+            query: ""
+        )
+        expect(
+            defaultSorted.map(\.id) == ["win-101-1", "win-102-2", "win-101-5", "win-104-4", "win-103-3"],
+            "Default sort should order on-screen z-order first, then off-screen MRU (got \(defaultSorted.map(\.id)))"
+        )
+
+        cfg.includeMinimized = false
+        let noMin = WindowEnumerator.filterAndSort(
+            items: items,
+            config: cfg,
+            mruTracker: tracker,
+            activeDisplayBoundsAX: primaryDisplay,
+            currentAppOnlyPID: nil,
+            query: ""
+        )
+        expect(!noMin.contains(where: { $0.isMinimized }), "includeMinimized = false must exclude minimized windows")
+
+        cfg.includeMinimized = true
+        cfg.includeHiddenApps = false
+        let noHidden = WindowEnumerator.filterAndSort(
+            items: items,
+            config: cfg,
+            mruTracker: tracker,
+            activeDisplayBoundsAX: primaryDisplay,
+            currentAppOnlyPID: nil,
+            query: ""
+        )
+        expect(!noHidden.contains(where: { $0.isHiddenApp }), "includeHiddenApps = false must exclude hidden app windows")
+
+        cfg.includeHiddenApps = true
+        cfg.activeSpaceOnly = true
+        let activeSpace = WindowEnumerator.filterAndSort(
+            items: items,
+            config: cfg,
+            mruTracker: tracker,
+            activeDisplayBoundsAX: primaryDisplay,
+            currentAppOnlyPID: nil,
+            query: ""
+        )
+        expect(activeSpace.map(\.id) == ["win-101-1", "win-101-5"], "activeSpaceOnly must retain only active-space windows")
+
+        cfg.activeSpaceOnly = false
+        cfg.activeDisplayOnly = true
+        let onSecondary = WindowEnumerator.filterAndSort(
+            items: items,
+            config: cfg,
+            mruTracker: tracker,
+            activeDisplayBoundsAX: secondaryDisplay,
+            currentAppOnlyPID: nil,
+            query: ""
+        )
+        expect(onSecondary.map(\.id) == ["win-102-2"], "activeDisplayOnly must filter by active display bounds")
+
+        cfg.activeDisplayOnly = false
+        cfg.excludedBundleIDs = ["COM.APPLE.NOTES"]
+        let excludedFiltered = WindowEnumerator.filterAndSort(
+            items: items,
+            config: cfg,
+            mruTracker: tracker,
+            activeDisplayBoundsAX: primaryDisplay,
+            currentAppOnlyPID: nil,
+            query: ""
+        )
+        expect(!excludedFiltered.contains(where: { $0.bundleIdentifier == "com.apple.Notes" }), "Excluded bundle IDs must filter case-insensitively")
+
+        cfg.excludedBundleIDs = []
+        let currentAppOnly = WindowEnumerator.filterAndSort(
+            items: items,
+            config: cfg,
+            mruTracker: tracker,
+            activeDisplayBoundsAX: primaryDisplay,
+            currentAppOnlyPID: 101,
+            query: ""
+        )
+        expect(currentAppOnly.map(\.id) == ["win-101-1", "win-101-5"], "currentAppOnlyPID must limit results to that PID")
+
+        let queryFiltered = WindowEnumerator.filterAndSort(
+            items: items,
+            config: cfg,
+            mruTracker: tracker,
+            activeDisplayBoundsAX: primaryDisplay,
+            currentAppOnlyPID: nil,
+            query: "safari swift"
+        )
+        expect(queryFiltered.map(\.id) == ["win-101-1"], "Multi-token query should match across appName and title")
+
+        let thumbSize = WindowThumbnailProvider.scaledThumbnailSize(for: CGSize(width: 1920, height: 1080))
+        expect(
+            thumbSize.width <= 320 && thumbSize.height <= 200 && thumbSize.width % 2 == 0 && thumbSize.height % 2 == 0,
+            "Scaled thumbnail size must fit within 320x200 with even pixel dimensions (got \(thumbSize))"
+        )
+    }
+
+    private static func testWindowSwitcherSelectionStateMachineAndTapDecisions() {
+        let windows = (0..<5).map { idx in
+            SwitcherWindowItem(
+                id: "win-\(idx)",
+                pid: pid_t(200 + idx),
+                windowNumber: 100 + idx,
+                bundleIdentifier: "com.example.app\(idx)",
+                appName: "App \(idx)",
+                title: idx == 2 ? "Xcode Project" : "Document \(idx)",
+                frameAX: CGRect(x: 0, y: 0, width: 800, height: 600),
+                isMinimized: false,
+                isHiddenApp: false,
+                isOnActiveSpace: true,
+                zOrderRank: idx
+            )
+        }
+
+        // 1. Selection state machine: open selects index 1, forward/backward wrap, grid navigation, filter, cancel/commit
+        var state = WindowSwitcherSelectionState()
+        state.open(windows: windows, reverse: false, layoutStyle: .list)
+        expect(state.isOpen && state.selectedIndex == 1, "Opening switcher with >=2 windows must pre-select index 1")
+
+        state.cycleForward()
+        expect(state.selectedIndex == 2, "cycleForward must advance index")
+        state.selectedIndex = 4
+        state.cycleForward()
+        expect(state.selectedIndex == 0, "cycleForward at end must wrap to 0")
+        state.cycleBackward()
+        expect(state.selectedIndex == 4, "cycleBackward at 0 must wrap to count - 1")
+
+        state.open(windows: windows, reverse: false, layoutStyle: .list)
+        state.applyCycleDelta(2)
+        expect(state.selectedIndex == 3, "applyCycleDelta(+2) from index 1 must advance to index 3")
+        state.applyCycleDelta(-5)
+        expect(state.selectedIndex == 3, "applyCycleDelta(-5) across 5 windows must wrap back to index 3")
+        state.applyCycleDelta(-4)
+        expect(state.selectedIndex == 4, "applyCycleDelta(-4) from index 3 across 5 windows must wrap to index 4")
+
+        state.open(windows: windows, reverse: true, layoutStyle: .strip)
+        expect(state.selectedIndex == 4, "Reverse open must pre-select last window")
+        state.selectedIndex = 1
+        state.navigate(.right)
+        expect(state.selectedIndex == 2, "Strip right navigation from index 1 must move to index 2")
+        state.navigate(.left)
+        expect(state.selectedIndex == 1, "Strip left navigation from index 2 must move back to index 1")
+
+        // Enriched AX merge preserves selected window identity even when new off-screen windows arrive
+        var reordered = windows.reversed() as [SwitcherWindowItem]
+        reordered.append(
+            SwitcherWindowItem(
+                id: "win-min",
+                pid: 299,
+                windowNumber: 199,
+                bundleIdentifier: "com.example.min",
+                appName: "Minimized App",
+                title: "Hidden Doc",
+                frameAX: .zero,
+                isMinimized: true,
+                isHiddenApp: false,
+                isOnActiveSpace: false,
+                zOrderRank: Int.max
+            )
+        )
+        state.selectedIndex = 2 // win-2
+        state.mergeEnrichedWindows(reordered)
+        expect(state.selectedWindow?.id == "win-2", "mergeEnrichedWindows must preserve selected window ID")
+
+        state.open(windows: windows, reverse: false, layoutStyle: .strip)
+        state.appendFilterCharacter("x")
+        state.appendFilterCharacter("c")
+        expect(state.isFilterModeActive && state.filteredWindows.map(\.id) == ["win-2"], "Filter query must narrow candidates")
+        state.backspaceFilter()
+        state.backspaceFilter()
+        expect(state.filteredWindows.count == 5, "Clearing filter query via backspace must restore full window list")
+
+        let committed = state.commit()
+        expect(committed?.id == "win-2" && !state.isOpen, "commit() must return selected item and close state")
+
+        state.open(windows: [windows[0]], reverse: false, layoutStyle: .list)
+        expect(state.selectedIndex == 0, "Single window list must select index 0")
+        state.cancel()
+        expect(!state.isOpen && state.selectedWindow == nil, "cancel() must reset state cleanly")
+
+        // 2. CGEventTap pure decision matrix
+        var tapState = WindowSwitcherTapState(
+            triggerModifier: .option,
+            triggerKeyCode: UInt16(kVK_Tab),
+            enableQuickActions: true,
+            isHUDOpen: false,
+            isHoldTriggeredSession: false,
+            isFilterModeActive: false
+        )
+
+        // ⌘ Tab must pass through untouched when triggerModifier == .option
+        let cmdTab = WindowSwitcherEventTap.decideKeyDown(
+            keyCode: UInt16(kVK_Tab),
+            flags: .maskCommand,
+            characters: nil,
+            isAutoRepeat: false,
+            userData: 0,
+            state: &tapState
+        )
+        expect(cmdTab == .passThrough && !tapState.isHUDOpen, "⌘ Tab must pass through when triggerModifier is .option")
+
+        // ⌥ Tab opens HUD synchronously inside tapState
+        let optTab = WindowSwitcherEventTap.decideKeyDown(
+            keyCode: UInt16(kVK_Tab),
+            flags: .maskAlternate,
+            characters: nil,
+            isAutoRepeat: false,
+            userData: 0,
+            state: &tapState
+        )
+        expect(optTab == .openAndCycle(reverse: false) && tapState.isHUDOpen && tapState.isHoldTriggeredSession, "⌥ Tab must open HUD and mark hold session")
+
+        // ⌥ ⇧ Tab cycles backward
+        let optShiftTab = WindowSwitcherEventTap.decideKeyDown(
+            keyCode: UInt16(kVK_Tab),
+            flags: [.maskAlternate, .maskShift],
+            characters: nil,
+            isAutoRepeat: false,
+            userData: 0,
+            state: &tapState
+        )
+        expect(optShiftTab == .cycleBackward, "⌥ ⇧ Tab while open must cycle backward")
+
+        // ⌥ W triggers close quick action while not filtering
+        let optW = WindowSwitcherEventTap.decideKeyDown(
+            keyCode: UInt16(kVK_ANSI_W),
+            flags: .maskAlternate,
+            characters: "w",
+            isAutoRepeat: false,
+            userData: 0,
+            state: &tapState
+        )
+        expect(optW == .quickAction(.close), "⌥ W while HUD open must trigger .close quick action")
+
+        // Releasing ⌥ commits selection
+        let releaseOpt = WindowSwitcherEventTap.decideFlagsChanged(
+            flags: [],
+            userData: 0,
+            state: &tapState
+        )
+        expect(releaseOpt == .commit && !tapState.isHUDOpen, "Releasing trigger modifier must commit and close tapState")
+
+        // Filter mode pins session across modifier release and turns W into filter text
+        _ = WindowSwitcherEventTap.decideKeyDown(
+            keyCode: UInt16(kVK_Tab),
+            flags: .maskAlternate,
+            characters: nil,
+            isAutoRepeat: false,
+            userData: 0,
+            state: &tapState
+        )
+        let slash = WindowSwitcherEventTap.decideKeyDown(
+            keyCode: UInt16(kVK_ANSI_Slash),
+            flags: .maskAlternate,
+            characters: "/",
+            isAutoRepeat: false,
+            userData: 0,
+            state: &tapState
+        )
+        expect(slash == .enterFilterMode && tapState.isFilterModeActive, "/ must enter pinned filter mode")
+        let releaseDuringFilter = WindowSwitcherEventTap.decideFlagsChanged(
+            flags: [],
+            userData: 0,
+            state: &tapState
+        )
+        expect(releaseDuringFilter == .passThrough && tapState.isHUDOpen, "Modifier release during filter mode must keep HUD open")
+        let bareWInFilter = WindowSwitcherEventTap.decideKeyDown(
+            keyCode: UInt16(kVK_ANSI_W),
+            flags: [],
+            characters: "w",
+            isAutoRepeat: false,
+            userData: 0,
+            state: &tapState
+        )
+        expect(bareWInFilter == .appendFilterChar("w"), "Typing 'w' in filter mode must append character instead of closing window")
+        let esc = WindowSwitcherEventTap.decideKeyDown(
+            keyCode: UInt16(kVK_Escape),
+            flags: [],
+            characters: nil,
+            isAutoRepeat: false,
+            userData: 0,
+            state: &tapState
+        )
+        expect(esc == .cancel && !tapState.isHUDOpen, "Esc must cancel and clear tapState")
+    }
+
+    private static func testWindowSwitcherModuleLifecycleAndRegistry() {
+        let registry = ModuleRegistry.shared
+        guard let registered = registry.module(withID: "window_switcher") as? WindowSwitcherModule else {
+            failures.append("ModuleRegistry must expose WindowSwitcherModule under id 'window_switcher'")
+            return
+        }
+        expect(registered.category == .windowAndDock, "WindowSwitcher category must be .windowAndDock")
+        expect(registered.requiresAccessibility, "WindowSwitcher must require Accessibility")
+        expect(registered.supportsMenuBar && registered.supportsEnableToggle, "WindowSwitcher must support menu bar and toggle")
+
+        var cfg = ToolboxConfig()
+        expect(!registered.isEnabled(in: cfg), "WindowSwitcher must start disabled in default config")
+        expect(registered.statusText(in: cfg, accessibilityGranted: true) == "Disabled", "Disabled status text mismatch")
+        expect(registered.shortcutText(in: cfg) == "⌥ ⇥", "Default shortcutText mismatch: \(registered.shortcutText(in: cfg) ?? "nil")")
+
+        registered.setEnabled(true, in: &cfg)
+        expect(cfg.windowSwitcher.enabled, "setEnabled(true) must mutate config.windowSwitcher.enabled")
+        expect(registered.statusText(in: cfg, accessibilityGranted: false) == "Needs Accessibility", "Missing AX status text mismatch")
+
+        cfg.general.appEnabled = false
+        expect(registered.statusText(in: cfg, accessibilityGranted: true) == "Paused", "Master pause status text mismatch")
+
+        // Conflict detection wiring for currentAppOnlyShortcut
+        let conflictSpec = ShortcutSpec(key: "k", modifiers: [.control, .option, .command])
+        var conflictCfg = ToolboxConfig()
+        conflictCfg.windowSwitcher.enabled = true
+        conflictCfg.windowSwitcher.currentAppOnlyShortcut = conflictSpec
+        expect(
+            HotKeyManager.shared.inAppConflictDescription(
+                for: conflictSpec,
+                excludingSourceID: "clipboard",
+                in: conflictCfg
+            )?.contains("Window Switcher") == true,
+            "HotKeyManager.inAppConflictDescription must detect Window Switcher currentAppOnlyShortcut conflicts"
+        )
+        HotKeyManager.shared.clearConflictingShortcuts(
+            matching: conflictSpec,
+            excludingSourceID: "clipboard",
+            in: &conflictCfg
+        )
+        expect(
+            conflictCfg.windowSwitcher.currentAppOnlyShortcut.isEmpty,
+            "clearConflictingShortcuts must clear colliding Window Switcher shortcut"
+        )
+
+        // Lifecycle start / reload / master pause / stop
+        let testModule = WindowSwitcherModule()
+        var activeCfg = ToolboxConfig()
+        activeCfg.general.appEnabled = true
+        activeCfg.windowSwitcher.enabled = true
+        activeCfg.windowSwitcher.currentAppOnlyShortcut = ShortcutSpec(key: "j", modifiers: [.control, .option, .command])
+        testModule.reload(with: activeCfg)
+        expect(testModule.isRunning, "WindowSwitcherModule must report isRunning = true when enabled")
+        if PermissionsManager.isProcessTrusted() {
+            expect(testModule.isTapInstalled, "Event tap must install when Accessibility is granted")
+            expect(testModule.runsTapOnBackgroundThreadForTesting, "WindowSwitcherEventTap must run on a dedicated background thread & CFRunLoop")
+            expect(HotKeyManager.shared.isRegistered(name: testModule.currentAppHotKeyName), "currentAppOnlyShortcut must register when enabled")
+        }
+
+        activeCfg.general.appEnabled = false
+        testModule.reload(with: activeCfg)
+        expect(
+            !testModule.isRunning && !testModule.isTapInstalled && !HotKeyManager.shared.isRegistered(name: testModule.currentAppHotKeyName),
+            "Master pause must stop WindowSwitcherModule and uninstall tap + hotkey"
+        )
+
+        activeCfg.general.appEnabled = true
+        testModule.reload(with: activeCfg)
+        expect(testModule.isRunning, "Master resume must restart enabled WindowSwitcherModule")
+        testModule.stop()
+        expect(
+            !testModule.isRunning && !testModule.isTapInstalled && !HotKeyManager.shared.isRegistered(name: testModule.currentAppHotKeyName),
+            "stop() must tear down WindowSwitcherModule cleanly"
+        )
+
+        // Screen Recording request must remain isolated from ScreenOCRModule
+        let prevOCRAwaiting = registry.screenOCR.isAwaitingScreenPermission
+        testModule.requestScreenAccess()
+        if ScreenCapturePermission.isGranted {
+            expect(
+                testModule.screenRecordingGranted && !testModule.isAwaitingScreenPermission,
+                "requestScreenAccess should not await when Screen Recording is already granted"
+            )
+        } else {
+            expect(
+                testModule.isAwaitingScreenPermission,
+                "WindowSwitcherModule.requestScreenAccess must track awaiting state locally"
+            )
+        }
+        expect(
+            registry.screenOCR.isAwaitingScreenPermission == prevOCRAwaiting,
+            "WindowSwitcherModule.requestScreenAccess must not mutate ScreenOCRModule.isAwaitingScreenPermission"
+        )
+        testModule.openScreenSettings()
+        expect(
+            testModule.isAwaitingScreenPermission,
+            "WindowSwitcherModule.openScreenSettings must set local isAwaitingScreenPermission"
+        )
+        expect(
+            registry.screenOCR.isAwaitingScreenPermission == prevOCRAwaiting,
+            "WindowSwitcherModule.openScreenSettings must not mutate ScreenOCRModule"
+        )
+        testModule.stop()
+        expect(!testModule.isAwaitingScreenPermission, "stop() must cancel pending Screen Recording polling")
+
+        expect(
+            ToolboxConfigSection.allCases.contains(.windowSwitcher),
+            "ToolboxConfigSection must include .windowSwitcher"
+        )
+        expect(
+            DeveloperEventCategory.allCases.contains(.windowSwitcher),
+            "DeveloperEventCategory must include .windowSwitcher"
         )
     }
 }

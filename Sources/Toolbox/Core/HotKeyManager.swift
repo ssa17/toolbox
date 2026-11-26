@@ -272,6 +272,12 @@ final class HotKeyManager: ObservableObject {
            config.dockMinimize.shortcut == shortcut {
             matches.append("Dock Click to Minimize")
         }
+        if excludingSourceID != "window_switcher.current_app",
+           config.windowSwitcher.enabled,
+           !config.windowSwitcher.currentAppOnlyShortcut.isEmpty,
+           config.windowSwitcher.currentAppOnlyShortcut == shortcut {
+            matches.append("Window Switcher (Current App Only)")
+        }
         if config.callControls.enabled || (excludingSourceID?.hasPrefix("call_controls.") == true) {
             let callControlShortcuts: [(String, String, ShortcutSpec)] = [
                 ("call_controls.mic", "Call Controls (Mic Keybind)", config.callControls.micShortcut),
@@ -341,6 +347,11 @@ final class HotKeyManager: ObservableObject {
         if excludingSourceID != "dock_minimize",
            config.dockMinimize.shortcut == shortcut {
             config.dockMinimize.shortcut = .none
+        }
+        if excludingSourceID != "window_switcher.current_app",
+           config.windowSwitcher.enabled,
+           config.windowSwitcher.currentAppOnlyShortcut == shortcut {
+            config.windowSwitcher.currentAppOnlyShortcut = .none
         }
         if config.callControls.enabled || (excludingSourceID?.hasPrefix("call_controls.") == true) {
             if excludingSourceID != "call_controls.mic", config.callControls.micShortcut == shortcut {

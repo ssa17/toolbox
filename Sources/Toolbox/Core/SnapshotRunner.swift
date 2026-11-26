@@ -446,6 +446,150 @@ enum SnapshotRunner {
         configManager.config.finderEnhancer = prevFinderEnhancer
         PermissionsManager.shared.setSimulatedAccessibilityGranted(prevSimAXFinder)
 
+        let prevWindowSwitcher = configManager.config.windowSwitcher
+        let prevSimAXSwitcher = PermissionsManager.shared.simulatedAccessibilityGranted
+        PermissionsManager.shared.setSimulatedAccessibilityGranted(true)
+        registry.windowSwitcher.setScreenRecordingGrantedForTesting(true)
+        configManager.config.windowSwitcher.enabled = true
+        configManager.config.windowSwitcher.showThumbnails = true
+        configManager.config.windowSwitcher.includeMinimized = true
+        configManager.config.windowSwitcher.includeHiddenApps = true
+        let navWindowSwitcher = NavigationState()
+        navWindowSwitcher.selection = .module("window_switcher")
+        navWindowSwitcher.isSidebarVisible = true
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navWindowSwitcher),
+            size: NSSize(width: 940, height: 1080),
+            to: outURL.appendingPathComponent("module_window_switcher.png")
+        )
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navWindowSwitcher),
+            size: NSSize(width: 820, height: 1160),
+            to: outURL.appendingPathComponent("module_window_switcher_minwidth.png")
+        )
+        configManager.config.windowSwitcher = prevWindowSwitcher
+        PermissionsManager.shared.setSimulatedAccessibilityGranted(prevSimAXSwitcher)
+
+        let switcherPreviewWindows: [SwitcherWindowItem] = [
+            SwitcherWindowItem(
+                id: "snap-term",
+                pid: 9001,
+                windowNumber: 9101,
+                bundleIdentifier: "com.apple.Terminal",
+                appName: "Terminal",
+                title: "zsh — toolbox",
+                frameAX: CGRect(x: 40, y: 40, width: 1000, height: 640),
+                isMinimized: false,
+                isHiddenApp: false,
+                isOnActiveSpace: true,
+                zOrderRank: 0
+            ),
+            SwitcherWindowItem(
+                id: "snap-safari",
+                pid: 9002,
+                windowNumber: 9102,
+                bundleIdentifier: "com.apple.Safari",
+                appName: "Safari",
+                title: "Apple Developer Documentation — ScreenCaptureKit",
+                frameAX: CGRect(x: 100, y: 80, width: 1020, height: 660),
+                isMinimized: false,
+                isHiddenApp: false,
+                isOnActiveSpace: true,
+                zOrderRank: 1
+            ),
+            SwitcherWindowItem(
+                id: "snap-notes",
+                pid: 9003,
+                windowNumber: 9103,
+                bundleIdentifier: "com.apple.Notes",
+                appName: "Notes",
+                title: "Window Switcher Release Checklist",
+                frameAX: CGRect(x: 140, y: 120, width: 720, height: 520),
+                isMinimized: true,
+                isHiddenApp: false,
+                isOnActiveSpace: false,
+                zOrderRank: Int.max
+            ),
+            SwitcherWindowItem(
+                id: "snap-finder",
+                pid: 9004,
+                windowNumber: 9104,
+                bundleIdentifier: "com.apple.finder",
+                appName: "Finder",
+                title: "Downloads",
+                frameAX: CGRect(x: 200, y: 140, width: 800, height: 520),
+                isMinimized: false,
+                isHiddenApp: true,
+                isOnActiveSpace: false,
+                zOrderRank: Int.max
+            )
+        ]
+        var switcherIcons: [pid_t: NSImage] = [:]
+        for w in switcherPreviewWindows {
+            if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: w.bundleIdentifier) {
+                switcherIcons[w.pid] = NSWorkspace.shared.icon(forFile: url.path)
+            }
+        }
+        let switcherThumbs: [Int: NSImage] = [
+            9101: syntheticSnapshotThumbnail(
+                size: NSSize(width: 320, height: 200),
+                headerTitle: "zsh — toolbox",
+                accent: NSColor.systemTeal,
+                lines: ["./scripts/build-app.sh --fast", "./build/Toolbox.app/... --self-test", "All 51 self-test suites passed."]
+            ),
+            9102: syntheticSnapshotThumbnail(
+                size: NSSize(width: 320, height: 200),
+                headerTitle: "Safari — ScreenCaptureKit",
+                accent: NSColor.systemBlue,
+                lines: ["developer.apple.com", "SCShareableContent", "SCScreenshotManager.captureImage"]
+            ),
+            9103: syntheticSnapshotThumbnail(
+                size: NSSize(width: 320, height: 200),
+                headerTitle: "Notes — Checklist",
+                accent: NSColor.systemYellow,
+                lines: ["- Thumbnail Strip HUD", "- Quick Actions W/M/H/Q", "- Type-to-filter mode"]
+            )
+        ]
+        let switcherStore = WindowSwitcherHUDStore()
+        switcherStore.showThumbnails = true
+        switcherStore.enableQuickActions = true
+        switcherStore.triggerModifier = .option
+        switcherStore.triggerKeyLabel = "⇥"
+        switcherStore.iconsByPID = switcherIcons
+        switcherStore.thumbnailsByWindowNumber = switcherThumbs
+        switcherStore.state.open(windows: switcherPreviewWindows, reverse: false, layoutStyle: .strip)
+        saveViewSnapshot(
+            WindowSwitcherPanelView(
+                store: switcherStore,
+                onSelectIndex: { _ in },
+                onHoverIndex: { _ in },
+                onToggleLayout: { _ in },
+                onToggleFilterMode: {},
+                onClearFilter: {},
+                onQuickAction: { _, _ in },
+                onCancel: {}
+            )
+            .frame(width: 780, height: 230),
+            size: NSSize(width: 780, height: 230),
+            to: outURL.appendingPathComponent("popover_window_switcher.png")
+        )
+        switcherStore.state.open(windows: switcherPreviewWindows, reverse: false, layoutStyle: .list)
+        saveViewSnapshot(
+            WindowSwitcherPanelView(
+                store: switcherStore,
+                onSelectIndex: { _ in },
+                onHoverIndex: { _ in },
+                onToggleLayout: { _ in },
+                onToggleFilterMode: {},
+                onClearFilter: {},
+                onQuickAction: { _, _ in },
+                onCancel: {}
+            )
+            .frame(width: 560, height: 390),
+            size: NSSize(width: 560, height: 390),
+            to: outURL.appendingPathComponent("popover_window_switcher_list.png")
+        )
+
         let previewDisplayFrame = CGRect(x: 0, y: 0, width: 1280, height: 760)
         let previewUsableAX = CGRect(x: 0, y: 24, width: 1280, height: 736)
         let previewLayout = DisplayLayoutConfig(

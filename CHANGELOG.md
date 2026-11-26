@@ -9,6 +9,9 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 
 ## [Unreleased]
 
+### Added
+- **Window Switcher (`⌥ Tab`)** — cycle through individual open, minimized, and hidden-app windows in a `⌘ Tab`-style horizontal thumbnail strip (or compact list) with `/` type-to-filter and instant Close (`W`), Minimize (`M`), Hide (`H`), and Quit (`Q`) actions
+
 ## [1.6.4] - 2026-11-26
 
 ### Added

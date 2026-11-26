@@ -862,6 +862,9 @@ final class DeveloperHealthCheckRunner: ObservableObject {
                 candidates.append((entry.sourceID, entry.label, entry.shortcut))
             }
         }
+        if cfg.windowSwitcher.enabled && !cfg.windowSwitcher.currentAppOnlyShortcut.isEmpty {
+            candidates.append(("window_switcher.current_app", "Window Switcher (Current App)", cfg.windowSwitcher.currentAppOnlyShortcut))
+        }
 
         var issues: [String] = []
         for entry in candidates {
@@ -943,6 +946,9 @@ final class DeveloperHealthCheckRunner: ObservableObject {
                 expectedNames.append(entry.sourceID)
             }
         }
+        if cfg.windowSwitcher.enabled && !cfg.windowSwitcher.currentAppOnlyShortcut.isEmpty {
+            expectedNames.append(ModuleRegistry.shared.windowSwitcher.currentAppHotKeyName)
+        }
 
         let missing = expectedNames.filter { !hk.isRegistered(name: $0) }
         if missing.isEmpty {
@@ -972,6 +978,7 @@ final class DeveloperHealthCheckRunner: ObservableObject {
         let actual = perms.actualAccessibilityGranted
         let dockErr = ModuleRegistry.shared.dockMinimize.lastError
         let finderErr = ModuleRegistry.shared.finderEnhancer.lastError
+        let switcherErr = ModuleRegistry.shared.windowSwitcher.lastError
 
         if let dockErr, !dockErr.isEmpty {
             return HealthCheckItem(
@@ -992,6 +999,17 @@ final class DeveloperHealthCheckRunner: ObservableObject {
                 severity: .fail,
                 summary: "Finder Enhancer event tap error",
                 detail: finderErr
+            )
+        }
+
+        if let switcherErr, !switcherErr.isEmpty {
+            return HealthCheckItem(
+                id: "accessibility_taps",
+                title: "Accessibility & Event Taps",
+                category: "Permissions",
+                severity: .fail,
+                summary: "Window Switcher event tap error",
+                detail: switcherErr
             )
         }
 
