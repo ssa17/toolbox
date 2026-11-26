@@ -421,6 +421,31 @@ enum SnapshotRunner {
         )
         configManager.config.windowSnapper = prevWindowSnapper
 
+        let prevFinderEnhancer = configManager.config.finderEnhancer
+        let prevSimAXFinder = PermissionsManager.shared.simulatedAccessibilityGranted
+        PermissionsManager.shared.setSimulatedAccessibilityGranted(true)
+        configManager.config.finderEnhancer.enabled = true
+        configManager.config.finderEnhancer.enableCutAndPaste = true
+        configManager.config.finderEnhancer.showCutToast = true
+        configManager.config.finderEnhancer.enableReturnToOpen = true
+        configManager.config.finderEnhancer.enableF2ToRename = false
+        configManager.config.finderEnhancer.enableAutoQuitOnLastWindowClose = true
+        let navFinderEnhancer = NavigationState()
+        navFinderEnhancer.selection = .module("finder_enhancer")
+        navFinderEnhancer.isSidebarVisible = true
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navFinderEnhancer),
+            size: NSSize(width: 940, height: 1420),
+            to: outURL.appendingPathComponent("module_finder_enhancer.png")
+        )
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navFinderEnhancer),
+            size: NSSize(width: 820, height: 1480),
+            to: outURL.appendingPathComponent("module_finder_enhancer_minwidth.png")
+        )
+        configManager.config.finderEnhancer = prevFinderEnhancer
+        PermissionsManager.shared.setSimulatedAccessibilityGranted(prevSimAXFinder)
+
         let previewDisplayFrame = CGRect(x: 0, y: 0, width: 1280, height: 760)
         let previewUsableAX = CGRect(x: 0, y: 24, width: 1280, height: 736)
         let previewLayout = DisplayLayoutConfig(

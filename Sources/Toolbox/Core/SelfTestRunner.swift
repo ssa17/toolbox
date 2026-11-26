@@ -59,9 +59,13 @@ enum SelfTestRunner {
         testWindowSnapperDisplayRegistryAndUndoStack()
         testWindowSnapperConfigHotKeysProfilesAndLifecycle()
         testWindowDragMonitorEndToEndLifecycle()
+        testFinderEnhancerConfigAndMigration()
+        testFinderCutStateMachineAndKeyInterceptor()
+        testLastWindowQuitEligibilityAndWindowCounting()
+        testFinderEnhancerModuleLifecycleAndRegistry()
 
         if failures.isEmpty {
-            print("All 43 self-test suites passed.")
+            print("All 47 self-test suites passed.")
             return 0
         } else {
             for f in failures {
@@ -1216,7 +1220,9 @@ enum SelfTestRunner {
             "text.viewfinder", "qrcode", "hands.clap.fill", "sparkles",
             "terminal", "app.badge", "globe", "doc.on.clipboard", "computermouse",
             "rectangle.and.hand.point.up.left", "macwindow.on.rectangle", "macwindow",
-            "list.bullet.indent", "curlybraces", "gearshape.fill"
+            "list.bullet.indent", "curlybraces", "gearshape.fill",
+            "folder.badge.gearshape", "scissors", "lock.shield", "waveform.path.ecg",
+            "checkmark.shield", "nosign"
         ]
         for sym in uiSymbols {
             expect(NSImage(systemSymbolName: sym, accessibilityDescription: nil) != nil,
@@ -1638,7 +1644,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(cfg),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.scrollDirection == cfg.scrollDirection, "ScrollDirectionConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 14, "ToolboxConfig schemaVersion should be 14")
+            expect(decoded.schemaVersion == 15, "ToolboxConfig schemaVersion should be 15")
         } else {
             failures.append("ToolboxConfig Codable encode/decode failed")
         }
@@ -1938,7 +1944,7 @@ enum SelfTestRunner {
     private static func testMenuBarCustomizationOrderAndVisibility() {
         var cfg = ToolboxConfig()
         let registry = ModuleRegistry.shared
-        let expectedDefaultOrder = ["dock_minimize", "clipboard", "port_killer", "screen_ocr", "keep_awake", "custom_commands", "scroll_direction", "call_controls", "window_snapper"]
+        let expectedDefaultOrder = ["dock_minimize", "clipboard", "port_killer", "screen_ocr", "keep_awake", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer"]
 
         expect(!cfg.general.hasCustomMenuBarLayout, "Default config should not report custom menu bar layout")
         expect(cfg.general.showQuickActionsInMenuBar, "Quick actions should be shown in menu bar by default")
@@ -1949,32 +1955,32 @@ enum SelfTestRunner {
         )
         expect(
             registry.visibleMenuBarModules(for: cfg).map(\.id) == expectedDefaultOrder,
-            "All 9 menu-bar-eligible modules should be visible in menu bar by default"
+            "All 10 menu-bar-eligible modules should be visible in menu bar by default"
         )
 
         cfg.general.moveModuleInMenuBar(id: "keep_awake", direction: -1)
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["dock_minimize", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "scroll_direction", "call_controls", "window_snapper"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["dock_minimize", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer"],
             "Moving keep_awake up by 1 should place it before screen_ocr"
         )
         expect(cfg.general.hasCustomMenuBarLayout, "Reordering should mark hasCustomMenuBarLayout = true")
 
         cfg.general.moveModuleInMenuBar(fromId: "scroll_direction", toId: "dock_minimize")
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "dock_minimize", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "call_controls", "window_snapper"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "dock_minimize", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "call_controls", "window_snapper", "finder_enhancer"],
             "Dragging scroll_direction to dock_minimize should place it first"
         )
 
         cfg.general.setModuleVisibleInMenuBar("dock_minimize", visible: false)
         expect(
-            registry.visibleMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "call_controls", "window_snapper"],
+            registry.visibleMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "call_controls", "window_snapper", "finder_enhancer"],
             "Hiding dock_minimize from menu bar should omit it from visibleMenuBarModules"
         )
         expect(cfg.dockMinimize.enabled, "Hiding dock_minimize from status bar menu must not disable the module itself")
 
         cfg.general.menuBarModuleOrder = ["keep_awake", "clean_lock", "keep_awake", "unknown_id"]
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["keep_awake", "dock_minimize", "clipboard", "port_killer", "screen_ocr", "custom_commands", "scroll_direction", "call_controls", "window_snapper"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["keep_awake", "dock_minimize", "clipboard", "port_killer", "screen_ocr", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer"],
             "Partial, non-menu-bar, or unknown menuBarModuleOrder must normalize with remaining eligible modules and no duplicates"
         )
 
@@ -2002,7 +2008,7 @@ enum SelfTestRunner {
             return
         }
         expect(settingsLayout.distanceAboveDraggedCenter == 266, "distanceAboveDraggedCenter for index 4 should be 266 (got \(settingsLayout.distanceAboveDraggedCenter))")
-        expect(settingsLayout.distanceBelowDraggedCenter == 266, "distanceBelowDraggedCenter for index 4 should be 266 (got \(settingsLayout.distanceBelowDraggedCenter))")
+        expect(settingsLayout.distanceBelowDraggedCenter == 326, "distanceBelowDraggedCenter for index 4 of 10 should be 326 (got \(settingsLayout.distanceBelowDraggedCenter))")
         expect(settingsLayout.restingShift(forRowAt: 2, targetIndex: 1) == 60, "Row shifting down past 52pt card + 8pt spacing should shift +60")
 
         let dragState = VerticalDragReorderState<String>()
@@ -2018,7 +2024,7 @@ enum SelfTestRunner {
         }
         expect(!dragState.isDragging, "finishDrag should end active drag")
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["clipboard", "port_killer", "screen_ocr", "keep_awake", "dock_minimize", "custom_commands", "scroll_direction", "call_controls", "window_snapper"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["clipboard", "port_killer", "screen_ocr", "keep_awake", "dock_minimize", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer"],
             "Downward Settings drag should place dock_minimize after keep_awake (got \(registry.orderedMenuBarModules(for: cfg).map(\.id)))"
         )
         expect(!cfg.general.menuBarModuleOrder.contains("clean_lock"), "menuBarModuleOrder must never include non-menu-bar clean_lock")
@@ -2032,7 +2038,7 @@ enum SelfTestRunner {
             cfg.general.moveModuleInMenuBar(fromId: draggedID, toId: targetID, allModuleIDs: eligibleIDs)
         }
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["call_controls", "clipboard", "port_killer", "screen_ocr", "keep_awake", "dock_minimize", "custom_commands", "scroll_direction", "window_snapper"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["call_controls", "clipboard", "port_killer", "screen_ocr", "keep_awake", "dock_minimize", "custom_commands", "scroll_direction", "window_snapper", "finder_enhancer"],
             "Upward Settings drag should place call_controls at top (got \(registry.orderedMenuBarModules(for: cfg).map(\.id)))"
         )
 
@@ -2625,7 +2631,7 @@ enum SelfTestRunner {
 
     private static func testCallControlsConfigAndCoreAudioEnumeration() {
         let cfg = ToolboxConfig()
-        expect(cfg.schemaVersion == 14, "ToolboxConfig schemaVersion should be 14")
+        expect(cfg.schemaVersion == 15, "ToolboxConfig schemaVersion should be 15")
         expect(!cfg.callControls.enabled, "Call Controls should default to disabled")
         expect(cfg.callControls.overrideScope == .everywhere, "Default overrideScope should be everywhere")
         expect(cfg.callControls.typingUnmuteDelayMs == 450, "Default typingUnmuteDelayMs should be 450")
@@ -2660,7 +2666,7 @@ enum SelfTestRunner {
         let legacyJSON = "{\"schemaVersion\": 5, \"general\": {\"appEnabled\": true}}"
         if let data = legacyJSON.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 14, "Legacy config should upgrade to schemaVersion 14")
+            expect(migrated.schemaVersion == 15, "Legacy config should upgrade to schemaVersion 15")
             expect(!migrated.callControls.enabled, "Legacy config must migrate callControls.enabled = false")
             expect(migrated.callControls.overrideScope == .everywhere, "Migrated default overrideScope should be everywhere")
             expect(migrated.callControls.showFloatingPillOnlyDuringCalls, "Legacy config must migrate showFloatingPillOnlyDuringCalls = true")
@@ -2675,7 +2681,7 @@ enum SelfTestRunner {
         """
         if let data = v6JSON.data(using: .utf8),
            let upgraded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgraded.schemaVersion == 14, "v6 config should migrate to schemaVersion 14")
+            expect(upgraded.schemaVersion == 15, "v6 config should migrate to schemaVersion 15")
             expect(upgraded.callControls.overrideScope == .everywhere, "v6 active_call_app_only should upgrade to everywhere")
             expect(upgraded.callControls.showFloatingPillOnlyDuringCalls, "v6 config should upgrade showFloatingPillOnlyDuringCalls to true")
         } else {
@@ -2688,7 +2694,7 @@ enum SelfTestRunner {
         """
         if let data = v7JSON.data(using: .utf8),
            let upgradedV7 = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgradedV7.schemaVersion == 14, "v7 config should migrate to schemaVersion 14")
+            expect(upgradedV7.schemaVersion == 15, "v7 config should migrate to schemaVersion 15")
             expect(upgradedV7.callControls.showFloatingPillOnlyDuringCalls, "v7 showFloatingPillOnlyDuringCalls should upgrade to true")
         } else {
             failures.append("Failed to migrate v7 audioGuard config")
@@ -2700,7 +2706,7 @@ enum SelfTestRunner {
         """
         if let data = v8JSON.data(using: .utf8),
            let upgradedV8 = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgradedV8.schemaVersion == 14, "v8 config should migrate to schemaVersion 14")
+            expect(upgradedV8.schemaVersion == 15, "v8 config should migrate to schemaVersion 15")
             expect(upgradedV8.callControls.enabled, "v8 audioGuard.enabled must migrate to callControls.enabled")
             expect(upgradedV8.callControls.typingUnmuteDelayMs == 725, "v8 audioGuard fields must be preserved in callControls")
             expect(
@@ -3972,7 +3978,7 @@ enum SelfTestRunner {
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.callControls == micLockCfg.callControls, "CallControlsConfig mic-lock round-trip mismatch")
             expect(decoded.callControls.bluetoothMicLockFallbackUID == "usb-yeti", "Mic-lock fallback UID must survive a config round-trip")
-            expect(decoded.schemaVersion == 14, "Mic-lock config must serialize at schemaVersion 14")
+            expect(decoded.schemaVersion == 15, "Mic-lock config must serialize at schemaVersion 15")
         } else {
             failures.append("CallControlsConfig mic-lock encode/decode failed")
         }
@@ -4000,7 +4006,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(customCfg),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.screenOCR == customCfg.screenOCR, "ScreenOCRConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 14, "ToolboxConfig schemaVersion should be 14")
+            expect(decoded.schemaVersion == 15, "ToolboxConfig schemaVersion should be 15")
         } else {
             failures.append("ToolboxConfig with screenOCR failed Codable encode/decode")
         }
@@ -4010,7 +4016,7 @@ enum SelfTestRunner {
         let legacyJSON = "{\"schemaVersion\": 9, \"general\": {\"appEnabled\": true}}"
         if let data = legacyJSON.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 14, "Legacy v9 config should upgrade to schemaVersion 14")
+            expect(migrated.schemaVersion == 15, "Legacy v9 config should upgrade to schemaVersion 15")
             expect(!migrated.screenOCR.enabled, "Legacy config must migrate screenOCR.enabled = false")
         } else {
             failures.append("Failed to decode pre-ScreenOCR JSON config")
@@ -4829,6 +4835,7 @@ enum SelfTestRunner {
         var clipCfg = ToolboxConfig()
         clipCfg.clipboard.maxItems = 30
         clipCfg.clipboard.persistHistory = false
+        clipCfg.clipboard.captureImages = false
         liveClipboard.reload(with: clipCfg)
         liveClipboard.clearHistory(keepPinned: false)
         for idx in (1...20).reversed() {
@@ -6206,7 +6213,7 @@ enum SelfTestRunner {
     private static func testWindowSnapperConfigHotKeysProfilesAndLifecycle() {
         // 1. Config defaults, migration from schema 10 -> 11, and lenient partial decode
         let defaultCfg = ToolboxConfig()
-        expect(defaultCfg.schemaVersion == 14, "ToolboxConfig schemaVersion must be 14")
+        expect(defaultCfg.schemaVersion == 15, "ToolboxConfig schemaVersion must be 15")
         expect(!defaultCfg.windowSnapper.enabled, "WindowSnapper should default to disabled")
         expect(
             defaultCfg.windowSnapper.gaps.outerMarginPoints == 0 && defaultCfg.windowSnapper.gaps.innerGapPoints == 0,
@@ -6217,7 +6224,7 @@ enum SelfTestRunner {
         let legacyV10 = "{\"schemaVersion\": 10, \"general\": {\"appEnabled\": true}}"
         if let data = legacyV10.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 14, "v10 config must upgrade to schemaVersion 14")
+            expect(migrated.schemaVersion == 15, "v10 config must upgrade to schemaVersion 15")
             expect(!migrated.windowSnapper.enabled, "Migrated windowSnapper.enabled must default to false")
             expect(
                 migrated.windowSnapper.gaps.outerMarginPoints == 0 && migrated.windowSnapper.gaps.innerGapPoints == 0,
@@ -7934,5 +7941,562 @@ enum SelfTestRunner {
 
         ZoneOverlayController.shared.hideDragOverlays()
         ZoneOverlayController.shared.hideAllPreviews()
+    }
+
+    // MARK: - Finder Enhancer Tests
+
+    private static func testFinderEnhancerConfigAndMigration() {
+        let defaults = ToolboxConfig()
+        expect(defaults.schemaVersion == 15, "ToolboxConfig schemaVersion should be 15")
+        expect(!defaults.finderEnhancer.enabled, "FinderEnhancer should default to disabled")
+        expect(defaults.finderEnhancer.enableCutAndPaste, "enableCutAndPaste should default to true")
+        expect(defaults.finderEnhancer.showCutToast, "showCutToast should default to true")
+        expect(!defaults.finderEnhancer.enableReturnToOpen, "enableReturnToOpen should default to false")
+        expect(!defaults.finderEnhancer.enableF2ToRename, "enableF2ToRename should default to false")
+        expect(!defaults.finderEnhancer.enableAutoQuitOnLastWindowClose, "enableAutoQuitOnLastWindowClose should default to false")
+        expect(defaults.finderEnhancer.autoQuitMode == .allowlistOnly, "autoQuitMode should default to .allowlistOnly")
+        expect(defaults.finderEnhancer.autoQuitDelayMs == 500, "autoQuitDelayMs should default to 500")
+        expect(
+            defaults.finderEnhancer.autoQuitAllowlistBundleIDs == FinderEnhancerConfig.defaultAllowlistBundleIDs,
+            "Default allowlist should include Preview, TextEdit, QuickTime Player, System Settings, Calculator, Font Book"
+        )
+        expect(defaults.finderEnhancer.autoQuitExcludedBundleIDs.isEmpty, "Default exclusions should be empty")
+
+        // Codable round-trip
+        var custom = ToolboxConfig()
+        custom.finderEnhancer.enabled = true
+        custom.finderEnhancer.enableCutAndPaste = false
+        custom.finderEnhancer.showCutToast = false
+        custom.finderEnhancer.enableReturnToOpen = true
+        custom.finderEnhancer.enableF2ToRename = true
+        custom.finderEnhancer.enableAutoQuitOnLastWindowClose = true
+        custom.finderEnhancer.autoQuitMode = .allExceptExcluded
+        custom.finderEnhancer.autoQuitDelayMs = 1250
+        custom.finderEnhancer.autoQuitAllowlistBundleIDs = ["com.apple.Preview"]
+        custom.finderEnhancer.autoQuitExcludedBundleIDs = ["com.google.Chrome", "com.apple.Safari"]
+
+        if let data = try? JSONEncoder().encode(custom),
+           let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
+            expect(decoded.finderEnhancer == custom.finderEnhancer, "FinderEnhancerConfig Codable round-trip mismatch")
+            expect(decoded.schemaVersion == 15, "Encoded FinderEnhancer config must preserve schemaVersion 15")
+        } else {
+            failures.append("FinderEnhancerConfig Codable encode/decode failed")
+        }
+
+        // Legacy v14 JSON without finderEnhancer key migrates cleanly
+        let legacyV14 = "{\"schemaVersion\": 14, \"general\": {\"appEnabled\": true}}"
+        if let data = legacyV14.data(using: .utf8),
+           let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
+            expect(migrated.schemaVersion == 15, "v14 config should upgrade to schemaVersion 15")
+            expect(migrated.finderEnhancer == FinderEnhancerConfig(), "Migrated finderEnhancer should equal defaults")
+        } else {
+            failures.append("Failed to decode legacy v14 config")
+        }
+
+        // Partial JSON + delay clamping
+        let partialJSON = """
+        {"schemaVersion": 15, "finderEnhancer": {"enabled": true, "autoQuitDelayMs": 99999}}
+        """
+        if let data = partialJSON.data(using: .utf8),
+           let decodedPartial = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
+            expect(decodedPartial.finderEnhancer.enabled, "Partial finderEnhancer.enabled should decode")
+            expect(decodedPartial.finderEnhancer.enableCutAndPaste, "Partial finderEnhancer should fill enableCutAndPaste default")
+            expect(
+                decodedPartial.finderEnhancer.autoQuitDelayMs == FinderEnhancerConfig.maxAutoQuitDelayMs,
+                "Out-of-range autoQuitDelayMs must clamp to \(FinderEnhancerConfig.maxAutoQuitDelayMs)"
+            )
+        } else {
+            failures.append("Failed to decode partial FinderEnhancer JSON")
+        }
+    }
+
+    private static func testFinderCutStateMachineAndKeyInterceptor() {
+        var cfg = FinderEnhancerConfig()
+        cfg.enabled = true
+        cfg.enableCutAndPaste = true
+        cfg.enableReturnToOpen = true
+        cfg.enableF2ToRename = true
+
+        var cutState = FinderCutStateMachine()
+        let finder = FinderKeyInterceptor.finderBundleID
+        let browserFocus = FinderFocusContext.browserItemFocused
+
+        // 1. ⌘X in Finder browser arms cut; after pasteboard advances, ⌘V emits move & disarms; second ⌘V passes through.
+        let cutDecision = FinderKeyInterceptor.decideKeyEvent(
+            keyCode: UInt16(kVK_ANSI_X),
+            flags: .maskCommand,
+            isAutoRepeat: false,
+            userData: 0,
+            frontmostBundleID: finder,
+            config: cfg,
+            focusContext: browserFocus,
+            cutState: &cutState,
+            currentChangeCount: 100,
+            pasteboardHasFileURLs: false
+        )
+        expect(cutDecision == .cutToCopy, "⌘X in Finder browser should produce .cutToCopy")
+
+        cutState.arm(changeCount: 101, itemCount: 2)
+        expect(cutState.isArmed && cutState.armedItemCount == 2, "Cut state should arm for 2 items")
+
+        let pasteMove = FinderKeyInterceptor.decideKeyEvent(
+            keyCode: UInt16(kVK_ANSI_V),
+            flags: .maskCommand,
+            isAutoRepeat: false,
+            userData: 0,
+            frontmostBundleID: finder,
+            config: cfg,
+            focusContext: browserFocus,
+            cutState: &cutState,
+            currentChangeCount: 101,
+            pasteboardHasFileURLs: true
+        )
+        expect(pasteMove == .pasteAsMove, "Armed ⌘V with matching changeCount + file URLs must emit .pasteAsMove")
+        expect(!cutState.isArmed, "Cut state must disarm immediately after move")
+
+        let secondPaste = FinderKeyInterceptor.decideKeyEvent(
+            keyCode: UInt16(kVK_ANSI_V),
+            flags: .maskCommand,
+            isAutoRepeat: false,
+            userData: 0,
+            frontmostBundleID: finder,
+            config: cfg,
+            focusContext: browserFocus,
+            cutState: &cutState,
+            currentChangeCount: 101,
+            pasteboardHasFileURLs: true
+        )
+        expect(secondPaste == .passThrough, "Second ⌘V after move must passThrough normally")
+
+        // 2. Cross-app copy invalidation (changeCount bumped or file URLs absent) disarms & passes through.
+        cutState.arm(changeCount: 200, itemCount: 1)
+        let stalePaste = FinderKeyInterceptor.decideKeyEvent(
+            keyCode: UInt16(kVK_ANSI_V),
+            flags: .maskCommand,
+            isAutoRepeat: false,
+            userData: 0,
+            frontmostBundleID: finder,
+            config: cfg,
+            focusContext: browserFocus,
+            cutState: &cutState,
+            currentChangeCount: 201,
+            pasteboardHasFileURLs: false
+        )
+        expect(stalePaste == .disarmAndPassThrough && !cutState.isArmed, "Stale pasteboard changeCount must disarm and passThrough")
+
+        // 3. Esc and ⌘C disarm armed cut state and pass through.
+        cutState.arm(changeCount: 202, itemCount: 1)
+        let escDecision = FinderKeyInterceptor.decideKeyEvent(
+            keyCode: UInt16(kVK_Escape),
+            flags: [],
+            isAutoRepeat: false,
+            userData: 0,
+            frontmostBundleID: finder,
+            config: cfg,
+            focusContext: browserFocus,
+            cutState: &cutState,
+            currentChangeCount: 202,
+            pasteboardHasFileURLs: true
+        )
+        expect(escDecision == .disarmAndPassThrough && !cutState.isArmed, "Esc must disarm cut state and passThrough")
+
+        cutState.arm(changeCount: 203, itemCount: 1)
+        let copyDecision = FinderKeyInterceptor.decideKeyEvent(
+            keyCode: UInt16(kVK_ANSI_C),
+            flags: .maskCommand,
+            isAutoRepeat: false,
+            userData: 0,
+            frontmostBundleID: finder,
+            config: cfg,
+            focusContext: browserFocus,
+            cutState: &cutState,
+            currentChangeCount: 203,
+            pasteboardHasFileURLs: true
+        )
+        expect(copyDecision == .disarmAndPassThrough && !cutState.isArmed, "⌘C must disarm cut state and passThrough")
+
+        // 4. Text-input & modal safety gates block ⌘X, Return, and F2.
+        let textFieldFocus = FinderFocusContext(
+            focusedRole: "AXTextField",
+            focusedSubrole: nil,
+            windowRole: "AXWindow",
+            windowSubrole: "AXStandardWindow",
+            isWindowModal: false,
+            hasAttachedSheet: false,
+            isInSheetHierarchy: false,
+            axLookupFailed: false
+        )
+        let dialogButtonFocus = FinderFocusContext(
+            focusedRole: "AXButton",
+            focusedSubrole: nil,
+            windowRole: "AXWindow",
+            windowSubrole: "AXDialog",
+            isWindowModal: true,
+            hasAttachedSheet: false,
+            isInSheetHierarchy: false,
+            axLookupFailed: false
+        )
+        let sheetFocus = FinderFocusContext(
+            focusedRole: "AXOutline",
+            focusedSubrole: nil,
+            windowRole: "AXWindow",
+            windowSubrole: "AXStandardWindow",
+            isWindowModal: false,
+            hasAttachedSheet: true,
+            isInSheetHierarchy: true,
+            axLookupFailed: false
+        )
+
+        expect(
+            FinderKeyInterceptor.decideKeyEvent(
+                keyCode: UInt16(kVK_ANSI_X),
+                flags: .maskCommand,
+                isAutoRepeat: false,
+                userData: 0,
+                frontmostBundleID: finder,
+                config: cfg,
+                focusContext: textFieldFocus,
+                cutState: &cutState,
+                currentChangeCount: 203,
+                pasteboardHasFileURLs: false
+            ) == .passThrough,
+            "⌘X inside AXTextField (inline rename / search / Go to Folder) must passThrough"
+        )
+        expect(
+            FinderKeyInterceptor.decideKeyEvent(
+                keyCode: UInt16(kVK_Return),
+                flags: [],
+                isAutoRepeat: false,
+                userData: 0,
+                frontmostBundleID: finder,
+                config: cfg,
+                focusContext: textFieldFocus,
+                cutState: &cutState,
+                currentChangeCount: 203,
+                pasteboardHasFileURLs: false
+            ) == .passThrough,
+            "Return inside AXTextField must passThrough to commit rename/search"
+        )
+        expect(
+            FinderKeyInterceptor.decideKeyEvent(
+                keyCode: UInt16(kVK_Return),
+                flags: [],
+                isAutoRepeat: false,
+                userData: 0,
+                frontmostBundleID: finder,
+                config: cfg,
+                focusContext: dialogButtonFocus,
+                cutState: &cutState,
+                currentChangeCount: 203,
+                pasteboardHasFileURLs: false
+            ) == .passThrough,
+            "Return inside modal dialog must passThrough"
+        )
+        expect(
+            FinderKeyInterceptor.decideKeyEvent(
+                keyCode: UInt16(kVK_F2),
+                flags: .maskSecondaryFn,
+                isAutoRepeat: false,
+                userData: 0,
+                frontmostBundleID: finder,
+                config: cfg,
+                focusContext: sheetFocus,
+                cutState: &cutState,
+                currentChangeCount: 203,
+                pasteboardHasFileURLs: false
+            ) == .passThrough,
+            "F2 inside attached sheet must passThrough"
+        )
+
+        // 5. Return -> .openSelected, F2 (with .maskSecondaryFn) -> .renameSelected, synthetic tag & non-Finder passThrough.
+        expect(
+            FinderKeyInterceptor.decideKeyEvent(
+                keyCode: UInt16(kVK_Return),
+                flags: .maskAlphaShift,
+                isAutoRepeat: false,
+                userData: 0,
+                frontmostBundleID: finder,
+                config: cfg,
+                focusContext: browserFocus,
+                cutState: &cutState,
+                currentChangeCount: 203,
+                pasteboardHasFileURLs: false
+            ) == .openSelected,
+            "Return in Finder file browser must emit .openSelected"
+        )
+        expect(
+            FinderKeyInterceptor.decideKeyEvent(
+                keyCode: UInt16(kVK_F2),
+                flags: .maskSecondaryFn,
+                isAutoRepeat: false,
+                userData: 0,
+                frontmostBundleID: finder,
+                config: cfg,
+                focusContext: browserFocus,
+                cutState: &cutState,
+                currentChangeCount: 203,
+                pasteboardHasFileURLs: false
+            ) == .renameSelected,
+            "F2 (even with secondaryFn flag) in Finder file browser must emit .renameSelected"
+        )
+        expect(
+            FinderKeyInterceptor.decideKeyEvent(
+                keyCode: UInt16(kVK_ANSI_X),
+                flags: .maskCommand,
+                isAutoRepeat: false,
+                userData: FinderKeyInterceptor.syntheticEventTag,
+                frontmostBundleID: finder,
+                config: cfg,
+                focusContext: browserFocus,
+                cutState: &cutState,
+                currentChangeCount: 203,
+                pasteboardHasFileURLs: false
+            ) == .passThrough,
+            "Synthetic 0x544C4258-tagged events must always passThrough"
+        )
+        expect(
+            FinderKeyInterceptor.decideKeyEvent(
+                keyCode: UInt16(kVK_Return),
+                flags: [],
+                isAutoRepeat: false,
+                userData: 0,
+                frontmostBundleID: "com.apple.TextEdit",
+                config: cfg,
+                focusContext: browserFocus,
+                cutState: &cutState,
+                currentChangeCount: 203,
+                pasteboardHasFileURLs: false
+            ) == .passThrough,
+            "Non-Finder frontmost app must always passThrough"
+        )
+        expect(
+            FinderKeyInterceptor.decideKeyEvent(
+                keyCode: UInt16(kVK_Return),
+                flags: [],
+                isAutoRepeat: true,
+                userData: 0,
+                frontmostBundleID: finder,
+                config: cfg,
+                focusContext: browserFocus,
+                cutState: &cutState,
+                currentChangeCount: 203,
+                pasteboardHasFileURLs: false
+            ) == .swallowOnly,
+            "Key-repeat on intercepted Return must swallowOnly instead of spamming ⌘O"
+        )
+    }
+
+    private static func testLastWindowQuitEligibilityAndWindowCounting() {
+        let allowlist = FinderEnhancerConfig.defaultAllowlistBundleIDs
+
+        // 1. Protected system apps & Toolbox itself are never eligible even in allExceptExcluded mode.
+        let protectedCases = [
+            "com.apple.finder",
+            "com.apple.Finder",
+            "com.apple.dock",
+            "com.apple.SystemUIServer",
+            "com.toolbox.app"
+        ]
+        for bundleID in protectedCases {
+            expect(
+                !LastWindowQuitPolicy.isEligible(
+                    bundleID: bundleID,
+                    activationPolicy: .regular,
+                    isSelfProcess: false,
+                    selfBundleID: "com.toolbox.app",
+                    mode: .allExceptExcluded,
+                    allowlistBundleIDs: allowlist,
+                    excludedBundleIDs: []
+                ),
+                "Protected bundle ID \(bundleID) must never be eligible for auto-quit"
+            )
+        }
+
+        // 2. Accessory / prohibited background apps and self process are never eligible.
+        expect(
+            !LastWindowQuitPolicy.isEligible(
+                bundleID: "com.example.Agent",
+                activationPolicy: .accessory,
+                isSelfProcess: false,
+                selfBundleID: "com.toolbox.app",
+                mode: .allExceptExcluded,
+                allowlistBundleIDs: ["com.example.Agent"],
+                excludedBundleIDs: []
+            ),
+            "Accessory activationPolicy apps must never be eligible"
+        )
+        expect(
+            !LastWindowQuitPolicy.isEligible(
+                bundleID: "com.example.Self",
+                activationPolicy: .regular,
+                isSelfProcess: true,
+                selfBundleID: "com.example.Self",
+                mode: .allExceptExcluded,
+                allowlistBundleIDs: ["com.example.Self"],
+                excludedBundleIDs: []
+            ),
+            "Self process must never be eligible"
+        )
+
+        // 3. Allowlist vs AllExceptExcluded filtering (case-insensitive).
+        expect(
+            LastWindowQuitPolicy.isEligible(
+                bundleID: "com.apple.preview",
+                activationPolicy: .regular,
+                isSelfProcess: false,
+                selfBundleID: "com.toolbox.app",
+                mode: .allowlistOnly,
+                allowlistBundleIDs: allowlist,
+                excludedBundleIDs: []
+            ),
+            "Allowlist match should be case-insensitive for com.apple.preview"
+        )
+        expect(
+            !LastWindowQuitPolicy.isEligible(
+                bundleID: "com.google.Chrome",
+                activationPolicy: .regular,
+                isSelfProcess: false,
+                selfBundleID: "com.toolbox.app",
+                mode: .allowlistOnly,
+                allowlistBundleIDs: allowlist,
+                excludedBundleIDs: []
+            ),
+            "Non-allowlisted app must not be eligible in allowlistOnly mode"
+        )
+        expect(
+            !LastWindowQuitPolicy.isEligible(
+                bundleID: "com.google.Chrome",
+                activationPolicy: .regular,
+                isSelfProcess: false,
+                selfBundleID: "com.toolbox.app",
+                mode: .allExceptExcluded,
+                allowlistBundleIDs: allowlist,
+                excludedBundleIDs: ["com.google.chrome"]
+            ),
+            "Excluded app must not be eligible in allExceptExcluded mode"
+        )
+        expect(
+            LastWindowQuitPolicy.isEligible(
+                bundleID: "com.apple.Notes",
+                activationPolicy: .regular,
+                isSelfProcess: false,
+                selfBundleID: "com.toolbox.app",
+                mode: .allExceptExcluded,
+                allowlistBundleIDs: allowlist,
+                excludedBundleIDs: ["com.google.Chrome"]
+            ),
+            "Non-excluded regular app should be eligible in allExceptExcluded mode"
+        )
+
+        // 4. Relevant window counting: minimized & fullscreen count as open; zero only when none remain.
+        let minimizedWindow = AXWindowSnapshot(role: "AXWindow", subrole: "AXStandardWindow", isMinimized: true, isFullScreen: false)
+        let fullscreenWindow = AXWindowSnapshot(role: "AXWindow", subrole: "AXUnknown", isMinimized: false, isFullScreen: true)
+        let popoverWindow = AXWindowSnapshot(role: "AXWindow", subrole: "AXSystemFloatingWindow", isMinimized: false, isFullScreen: false)
+        let dialogWindow = AXWindowSnapshot(role: "AXWindow", subrole: "AXDialog", isMinimized: false, isFullScreen: false)
+
+        expect(
+            LastWindowQuitPolicy.countRelevantOpenWindows([minimizedWindow]) == 1,
+            "Minimized window must count as open and block auto-quit"
+        )
+        expect(
+            LastWindowQuitPolicy.countRelevantOpenWindows([fullscreenWindow]) == 1,
+            "Fullscreen window must count as open and block auto-quit"
+        )
+        expect(
+            LastWindowQuitPolicy.countRelevantOpenWindows([popoverWindow]) == 0,
+            "Floating utility/popover subrole without standard/dialog/minimized must count as 0"
+        )
+        expect(
+            LastWindowQuitPolicy.countRelevantOpenWindows([dialogWindow]) == 1,
+            "Open dialog/sheet window must count as open"
+        )
+
+        // 5. Final grace-delay safety gate
+        expect(
+            !LastWindowQuitPolicy.shouldTerminateAfterGraceDelay(
+                isRunning: true,
+                isTerminated: false,
+                isHidden: true,
+                isEligible: true,
+                relevantWindowCount: 0
+            ),
+            "Hidden app must never be auto-quit"
+        )
+        expect(
+            !LastWindowQuitPolicy.shouldTerminateAfterGraceDelay(
+                isRunning: true,
+                isTerminated: false,
+                isHidden: false,
+                isEligible: true,
+                relevantWindowCount: nil
+            ),
+            "Unknown AX window count (nil) must fail safe and block auto-quit"
+        )
+        expect(
+            LastWindowQuitPolicy.shouldTerminateAfterGraceDelay(
+                isRunning: true,
+                isTerminated: false,
+                isHidden: false,
+                isEligible: true,
+                relevantWindowCount: 0
+            ),
+            "Visible eligible running app with 0 remaining windows should pass termination gate"
+        )
+    }
+
+    private static func testFinderEnhancerModuleLifecycleAndRegistry() {
+        let registry = ModuleRegistry.shared
+        guard let registered = registry.module(withID: "finder_enhancer") as? FinderEnhancerModule else {
+            failures.append("ModuleRegistry must expose FinderEnhancerModule under id 'finder_enhancer'")
+            return
+        }
+        expect(registered.category == .system, "FinderEnhancer category must be .system")
+        expect(registered.requiresAccessibility, "FinderEnhancer must require Accessibility")
+        expect(registered.supportsMenuBar && registered.supportsEnableToggle, "FinderEnhancer must support menu bar and toggle")
+
+        var cfg = ToolboxConfig()
+        expect(!registered.isEnabled(in: cfg), "FinderEnhancer must start disabled in default config")
+        expect(registered.statusText(in: cfg, accessibilityGranted: true) == "Disabled", "Disabled status text mismatch")
+
+        registered.setEnabled(true, in: &cfg)
+        expect(cfg.finderEnhancer.enabled, "setEnabled(true) must mutate config.finderEnhancer.enabled")
+        expect(registered.statusText(in: cfg, accessibilityGranted: false) == "Needs Accessibility", "Missing AX status text mismatch")
+
+        cfg.general.appEnabled = false
+        expect(registered.statusText(in: cfg, accessibilityGranted: true) == "Paused", "Master pause status text mismatch")
+
+        // Lifecycle start/reload/stop cleanly tears down background tap and watchers
+        let testModule = FinderEnhancerModule()
+        var activeCfg = ToolboxConfig()
+        activeCfg.general.appEnabled = true
+        activeCfg.finderEnhancer.enabled = true
+        testModule.reload(with: activeCfg)
+        expect(testModule.isRunning, "FinderEnhancerModule must report isRunning = true when enabled")
+        if PermissionsManager.isProcessTrusted() {
+            expect(testModule.isKeyTapInstalled, "Key tap must install when Accessibility is granted")
+            expect(testModule.runsKeyTapOnBackgroundThreadForTesting, "FinderKeyInterceptor must run on a dedicated background thread & CFRunLoop")
+        }
+
+        // Master pause stops cleanly
+        activeCfg.general.appEnabled = false
+        testModule.reload(with: activeCfg)
+        expect(!testModule.isRunning && !testModule.isKeyTapInstalled, "Master pause must stop FinderEnhancerModule and uninstall key tap")
+
+        // Re-enable then disable cleanly
+        activeCfg.general.appEnabled = true
+        testModule.reload(with: activeCfg)
+        expect(testModule.isRunning, "Master resume must restart enabled FinderEnhancerModule")
+        testModule.stop()
+        expect(!testModule.isRunning && !testModule.isKeyTapInstalled, "stop() must tear down FinderEnhancerModule cleanly")
+
+        // DeveloperHealthChecks integration
+        expect(
+            ToolboxConfigSection.allCases.contains(.finderEnhancer),
+            "ToolboxConfigSection must include .finderEnhancer"
+        )
+        expect(
+            DeveloperEventCategory.allCases.contains(.finderEnhancer),
+            "DeveloperEventCategory must include .finderEnhancer"
+        )
     }
 }

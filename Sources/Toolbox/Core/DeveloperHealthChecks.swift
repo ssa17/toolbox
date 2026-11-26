@@ -971,6 +971,7 @@ final class DeveloperHealthCheckRunner: ObservableObject {
         let cfg = ConfigManager.shared.config
         let actual = perms.actualAccessibilityGranted
         let dockErr = ModuleRegistry.shared.dockMinimize.lastError
+        let finderErr = ModuleRegistry.shared.finderEnhancer.lastError
 
         if let dockErr, !dockErr.isEmpty {
             return HealthCheckItem(
@@ -980,6 +981,17 @@ final class DeveloperHealthCheckRunner: ObservableObject {
                 severity: .fail,
                 summary: "Dock Minimize event tap error",
                 detail: dockErr
+            )
+        }
+
+        if let finderErr, !finderErr.isEmpty {
+            return HealthCheckItem(
+                id: "accessibility_taps",
+                title: "Accessibility & Event Taps",
+                category: "Permissions",
+                severity: .fail,
+                summary: "Finder Enhancer event tap error",
+                detail: finderErr
             )
         }
 

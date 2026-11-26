@@ -1,6 +1,6 @@
 # Finder Enhancer — Feature Spec
 
-> **Status:** Planned · **Module:** `Modules/FinderEnhancer/` · **Parent:** [Toolbox Feature Roadmap](../feature-roadmap.md)
+> **Status:** Done (Shipped) · **Module:** `Modules/FinderEnhancer/` · **Parent:** [Toolbox Feature Roadmap](../feature-roadmap.md)
 
 ### Purpose & User Value
 Finder and macOS window lifecycles surprise users—especially Windows switchers, students, and everyday multitaskers—in three small but constant ways: `⌘ X` does not cut files (macOS requires `⌘ C` then `⌥ ⌘ V`), pressing `Return` renames a file instead of opening it, and closing an app's last window leaves the process sitting in the Dock. **Finder Enhancer** provides three independent, opt-in quality-of-life fixes with strict text-input and system-app safety guards.
@@ -45,13 +45,13 @@ Finder and macOS window lifecycles surprise users—especially Windows switchers
    - Cache `frontmostBundleID` via `NSWorkspace.didActivateApplicationNotification` (zero main-thread IPC inside the callback); if `frontmostBundleID != "com.apple.finder"`, pass through immediately.
    - Ignore synthetic events tagged with Toolbox's `0x544C4258` marker and re-arm on `tapDisabledByTimeout` / `tapDisabledByUserInput`.
 2. **Mandatory Text-Input Safety Gate (`isFocusedElementTextInput`):**
-   - Before intercepting `⌘ X`, `⌘ V`, `Return`, or `F2`, query `kAXFocusedUIElementAttribute` on `AXUIElementCreateSystemWide()` and inspect `kAXRoleAttribute`.
+   - Before intercepting `⌘ X`, `⌘ V`, `Return`, or `F2`, query `kAXFocusedUIElementAttribute` on Finder's `AXUIElementCreateApplication(pid)` (with `AXUIElementCreateSystemWide()` fallback) and inspect `kAXRoleAttribute` / `kAXSubroleAttribute` / enclosing window & sheet state.
    - If the focused element is `AXTextField`, `AXTextArea`, `AXComboBox`, or `AXSearchField` (inline filename rename, Finder search bar, `⇧ ⌘ G` Go to Folder, Get Info comments, or Open/Save sheets), pass the keystroke straight through untouched.
 3. **Cut State Machine (`FinderCutStateMachine`):**
    - Pure state machine tracking `armedChangeCount: Int?`.
-   - On `⌘ X`: capture `preCopyCount = NSPasteboard.general.changeCount`, post `0x544C4258`-tagged `⌘ C` to Finder, and perform a bounded poll of `NSPasteboard.general.changeCount` (every `15 ms` up to `200 ms`). Only arm cut state if `changeCount` advances; if nothing was selected in Finder (`changeCount` unchanged), do **not** arm cut state and show no toast.
+   - On `⌘ X`: capture `preCopyCount = NSPasteboard.general.changeCount`, post `0x544C4258`-tagged `⌘ C` directly to Finder via `postToPid`, and perform a bounded poll of `NSPasteboard.general.changeCount` (every `15 ms` up to `450 ms`). Only arm cut state if `changeCount` advances; if nothing was selected in Finder (`changeCount` unchanged), do **not** arm cut state and show no toast.
    - On `⌘ V`: proceed **only** if `armedChangeCount == NSPasteboard.general.changeCount` and `NSPasteboard.general.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])` is true. Otherwise clear cut state and pass `⌘ V` through untouched.
-   - When armed and valid: swallow `⌘ V`, post `0x544C4258`-tagged `⌥ ⌘ V` (`Move Item Here`), and clear `armedChangeCount`.
+   - When armed and valid: swallow `⌘ V`, post `0x544C4258`-tagged `⌥ ⌘ V` (`Move Item Here`) directly to Finder via `postToPid`, and clear `armedChangeCount`.
 4. **Last-Window Auto-Quit (`LastWindowQuitWatcher`):**
    - Observe `NSWorkspace.didLaunchApplicationNotification`, `didTerminateApplicationNotification`, and per-app AX `kAXUIElementDestroyedNotification` (and `kAXWindowMiniaturizedNotification` ignored—minimized windows still count as open!).
    - Filter out `.accessory` / `.prohibited` activation policies and mandatory protected bundle IDs (`com.apple.finder`, `Bundle.main.bundleIdentifier`, `com.apple.dock`, `com.apple.SystemUIServer`).

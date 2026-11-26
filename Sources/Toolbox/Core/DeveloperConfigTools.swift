@@ -21,6 +21,7 @@ enum ToolboxConfigSection: String, CaseIterable, Identifiable, Sendable {
     case screenOCR
     case callControls
     case windowSnapper
+    case finderEnhancer
 
     var id: String { rawValue }
 
@@ -37,6 +38,7 @@ enum ToolboxConfigSection: String, CaseIterable, Identifiable, Sendable {
         case .screenOCR: return "Screen OCR"
         case .callControls: return "Call Controls"
         case .windowSnapper: return "Window Snapper"
+        case .finderEnhancer: return "Finder Enhancer"
         }
     }
 }
@@ -93,6 +95,8 @@ final class ConfigCheckpointStore: ObservableObject {
             next.callControls = CallControlsConfig()
         case .windowSnapper:
             next.windowSnapper = WindowSnapperConfig()
+        case .finderEnhancer:
+            next.finderEnhancer = FinderEnhancerConfig()
         }
         ConfigManager.shared.config = next
     }

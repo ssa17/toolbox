@@ -139,7 +139,8 @@ struct GeneralConfig: Codable, Equatable, Sendable {
         "custom_commands",
         "scroll_direction",
         "call_controls",
-        "window_snapper"
+        "window_snapper",
+        "finder_enhancer"
     ]
 
     var appEnabled: Bool = true
@@ -2562,13 +2563,91 @@ struct WindowSnapperConfig: Codable, Equatable, Sendable {
     }
 }
 
+enum AutoQuitAppMode: String, Codable, CaseIterable, Identifiable, Sendable {
+    case allowlistOnly = "allowlist_only"
+    case allExceptExcluded = "all_except_excluded"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .allowlistOnly: return "Allowlist Only"
+        case .allExceptExcluded: return "All Except Excluded"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .allowlistOnly:
+            return "Only apps in your allowlist auto-quit when their last window closes (recommended so browsers, terminals, and IDEs stay running)."
+        case .allExceptExcluded:
+            return "Any regular app auto-quits when its last window closes unless excluded below. Finder, Dock, Toolbox, and system UI processes are always protected."
+        }
+    }
+}
+
+struct FinderEnhancerConfig: Codable, Equatable, Sendable {
+    static let minAutoQuitDelayMs = 200
+    static let maxAutoQuitDelayMs = 2000
+    static let defaultAutoQuitDelayMs = 500
+    static let defaultAllowlistBundleIDs: [String] = [
+        "com.apple.Preview",
+        "com.apple.TextEdit",
+        "com.apple.QuickTimePlayerX",
+        "com.apple.systempreferences",
+        "com.apple.calculator",
+        "com.apple.FontBook"
+    ]
+
+    var enabled: Bool = false
+    var enableCutAndPaste: Bool = true
+    var showCutToast: Bool = true
+    var enableReturnToOpen: Bool = false
+    var enableF2ToRename: Bool = false
+    var enableAutoQuitOnLastWindowClose: Bool = false
+    var autoQuitMode: AutoQuitAppMode = .allowlistOnly
+    var autoQuitDelayMs: Int = FinderEnhancerConfig.defaultAutoQuitDelayMs
+    var autoQuitAllowlistBundleIDs: [String] = FinderEnhancerConfig.defaultAllowlistBundleIDs
+    var autoQuitExcludedBundleIDs: [String] = []
+
+    var needsKeyTap: Bool {
+        enableCutAndPaste || enableReturnToOpen || enableF2ToRename
+    }
+
+    var hasAnyFeatureEnabled: Bool {
+        needsKeyTap || enableAutoQuitOnLastWindowClose
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        enableCutAndPaste = try c.decodeIfPresent(Bool.self, forKey: .enableCutAndPaste) ?? true
+        showCutToast = try c.decodeIfPresent(Bool.self, forKey: .showCutToast) ?? true
+        enableReturnToOpen = try c.decodeIfPresent(Bool.self, forKey: .enableReturnToOpen) ?? false
+        enableF2ToRename = try c.decodeIfPresent(Bool.self, forKey: .enableF2ToRename) ?? false
+        enableAutoQuitOnLastWindowClose = try c.decodeIfPresent(Bool.self, forKey: .enableAutoQuitOnLastWindowClose) ?? false
+        autoQuitMode = try c.decodeIfPresent(AutoQuitAppMode.self, forKey: .autoQuitMode) ?? .allowlistOnly
+        let rawDelay = try c.decodeIfPresent(Int.self, forKey: .autoQuitDelayMs) ?? Self.defaultAutoQuitDelayMs
+        autoQuitDelayMs = Self.clampedAutoQuitDelayMs(rawDelay)
+        autoQuitAllowlistBundleIDs = try c.decodeIfPresent([String].self, forKey: .autoQuitAllowlistBundleIDs)
+            ?? Self.defaultAllowlistBundleIDs
+        autoQuitExcludedBundleIDs = try c.decodeIfPresent([String].self, forKey: .autoQuitExcludedBundleIDs) ?? []
+    }
+
+    static func clampedAutoQuitDelayMs(_ ms: Int) -> Int {
+        min(max(ms, minAutoQuitDelayMs), maxAutoQuitDelayMs)
+    }
+}
+
 struct ToolboxConfig: Codable, Equatable, Sendable {
     private enum LegacyCodingKeys: String, CodingKey {
         case audioGuard
         case windowSnapping
     }
 
-    var schemaVersion: Int = 14
+    var schemaVersion: Int = 15
     var general: GeneralConfig = GeneralConfig()
     var dockMinimize: DockMinimizeConfig = DockMinimizeConfig()
     var clipboard: ClipboardConfig = ClipboardConfig()
@@ -2580,6 +2659,7 @@ struct ToolboxConfig: Codable, Equatable, Sendable {
     var scrollDirection: ScrollDirectionConfig = ScrollDirectionConfig()
     var callControls: CallControlsConfig = CallControlsConfig()
     var windowSnapper: WindowSnapperConfig = WindowSnapperConfig()
+    var finderEnhancer: FinderEnhancerConfig = FinderEnhancerConfig()
     var extensions: [String: JSONValue] = [:]
 
     init() {}
@@ -2612,11 +2692,12 @@ struct ToolboxConfig: Codable, Equatable, Sendable {
         if decodedSchema < 8 {
             decodedCallControls.showFloatingPillOnlyDuringCalls = true
         }
-        schemaVersion = max(decodedSchema, 14)
+        schemaVersion = max(decodedSchema, 15)
         callControls = decodedCallControls
         windowSnapper = try c.decodeIfPresent(WindowSnapperConfig.self, forKey: .windowSnapper)
             ?? legacyContainer.decodeIfPresent(WindowSnapperConfig.self, forKey: .windowSnapping)
             ?? WindowSnapperConfig()
+        finderEnhancer = try c.decodeIfPresent(FinderEnhancerConfig.self, forKey: .finderEnhancer) ?? FinderEnhancerConfig()
         extensions = try c.decodeIfPresent([String: JSONValue].self, forKey: .extensions) ?? [:]
     }
 

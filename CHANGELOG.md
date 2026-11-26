@@ -10,6 +10,7 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 ## [Unreleased]
 
 ### Added
+- **Finder Enhancer** — move files in Finder with `⌘ X` → `⌘ V`, open selected items with `Return` (or rename with `F2`) without disrupting inline editing or dialogs, and optionally auto-quit allowlisted or non-excluded apps after their last window closes
 - **Clipboard Image History** — capture screenshots and copied images with thumbnails, filters, metadata previews, pinning, instant paste, Save As export, and configurable local cache limits
 
 ### Changed

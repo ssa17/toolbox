@@ -22,21 +22,20 @@ Ordered from zero-permission, self-contained utilities to modules that interact 
 | 4 | **Local Image Compressor & Cropper** | `image_compressor` | Clipboard & Text | `⌃ ⌥ ⌘ I` | None | `ImageIO`, `CoreImage`, `AppKit`, `UniformTypeIdentifiers` | [`image_compressor.md`](feature-specs/image_compressor.md) |
 | 5 | **Meeting Shield (Presentation Mode)** | `meeting_shield` | System & Power | `⌃ ⌥ ⌘ S` | None *(optional Focus Shortcuts)* | `AppKit`, `IOKit`, `Foundation` | [`meeting_shield.md`](feature-specs/meeting_shield.md) |
 | 6 | **Quick Screenshot** | `quick_screenshot` | Clipboard & Text | `⌃ ⌥ ⌘ 5` | Screen Recording (OS-managed via `screencapture`) | `AppKit`, `CoreGraphics`, `Vision` (optional OCR) | [`quick_screenshot.md`](feature-specs/quick_screenshot.md) |
-| 7 | **Finder Enhancer** | `finder_enhancer` | System & Power | None *(Finder-scoped `⌘ X`/`⌘ V`/`Return` + auto-quit)* | Accessibility (required) | `CoreGraphics` (`CGEventTap`), `ApplicationServices` (AX), `AppKit` | [`finder_enhancer.md`](feature-specs/finder_enhancer.md) |
 | 8 | **Window Switcher (`Alt+Tab`)** | `window_switcher` | Window & Dock | `⌥ Tab` / `⌥ ⇧ Tab` *(opt-in)* | Accessibility (required); Screen Recording (optional, for thumbnails) | `ApplicationServices` (AX), `CoreGraphics`, `ScreenCaptureKit` (optional), `AppKit` | [`window_switcher.md`](feature-specs/window_switcher.md) |
-| 9 | **Keyboard Shortcuts Hub & Caps Lock Hyper Key** | `hyper_key` *(Sidebar: Keyboard Shortcuts)* | Commands & Shortcuts | Hold `Caps Lock` (`⌃ ⌥ ⌘` or `⌃ ⌥ ⇧ ⌘`); Tap `Caps Lock` *(opt-in)* | None *(Shortcuts Hub)*; Accessibility & Input Monitoring *(required for Caps Lock Hyper Key)* | `IOKit` (`IOHIDServiceClientSetProperty`, `IOHIDSetModifierLockState`), `CoreGraphics` (`CGEventTap`), `AppKit`, `Carbon` | [`keyboard_shortcuts_hub.md`](feature-specs/keyboard_shortcuts_hub.md) |
+| 9 | **Keyboard Shortcuts Hub & Caps Lock Hyper Key** | `hyper_key` *(Sidebar: Keyboard Shortcuts)* | Commands & Shortcuts | Hold `Caps Lock` (`⌃ ⌥ ⌘` or `⌃ ⌥ ⇧ ⌘`); Tap `Caps Lock` *(opt-in)* | None *(Shortcuts Hub)*; Accessibility & Input Monitoring *(required for Caps Lock Hyper Key)* | `IOKit` (`IOHIDServiceClientSetProperty`, `IOHIDSetModifierLockState`), `CoreGraphics`, `AppKit`, `Carbon` | [`keyboard_shortcuts_hub.md`](feature-specs/keyboard_shortcuts_hub.md) |
 
 ### Planned Enhancements to Shipped Modules
 
 *No pending enhancements. Clipboard Image History has shipped and is recorded in the Done table below.*
 
-*All default shortcuts across the 10 shipped and 9 planned modules are verified collision-free (`⌃ ⌥ ⌘ C` is reserved by `WindowSnapper` Center, so `ColorPicker` uses `⌃ ⌥ ⌘ E`).*
+*All default shortcuts across the 11 shipped and 8 planned modules are verified collision-free (`⌃ ⌥ ⌘ C` is reserved by `WindowSnapper` Center, so `ColorPicker` uses `⌃ ⌥ ⌘ E`).*
 
 ---
 
 ## 2. Done (Shipped Modules Reference)
 
-Complete reference of all shipped modules in `Sources/Toolbox/Modules/` (5 foundational Core modules + 5 shipped Roadmap modules):
+Complete reference of all shipped modules in `Sources/Toolbox/Modules/` (5 foundational Core modules + 6 shipped Roadmap modules):
 
 | Feature | Module ID | Origin | Category | Default Shortcut | Permissions Needed | Key macOS Frameworks | Docs / Spec |
 |---|---|---|---|---|---|---|---|
@@ -50,6 +49,7 @@ Complete reference of all shipped modules in `Sources/Toolbox/Modules/` (5 found
 | **Keyboard & Trackpad Clean Lock** | `clean_lock` | Roadmap | System & Power | None *(Button / Menu Bar only)* | Accessibility (required) | `CoreGraphics` (`CGEventTap`), `AppKit` | [`clean_lock.md`](feature-specs/clean_lock.md) |
 | **Call Controls** *(incl. AirPods & Bluetooth Mic Lock)* | `call_controls` | Roadmap | System & Power | `⌃ ⌥ ⌘ M` (Mic) & `⌃ ⌥ ⌘ V` (Video), customizable per user | Accessibility (optional: Unified Call Keybind Override & Auto-Mute While Typing) | `CoreAudio`, `AudioToolbox`, `CoreMediaIO`, `CoreGraphics`, `ApplicationServices` | [`call_controls.md`](feature-specs/call_controls.md) · [`call_controls_bluetooth_mic_lock.md`](feature-specs/call_controls_bluetooth_mic_lock.md) |
 | **Window Snapper** | `window_snapper` | Roadmap | Window & Dock | `⌃ ⌥ ⌘ ←/→/↑/↓` (plus halves, thirds, quarters, restore pre-snap size, and profile shortcuts) | Accessibility (required) | `ApplicationServices` (AX), `CoreGraphics`, `AppKit`, `Carbon` | [`window_snapper.md`](feature-specs/window_snapper.md) |
+| **Finder Enhancer** | `finder_enhancer` | Roadmap | System & Power | None *(Finder-scoped `⌘ X`/`⌘ V`/`Return`/`F2` + auto-quit)* | Accessibility (required) | `CoreGraphics` (`CGEventTap`), `ApplicationServices` (AX), `AppKit` | [`finder_enhancer.md`](feature-specs/finder_enhancer.md) |
 
 ---
 

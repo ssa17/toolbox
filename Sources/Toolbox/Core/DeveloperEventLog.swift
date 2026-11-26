@@ -9,6 +9,7 @@ enum DeveloperEventCategory: String, CaseIterable, Identifiable, Sendable {
     case cleanLock = "Keyboard Lock"
     case callControls = "Call Controls"
     case windowSnapper = "Window Snapper"
+    case finderEnhancer = "Finder Enhancer"
     case ocr = "Screen OCR"
     case config = "Config"
     case updates = "Updates"

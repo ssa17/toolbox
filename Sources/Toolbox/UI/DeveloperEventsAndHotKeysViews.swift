@@ -311,6 +311,7 @@ struct DeveloperEventsAndTapsView: View {
         case .cleanLock: return .red
         case .callControls: return .mint
         case .windowSnapper: return .indigo
+        case .finderEnhancer: return .blue
         case .ocr: return .cyan
         case .config: return .teal
         case .updates: return .green
