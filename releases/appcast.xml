@@ -3,27 +3,21 @@
     <channel>
         <title>Toolbox</title>
         <item>
-            <title>1.6.2</title>
-            <pubDate>Wed, 25 Nov 2026 01:22:40 +0000</pubDate>
-            <sparkle:version>1.6.2</sparkle:version>
-            <sparkle:shortVersionString>1.6.2</sparkle:shortVersionString>
+            <title>1.6.3</title>
+            <pubDate>Thu, 26 Nov 2026 12:07:07 +0000</pubDate>
+            <sparkle:version>1.6.3</sparkle:version>
+            <sparkle:shortVersionString>1.6.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <description sparkle:format="markdown"><![CDATA[
 ### Added
-- **Window Snapper (Multi-Display Profiles)** — design 1-, 2-, and 3-display layout variants inside one Workspace Profile, choose a profile to auto-apply when monitors connect, set an Always Extend or Always Mirror display-connect preference, identify screens on-screen, capture open windows into a view, and swap External 1 & 2 in one click
-- **Window Snapper (Smooth Profile Transitions)** — choreographed entry, reposition, and exit animations across profile switches and display changes, paired with an instant display-detect and loading HUD pill
-
-### Changed
-- **Window Snapper (Profiles & Top Edge Panel)** — decluttered profile cards and a calmer Profile Editor with drag-to-assign apps, drag-to-swap zones, an auto-collapsing layout picker, Save & Apply, and a refined frosted-glass Top Edge Panel with smooth drop-down arrival
-- **HUD Toasts** — upgraded floating toasts with tinted icon badges, subtitles, and smooth fade-in transitions
-
-### Fixed
-- **Window Snapper** — prevented duplicate or orphaned app rules from launching unintended apps, eliminated window flashing while connecting displays, and ensured Save & Apply always applies the profile instead of toggling restore
-- **Dock Minimize** — moved Dock icon inspection to a background cache so Dock clicks stay responsive without stalling input delivery
+- **Bluetooth Headphone Stereo** — Call Controls can keep AirPods and Bluetooth headsets in rich stereo by using your Mac or USB microphone instead of the headset's, so music and video no longer drop into muffled call audio or the "hearing yourself" effect
+- **Microphone To Use Instead** — choose which microphone apps capture from while your headphones stay in stereo, defaulting to Auto (USB, then built-in)
+- **Allow Headset Mic** — switch to the headset's own microphone for as long as it stays connected, then Toolbox resumes protecting stereo on its own
+- **Clear guidance when an app takes over** — if an app such as Teams grabs the headset microphone for itself, Call Controls names that app and the exact setting to change, instead of quietly failing
 
 ]]></description>
-            <enclosure url="https://github.com/ssa17/toolbox/releases/download/v1.6.2/Toolbox-1.6.2.zip" length="7558742" type="application/octet-stream" sparkle:edSignature="SRHjFcMQX7lFi9GIKmb8X7Av7LLDu6EVaaJCXLjg7vLRvyuMG+uUcJ7raVtkJdEszPEei47b1N2MgVsg0lMmBw=="/>
+            <enclosure url="https://github.com/ssa17/toolbox/releases/download/v1.6.3/Toolbox-1.6.3.zip" length="7638588" type="application/octet-stream" sparkle:edSignature="uohh0o6kkhx488+hf8ikll2T4ttcRn/rSOsaBCgLk851dk3V83ShaFcT05CUg0p3lZbywO/M/jgqINTvu5udAA=="/>
         </item>
     </channel>
 </rss>

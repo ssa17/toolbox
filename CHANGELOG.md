@@ -9,8 +9,13 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 
 ## [Unreleased]
 
+## [1.6.3] - 2026-11-26
+
 ### Added
-- **Call Controls (Bluetooth Headphone Stereo)** — keeps AirPods and Bluetooth headsets in rich stereo without the "hearing yourself" effect by using your Mac or USB microphone when an app asks for a Bluetooth mic (Bluetooth can't carry stereo and a headset mic at once), with a picker for the substitute mic, a one-click "Allow Headset Mic" override until the headset disconnects, toasts explaining each switch, and a clear warning naming any app (e.g. Teams) that grabbed the headset mic itself, with the exact setting to change
+- **Bluetooth Headphone Stereo** — Call Controls can keep AirPods and Bluetooth headsets in rich stereo by using your Mac or USB microphone instead of the headset's, so music and video no longer drop into muffled call audio or the "hearing yourself" effect
+- **Microphone To Use Instead** — choose which microphone apps capture from while your headphones stay in stereo, defaulting to Auto (USB, then built-in)
+- **Allow Headset Mic** — switch to the headset's own microphone for as long as it stays connected, then Toolbox resumes protecting stereo on its own
+- **Clear guidance when an app takes over** — if an app such as Teams grabs the headset microphone for itself, Call Controls names that app and the exact setting to change, instead of quietly failing
 
 ## [1.6.2] - 2026-11-25
 
