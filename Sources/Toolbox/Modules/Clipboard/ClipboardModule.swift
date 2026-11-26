@@ -844,13 +844,26 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
                     return nil
                 case 36, 76: // Return / Keypad Enter
                     if let entry = self.popoverState.pendingDeleteEntry {
+                        let targetIndex = visible.firstIndex(where: { $0.id == entry.id })
                         self.deleteEntry(entry)
                         if self.popoverState.previewEntryID == entry.id {
                             self.popoverState.previewEntryID = nil
                         }
                         self.popoverState.pendingDeleteEntry = nil
-                        let remaining = self.filteredEntriesForNavigation()
-                        self.popoverState.selectedEntryID = remaining.first?.id
+                        if self.popoverState.selectedEntryID == entry.id {
+                            if let targetIndex {
+                                if targetIndex + 1 < visible.count {
+                                    self.popoverState.selectedEntryID = visible[targetIndex + 1].id
+                                } else if targetIndex > 0 {
+                                    self.popoverState.selectedEntryID = visible[targetIndex - 1].id
+                                } else {
+                                    self.popoverState.selectedEntryID = nil
+                                }
+                            } else {
+                                let remaining = self.filteredEntriesForNavigation()
+                                self.popoverState.selectedEntryID = remaining.first?.id
+                            }
+                        }
                     } else if self.popoverState.pendingClearAll {
                         self.clearHistory(keepPinned: true)
                         self.popoverState.previewEntryID = nil

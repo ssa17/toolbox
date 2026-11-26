@@ -1434,13 +1434,25 @@ struct ClipboardPopoverView: View {
     }
 
     private func confirmDelete(_ entry: ClipboardEntry) {
+        let visible = filteredEntries
+        let targetIndex = visible.firstIndex(where: { $0.id == entry.id })
         module.deleteEntry(entry)
         uiState.pendingDeleteEntry = nil
         if uiState.previewEntryID == entry.id {
             uiState.previewEntryID = nil
         }
         if uiState.selectedEntryID == entry.id {
-            uiState.selectedEntryID = filteredEntries.first?.id
+            if let targetIndex {
+                if targetIndex + 1 < visible.count {
+                    uiState.selectedEntryID = visible[targetIndex + 1].id
+                } else if targetIndex > 0 {
+                    uiState.selectedEntryID = visible[targetIndex - 1].id
+                } else {
+                    uiState.selectedEntryID = nil
+                }
+            } else {
+                uiState.selectedEntryID = filteredEntries.first?.id
+            }
         }
     }
 }
