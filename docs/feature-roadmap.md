@@ -1,6 +1,6 @@
 # Toolbox Feature Roadmap
 
-This document is the **parent index** for **all** Toolbox modules: it tracks **Planned** modules and enhancements in **§1**, maintains a complete **Done (Shipped)** reference table (including both the 5 foundational core modules and all shipped roadmap modules) in **§2**, and defines the shared implementation checklist every module must follow in **§3**.
+This document is the **parent index** for **all** Toolbox modules: it tracks **Planned** modules and enhancements in **§1**, maintains a complete **Done (Shipped)** reference table (including both foundational Core modules and all shipped Roadmap modules) in **§2**, and defines the shared implementation checklist every module must follow in **§3**.
 
 The **detailed implementation spec for each feature** — user flows, file lists, module metadata, macOS API design, configuration schemas, self-test plans, and edge cases — lives in its own file under [`docs/feature-specs/`](feature-specs/), linked in the **Spec** columns below. For `Done` features, shipped code is the source of truth and the spec remains the design record; `Planned` features are implemented from their spec.
 
@@ -14,28 +14,28 @@ The **detailed implementation spec for each feature** — user flows, file lists
 
 Ordered from zero-permission, self-contained utilities to modules that interact with Screen Capture, `CGEventTap` input interception, and Accessibility:
 
-| # | Feature | Module ID | Category | Default Shortcut | Permissions Needed | Key macOS Frameworks | Spec |
-|---|---|---|---|---|---|---|---|
-| 1 | **Color Picker & Swatch History** | `color_picker` | Developer Tools | `⌃ ⌥ ⌘ E` | None | `AppKit` (`NSColorSampler`, `NSColorSpace`) | [`color_picker.md`](feature-specs/color_picker.md) |
-| 2 | **Dev Converter & Scratchpad** | `dev_tools` | Developer Tools | `⌃ ⌥ ⌘ B` | None | `Foundation`, `CryptoKit` | [`dev_tools.md`](feature-specs/dev_tools.md) |
-| 3 | **Floating File Drop Shelf** | `drop_shelf` | Clipboard & Text | `⌃ ⌥ ⌘ D` *(+ drag shake)* | None | `AppKit` (`NSPanel`, `NSDraggingDestination`, `NSFilePromiseReceiver`), `UniformTypeIdentifiers` | [`drop_shelf.md`](feature-specs/drop_shelf.md) |
-| 4 | **Local Image Compressor & Cropper** | `image_compressor` | Clipboard & Text | `⌃ ⌥ ⌘ I` | None | `ImageIO`, `CoreImage`, `AppKit`, `UniformTypeIdentifiers` | [`image_compressor.md`](feature-specs/image_compressor.md) |
-| 5 | **Meeting Shield (Presentation Mode)** | `meeting_shield` | System & Power | `⌃ ⌥ ⌘ S` | None *(optional Focus Shortcuts)* | `AppKit`, `IOKit`, `Foundation` | [`meeting_shield.md`](feature-specs/meeting_shield.md) |
-| 6 | **Quick Screenshot** | `quick_screenshot` | Clipboard & Text | `⌃ ⌥ ⌘ 5` | Screen Recording (OS-managed via `screencapture`) | `AppKit`, `CoreGraphics`, `Vision` (optional OCR) | [`quick_screenshot.md`](feature-specs/quick_screenshot.md) |
-| 8 | **Window Switcher (`Alt+Tab`)** | `window_switcher` | Window & Dock | `⌥ Tab` / `⌥ ⇧ Tab` *(opt-in)* | Accessibility (required); Screen Recording (optional, for thumbnails) | `ApplicationServices` (AX), `CoreGraphics`, `ScreenCaptureKit` (optional), `AppKit` | [`window_switcher.md`](feature-specs/window_switcher.md) |
-| 9 | **Keyboard Shortcuts Hub & Caps Lock Hyper Key** | `hyper_key` *(Sidebar: Keyboard Shortcuts)* | Commands & Shortcuts | Hold `Caps Lock` (`⌃ ⌥ ⌘` or `⌃ ⌥ ⇧ ⌘`); Tap `Caps Lock` *(opt-in)* | None *(Shortcuts Hub)*; Accessibility & Input Monitoring *(required for Caps Lock Hyper Key)* | `IOKit` (`IOHIDServiceClientSetProperty`, `IOHIDSetModifierLockState`), `CoreGraphics`, `AppKit`, `Carbon` | [`keyboard_shortcuts_hub.md`](feature-specs/keyboard_shortcuts_hub.md) |
+| Feature | Module ID | Category | Default Shortcut | Permissions Needed | Key macOS Frameworks | Spec |
+|---|---|---|---|---|---|---|
+| **Color Picker & Swatch History** | `color_picker` | Developer Tools | `⌃ ⌥ ⌘ E` | None | `AppKit` (`NSColorSampler`, `NSColorSpace`) | [`color_picker.md`](feature-specs/color_picker.md) |
+| **Dev Converter & Scratchpad** | `dev_tools` | Developer Tools | `⌃ ⌥ ⌘ B` | None | `Foundation`, `CryptoKit` | [`dev_tools.md`](feature-specs/dev_tools.md) |
+| **Floating File Drop Shelf** | `drop_shelf` | Clipboard & Text | `⌃ ⌥ ⌘ D` *(+ drag shake)* | None | `AppKit` (`NSPanel`, `NSDraggingDestination`, `NSFilePromiseReceiver`), `UniformTypeIdentifiers` | [`drop_shelf.md`](feature-specs/drop_shelf.md) |
+| **Local Image Compressor & Cropper** | `image_compressor` | Clipboard & Text | `⌃ ⌥ ⌘ I` | None | `ImageIO`, `CoreImage`, `AppKit`, `UniformTypeIdentifiers` | [`image_compressor.md`](feature-specs/image_compressor.md) |
+| **Meeting Shield (Presentation Mode)** | `meeting_shield` | System & Power | `⌃ ⌥ ⌘ S` | None *(optional Focus Shortcuts)* | `AppKit`, `IOKit`, `Foundation` | [`meeting_shield.md`](feature-specs/meeting_shield.md) |
+| **Quick Screenshot** | `quick_screenshot` | Clipboard & Text | `⌃ ⌥ ⌘ 5` | Screen Recording (OS-managed via `screencapture`) | `AppKit`, `CoreGraphics`, `Vision` (optional OCR) | [`quick_screenshot.md`](feature-specs/quick_screenshot.md) |
+| **Window Switcher (`Alt+Tab`)** | `window_switcher` | Window & Dock | `⌥ Tab` / `⌥ ⇧ Tab` *(opt-in)* | Accessibility (required); Screen Recording (optional, for thumbnails) | `ApplicationServices` (AX), `CoreGraphics`, `ScreenCaptureKit` (optional), `AppKit` | [`window_switcher.md`](feature-specs/window_switcher.md) |
+| **Keyboard Shortcuts Hub & Caps Lock Hyper Key** | `hyper_key` *(Sidebar: Keyboard Shortcuts)* | Commands & Shortcuts | Hold `Caps Lock` (`⌃ ⌥ ⌘` or `⌃ ⌥ ⇧ ⌘`); Tap `Caps Lock` *(opt-in)* | None *(Shortcuts Hub)*; Accessibility & Input Monitoring *(required for Caps Lock Hyper Key)* | `IOKit` (`IOHIDServiceClientSetProperty`, `IOHIDSetModifierLockState`), `CoreGraphics`, `AppKit`, `Carbon` | [`keyboard_shortcuts_hub.md`](feature-specs/keyboard_shortcuts_hub.md) |
 
 ### Planned Enhancements to Shipped Modules
 
 *No pending enhancements. Clipboard Image History has shipped and is recorded in the Done table below.*
 
-*All default shortcuts across the 11 shipped and 8 planned modules are verified collision-free (`⌃ ⌥ ⌘ C` is reserved by `WindowSnapper` Center, so `ColorPicker` uses `⌃ ⌥ ⌘ E`).*
+*All default shortcuts across all shipped and planned modules are verified collision-free (`⌃ ⌥ ⌘ C` is reserved by `WindowSnapper` Center, so `ColorPicker` uses `⌃ ⌥ ⌘ E`).*
 
 ---
 
 ## 2. Done (Shipped Modules Reference)
 
-Complete reference of all shipped modules in `Sources/Toolbox/Modules/` (5 foundational Core modules + 6 shipped Roadmap modules):
+Complete reference of all shipped modules in `Sources/Toolbox/Modules/` (foundational Core modules + shipped Roadmap modules):
 
 | Feature | Module ID | Origin | Category | Default Shortcut | Permissions Needed | Key macOS Frameworks | Docs / Spec |
 |---|---|---|---|---|---|---|---|
