@@ -311,6 +311,9 @@ struct ClipboardConfig: Codable, Equatable, Sendable {
     var persistHistory: Bool = true
     var popoverWidth: Int = 420
     var popoverHeight: Int = 460
+    var captureImages: Bool = true
+    var maxImageItems: Int = 15
+    var maxImageSizeMB: Int = 20
 
     init() {}
 
@@ -327,6 +330,9 @@ struct ClipboardConfig: Codable, Equatable, Sendable {
         persistHistory = try c.decodeIfPresent(Bool.self, forKey: .persistHistory) ?? true
         popoverWidth = try c.decodeIfPresent(Int.self, forKey: .popoverWidth) ?? 420
         popoverHeight = try c.decodeIfPresent(Int.self, forKey: .popoverHeight) ?? 460
+        captureImages = try c.decodeIfPresent(Bool.self, forKey: .captureImages) ?? true
+        maxImageItems = try c.decodeIfPresent(Int.self, forKey: .maxImageItems) ?? 15
+        maxImageSizeMB = try c.decodeIfPresent(Int.self, forKey: .maxImageSizeMB) ?? 20
     }
 }
 
@@ -2562,7 +2568,7 @@ struct ToolboxConfig: Codable, Equatable, Sendable {
         case windowSnapping
     }
 
-    var schemaVersion: Int = 13
+    var schemaVersion: Int = 14
     var general: GeneralConfig = GeneralConfig()
     var dockMinimize: DockMinimizeConfig = DockMinimizeConfig()
     var clipboard: ClipboardConfig = ClipboardConfig()
@@ -2606,7 +2612,7 @@ struct ToolboxConfig: Codable, Equatable, Sendable {
         if decodedSchema < 8 {
             decodedCallControls.showFloatingPillOnlyDuringCalls = true
         }
-        schemaVersion = max(decodedSchema, 13)
+        schemaVersion = max(decodedSchema, 14)
         callControls = decodedCallControls
         windowSnapper = try c.decodeIfPresent(WindowSnapperConfig.self, forKey: .windowSnapper)
             ?? legacyContainer.decodeIfPresent(WindowSnapperConfig.self, forKey: .windowSnapping)

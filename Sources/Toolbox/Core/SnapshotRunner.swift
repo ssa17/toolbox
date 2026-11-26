@@ -133,12 +133,12 @@ enum SnapshotRunner {
         navClipboard.isSidebarVisible = true
         saveViewSnapshot(
             MainWindowController.makeRootView(navState: navClipboard),
-            size: NSSize(width: 940, height: 1360),
+            size: NSSize(width: 940, height: 1740),
             to: outURL.appendingPathComponent("module_clipboard.png")
         )
         saveViewSnapshot(
             MainWindowController.makeRootView(navState: navClipboard),
-            size: NSSize(width: 820, height: 1440),
+            size: NSSize(width: 820, height: 1840),
             to: outURL.appendingPathComponent("module_clipboard_minwidth.png")
         )
 
@@ -155,6 +155,36 @@ enum SnapshotRunner {
         clipboardModule.togglePin(clipboardModule.entries[3]) // git (lands on top)
         let swiftHelper = clipboardModule.entries[1]
         clipboardModule.renameEntry(swiftHelper, title: "Swift helper")
+        if let imageContext = CGContext(
+            data: nil,
+            width: 640,
+            height: 360,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) {
+            imageContext.setFillColor(CGColor(red: 0.08, green: 0.10, blue: 0.16, alpha: 1))
+            imageContext.fill(CGRect(x: 0, y: 0, width: 640, height: 360))
+            imageContext.setFillColor(CGColor(red: 0.12, green: 0.65, blue: 0.67, alpha: 1))
+            imageContext.fill(CGRect(x: 44, y: 48, width: 552, height: 42))
+            imageContext.setFillColor(CGColor(red: 0.25, green: 0.40, blue: 0.85, alpha: 1))
+            imageContext.fillEllipse(in: CGRect(x: 62, y: 142, width: 150, height: 150))
+            imageContext.setFillColor(CGColor(red: 0.80, green: 0.84, blue: 0.92, alpha: 1))
+            for index in 0..<3 {
+                imageContext.fill(CGRect(x: 252, y: CGFloat(152 + index * 48), width: CGFloat(290 - index * 38), height: 18))
+            }
+            if let cgImage = imageContext.makeImage() {
+                let imageStore = ClipboardImageStore(
+                    directoryURL: ConfigManager.shared.configURL
+                        .deletingLastPathComponent()
+                        .appendingPathComponent("clipboard-images", isDirectory: true)
+                )
+                if let metadata = try? imageStore.saveImage(cgImage) {
+                    clipboardModule.recordImage(metadata)
+                }
+            }
+        }
         let clipboardUI = ClipboardPopoverUIState()
         clipboardUI.resetForOpen(entries: clipboardModule.entries)
         saveViewSnapshot(

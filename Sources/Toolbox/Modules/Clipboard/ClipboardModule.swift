@@ -1,8 +1,36 @@
 import AppKit
 import Carbon
 import SwiftUI
+import UniformTypeIdentifiers
 
-struct ClipboardEntry: Identifiable, Codable, Equatable {
+enum ClipboardEntryKind: String, Codable, Equatable, Sendable {
+    case text, image
+}
+
+struct ClipboardImageMetadata: Codable, Equatable, Sendable {
+    var filename: String
+    var thumbnailFilename: String
+    var sha256: String
+    var pixelWidth: Int
+    var pixelHeight: Int
+    var byteSize: Int
+}
+
+enum ClipboardHistoryFilter: String, CaseIterable, Identifiable, Sendable {
+    case all, text, images, pinned
+
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .all: "All"
+        case .text: "Text"
+        case .images: "Images"
+        case .pinned: "Pinned"
+        }
+    }
+}
+
+struct ClipboardEntry: Identifiable, Codable, Equatable, Sendable {
     let id: UUID
     let text: String
     let copiedAt: Date
@@ -11,6 +39,8 @@ struct ClipboardEntry: Identifiable, Codable, Equatable {
     /// Position within the pinned group (0 = topmost). Only meaningful for pinned
     /// entries — unpinned entries are always ordered by `copiedAt` (newest first).
     var sortIndex: Int
+    var kind: ClipboardEntryKind
+    var image: ClipboardImageMetadata?
 
     init(
         id: UUID = UUID(),
@@ -18,7 +48,9 @@ struct ClipboardEntry: Identifiable, Codable, Equatable {
         copiedAt: Date = Date(),
         isPinned: Bool = false,
         customTitle: String? = nil,
-        sortIndex: Int = 0
+        sortIndex: Int = 0,
+        kind: ClipboardEntryKind = .text,
+        image: ClipboardImageMetadata? = nil
     ) {
         self.id = id
         self.text = text
@@ -26,6 +58,8 @@ struct ClipboardEntry: Identifiable, Codable, Equatable {
         self.isPinned = isPinned
         self.customTitle = customTitle
         self.sortIndex = sortIndex
+        self.kind = kind
+        self.image = image
     }
 
     init(from decoder: Decoder) throws {
@@ -38,7 +72,50 @@ struct ClipboardEntry: Identifiable, Codable, Equatable {
         // Older pinned_clipboard.json files predate manual ordering; default to 0 so
         // pre-existing pinned items keep their most-recently-copied order.
         sortIndex = try c.decodeIfPresent(Int.self, forKey: .sortIndex) ?? 0
+        kind = try c.decodeIfPresent(ClipboardEntryKind.self, forKey: .kind) ?? .text
+        image = try c.decodeIfPresent(ClipboardImageMetadata.self, forKey: .image)
     }
+
+    var imageDimensionsText: String? {
+        guard let image else { return nil }
+        return "\(image.pixelWidth) × \(image.pixelHeight)"
+    }
+
+    var imageByteSizeText: String? {
+        guard let image else { return nil }
+        return ByteCountFormatter.string(fromByteCount: Int64(image.byteSize), countStyle: .file)
+    }
+
+    func matches(query: String, filter: ClipboardHistoryFilter) -> Bool {
+        switch filter {
+        case .all:
+            break
+        case .text:
+            guard kind == .text else { return false }
+        case .images:
+            guard kind == .image else { return false }
+        case .pinned:
+            guard isPinned else { return false }
+        }
+        guard !query.isEmpty else { return true }
+        if text.localizedCaseInsensitiveContains(query) ||
+            (customTitle?.localizedCaseInsensitiveContains(query) ?? false) {
+            return true
+        }
+        if kind == .image {
+            let imageLabels = ["image", "img", "png", imageDimensionsText, imageByteSizeText]
+                .compactMap { $0 }
+                .joined(separator: " ")
+            return imageLabels.localizedCaseInsensitiveContains(query)
+        }
+        return false
+    }
+}
+
+enum ClipboardPasteboardClassification: Equatable {
+    case ignored
+    case text
+    case image(NSPasteboard.PasteboardType)
 }
 
 @MainActor
@@ -46,13 +123,15 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
     let id = "clipboard"
     let name = "Clipboard History"
     let tagline = "Press your hotkey (default ⌘ ⌥ V) for a searchable floating clipboard dropdown."
-    let aboutSummary = "Keeps a lightweight rolling history of everything you copy so you never lose a snippet when copying something else. Press your shortcut anywhere to search, preview full text, pin, label, and reorder favorites, and paste straight into your active app."
+    let aboutSummary = "Keeps a lightweight rolling history of copied text and images so you never lose a snippet or screenshot when copying something else. Press your shortcut anywhere to search, preview, pin, label, reorder favorites, and paste straight into your active app."
     let featureTips = [
         "Use ↑ / ↓ and Return to paste without touching your mouse, or Esc to dismiss.",
-        "Press →, Space, or ⌘ I (or click the eye icon) to inspect full text; ← or Esc returns to the list.",
+        "Press →, Space, or ⌘ I (or click the eye icon) to inspect full text or an image; ← or Esc returns to the list.",
+        "Use the All, Text, Images, and Pinned filters to narrow history; image search also matches dimensions and file size.",
         "Press ⌘ P to pin/unpin, ⌘ R to name or rename an item, and ⌫ (with confirmation) to delete.",
         "Drag pinned items (or press ⌘ ↑ / ⌘ ↓) to reorder them; the saved order drives ⌘ 1–9 quick paste.",
         "Right-click any item in the dropdown to view all actions and their keyboard shortcuts.",
+        "Images are stored locally as PNGs with compact thumbnails; use Save As in the image inspector to export a copy.",
         "Pinned items, their custom names, and their order are saved across restarts in ~/.config/toolbox/pinned_clipboard.json."
     ]
     let symbolName = "doc.on.clipboard"
@@ -63,11 +142,18 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
 
     private(set) var isRunning = false
     @Published private(set) var entries: [ClipboardEntry] = []
+    @Published private(set) var imageDiskUsage: Int64 = 0
 
     let hotKeyName = "clipboard.toggle"
     private var config = ClipboardConfig()
     private var pollTimer: Timer?
     private var lastChangeCount: Int = NSPasteboard.general.changeCount
+    private var latestCapturedChangeCount: Int = -1
+    private lazy var imageStore = ClipboardImageStore(
+        directoryURL: ConfigManager.shared.configURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("clipboard-images", isDirectory: true)
+    )
     private(set) var panel: NSPanel?
     private var outsideClickMonitor: Any?
     private var localMouseMonitor: Any?
@@ -104,7 +190,12 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
         loadPinnedEntries()
         if clipboardConfig.persistHistory {
             loadUnpinnedHistory()
+        } else {
+            removeUnpinnedHistoryFile()
         }
+        pruneMissingImageEntries()
+        sweepOrphanedImageFiles()
+        refreshImageDiskUsage()
     }
 
     func isEnabled(in config: ToolboxConfig) -> Bool {
@@ -126,10 +217,12 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
         trimHistoryIfNeeded()
 
         if !config.persistHistory {
+            purgeUnpinnedImages()
             removeUnpinnedHistoryFile()
         } else if !previousPersist || config.maxItems != previousMaxItems {
             saveUnpinnedHistory()
         }
+        refreshImageDiskUsage()
 
         if config.enabled {
             if !isRunning {
@@ -145,19 +238,23 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
 
     func start() {
         guard !isRunning else { return }
+        isRunning = true
         lastChangeCount = NSPasteboard.general.changeCount
         captureCurrentPasteboardIfNeeded()
         restartPollTimer()
         registerHotKey()
-        isRunning = true
     }
 
     func stop() {
+        latestCapturedChangeCount = -1
         pollTimer?.invalidate()
         pollTimer = nil
         HotKeyManager.shared.unregister(name: hotKeyName)
         hidePopover()
         isRunning = false
+        if !config.persistHistory {
+            purgeUnpinnedImages()
+        }
     }
 
     func togglePin(_ entry: ClipboardEntry) {
@@ -234,19 +331,47 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
     }
 
     func deleteEntry(_ entry: ClipboardEntry) {
+        let removed = entries.filter { $0.id == entry.id }
         entries.removeAll { $0.id == entry.id }
         renumberPinnedEntries()
+        deleteUnreferencedImages(from: removed)
         saveAllStoredEntries()
+        refreshImageDiskUsage()
     }
 
     func clearHistory(keepPinned: Bool = true) {
+        let removed = entries.filter { keepPinned ? !$0.isPinned : true }
         if keepPinned {
             entries.removeAll { !$0.isPinned }
         } else {
             entries.removeAll()
         }
         renumberPinnedEntries()
+        deleteUnreferencedImages(from: removed)
         saveAllStoredEntries()
+        refreshImageDiskUsage()
+    }
+
+    func clearImageCache(keepPinned: Bool) {
+        let removed = entries.filter { $0.kind == .image && (keepPinned ? !$0.isPinned : true) }
+        if !removed.isEmpty {
+            entries.removeAll { $0.kind == .image && (keepPinned ? !$0.isPinned : true) }
+            renumberPinnedEntries()
+            deleteUnreferencedImages(from: removed)
+            saveAllStoredEntries()
+        }
+        sweepOrphanedImageFiles()
+        refreshImageDiskUsage()
+    }
+
+    private func purgeUnpinnedImages() {
+        let removed = entries.filter { $0.kind == .image && !$0.isPinned }
+        if !removed.isEmpty {
+            entries.removeAll { $0.kind == .image && !$0.isPinned }
+            deleteUnreferencedImages(from: removed)
+        }
+        sweepOrphanedImageFiles()
+        refreshImageDiskUsage()
     }
 
     func togglePopover() {
@@ -259,6 +384,7 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
 
     func hidePopover() {
         popoverState.cancelActiveDrag()
+        popoverState.releaseInspectorImage()
         popoverState.hoveredEntryID = nil
         panel?.orderOut(nil)
         removePopoverMonitors()
@@ -283,14 +409,14 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
         var preservedTitle: String?
         var preservedSortIndex = 0
         if config.deduplicate {
-            if let existing = entries.first(where: { $0.text == text }) {
+            if let existing = entries.first(where: { $0.kind == .text && $0.text == text }) {
                 preservedPin = existing.isPinned
                 preservedTitle = existing.customTitle
                 // Keep the user's explicit pinned slot — re-copying a pinned item
                 // must not shuffle the pinned group it was ordered into.
                 preservedSortIndex = existing.sortIndex
             }
-            entries.removeAll { $0.text == text }
+            entries.removeAll { $0.kind == .text && $0.text == text }
         }
 
         entries.insert(
@@ -304,13 +430,63 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
         saveUnpinnedHistory()
     }
 
+    /// Called on the main actor after image normalization and hashing finish off-thread.
+    func recordImage(_ metadata: ClipboardImageMetadata) {
+        var storedMetadata = metadata
+        var preservedPin = false
+        var preservedTitle: String?
+        var preservedSortIndex = 0
+
+        if config.deduplicate,
+           let existing = entries.first(where: { $0.image?.sha256 == metadata.sha256 }),
+           let existingMetadata = existing.image {
+            preservedPin = existing.isPinned
+            preservedTitle = existing.customTitle
+            preservedSortIndex = existing.sortIndex
+            storedMetadata = existingMetadata
+            entries.removeAll { $0.id == existing.id }
+            if existingMetadata.filename != metadata.filename {
+                imageStore.deleteImage(metadata)
+            }
+        }
+
+        let label = "Image \(storedMetadata.pixelWidth) × \(storedMetadata.pixelHeight)"
+        entries.insert(
+            ClipboardEntry(
+                text: label,
+                copiedAt: Date(),
+                isPinned: preservedPin,
+                customTitle: preservedTitle,
+                sortIndex: preservedSortIndex,
+                kind: .image,
+                image: storedMetadata
+            ),
+            at: 0
+        )
+        trimHistoryIfNeeded()
+        if preservedPin {
+            savePinnedEntries()
+        }
+        saveUnpinnedHistory()
+        refreshImageDiskUsage()
+    }
+
+    private func containsSameContent(as item: ClipboardEntry) -> Bool {
+        entries.contains { existing in
+            if item.kind == .image {
+                return existing.kind == .image && existing.image?.sha256 == item.image?.sha256
+            }
+            return existing.kind == .text && existing.text == item.text
+        }
+    }
+
     private func loadPinnedEntries() {
         guard FileManager.default.fileExists(atPath: pinnedStorageURL.path),
               let data = try? Data(contentsOf: pinnedStorageURL),
               let saved = try? JSONDecoder().decode([ClipboardEntry].self, from: data) else {
             return
         }
-        for item in saved where !entries.contains(where: { $0.text == item.text }) {
+        for item in saved where !containsSameContent(as: item) {
             var pinnedItem = item
             pinnedItem.isPinned = true
             entries.append(pinnedItem)
@@ -325,7 +501,7 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
               let saved = try? JSONDecoder().decode([ClipboardEntry].self, from: data) else {
             return
         }
-        for item in saved where !entries.contains(where: { $0.text == item.text }) {
+        for item in saved where !containsSameContent(as: item) {
             var historyItem = item
             historyItem.isPinned = false
             historyItem.customTitle = nil
@@ -388,17 +564,100 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
         captureCurrentPasteboardIfNeeded()
     }
 
+    static func classifyPasteboard(
+        types: [NSPasteboard.PasteboardType],
+        text: String?,
+        captureImages: Bool = true,
+        ignoreConcealedTypes: Bool = true
+    ) -> ClipboardPasteboardClassification {
+        if ignoreConcealedTypes && types.contains(where: { concealedTypes.contains($0) }) {
+            return .ignored
+        }
+        // Finder places a file icon TIFF beside file URLs; that icon is not an image clip.
+        // Preserve a real string representation if the source app provides one.
+        if types.contains(.fileURL) {
+            if let text, !text.isEmpty {
+                return .text
+            }
+            return .ignored
+        }
+        // Rich text often includes a rendered TIFF preview. Prefer the actual text.
+        if let text, !text.isEmpty {
+            return .text
+        }
+        guard captureImages else { return .ignored }
+        let imageTypes: [NSPasteboard.PasteboardType] = [
+            .png,
+            NSPasteboard.PasteboardType("public.jpeg"),
+            NSPasteboard.PasteboardType("public.heic"),
+            .tiff
+        ]
+        for type in imageTypes where types.contains(type) {
+            return .image(type)
+        }
+        return .ignored
+    }
+
+    static func isImagePayloadAllowed(byteCount: Int, maxImageSizeMB: Int) -> Bool {
+        let limitMB = max(1, maxImageSizeMB)
+        guard limitMB <= Int.max / (1024 * 1024) else { return true }
+        return byteCount <= limitMB * 1024 * 1024
+    }
+
     private func captureCurrentPasteboardIfNeeded() {
         let pb = NSPasteboard.general
-        guard let text = pb.string(forType: .string) else { return }
-        recordText(text, pasteboardTypes: pb.types ?? [])
+        let types = pb.types ?? []
+        let text = pb.string(forType: .string)
+        let changeCount = lastChangeCount
+        latestCapturedChangeCount = changeCount
+
+        switch Self.classifyPasteboard(
+            types: types,
+            text: text,
+            captureImages: config.captureImages,
+            ignoreConcealedTypes: config.ignoreConcealedTypes
+        ) {
+        case .ignored:
+            return
+        case .text:
+            if let text {
+                recordText(text, pasteboardTypes: types)
+            }
+        case .image(let type):
+            guard let data = pb.data(forType: type),
+                  Self.isImagePayloadAllowed(byteCount: data.count, maxImageSizeMB: config.maxImageSizeMB) else {
+                return
+            }
+            let store = imageStore
+            Task.detached(priority: .utility) { [weak self] in
+                guard let metadata = try? store.saveImage(data: data) else { return }
+                await MainActor.run {
+                    guard let self else {
+                        store.deleteImage(metadata)
+                        return
+                    }
+                    guard self.latestCapturedChangeCount == changeCount,
+                          self.config.captureImages else {
+                        store.deleteImage(metadata)
+                        return
+                    }
+                    self.recordImage(metadata)
+                }
+            }
+        }
     }
 
     private func trimHistoryIfNeeded() {
+        let previousEntries = entries
         let pinned = entries.filter(\.isPinned)
         let unpinned = entries.filter { !$0.isPinned }
         let allowedUnpinned = max(0, config.maxItems - pinned.count)
-        let keptUnpinned = Array(unpinned.prefix(allowedUnpinned))
+        var imageCount = 0
+        let keptUnpinned = unpinned.prefix(allowedUnpinned).filter { entry in
+            guard entry.kind == .image else { return true }
+            imageCount += 1
+            return imageCount <= max(1, config.maxImageItems)
+        }
         let combined = pinned + keptUnpinned
         entries = combined.sorted { lhs, rhs in
             if lhs.isPinned != rhs.isPinned { return lhs.isPinned }
@@ -410,6 +669,52 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
             }
             return lhs.copiedAt > rhs.copiedAt
         }
+        let keptIDs = Set(entries.map(\.id))
+        let removedEntries = previousEntries.filter { !keptIDs.contains($0.id) }
+        deleteUnreferencedImages(from: removedEntries)
+        if removedEntries.contains(where: { $0.kind == .image }) {
+            refreshImageDiskUsage()
+        }
+    }
+
+    private func deleteUnreferencedImages(from removedEntries: [ClipboardEntry]) {
+        for entry in removedEntries {
+            guard let metadata = entry.image else { continue }
+            let stillReferenced = entries.contains { $0.image?.filename == metadata.filename }
+            if !stillReferenced {
+                imageStore.deleteImage(metadata)
+            }
+        }
+    }
+
+    private func pruneMissingImageEntries() {
+        entries.removeAll { entry in
+            guard entry.kind == .image else { return false }
+            guard let metadata = entry.image else { return true }
+            return !FileManager.default.fileExists(atPath: imageStore.fullImageURL(for: metadata).path)
+        }
+    }
+
+    private func sweepOrphanedImageFiles() {
+        let referenced = Set(entries.flatMap { entry -> [String] in
+            guard let metadata = entry.image else { return [] }
+            return [metadata.filename, metadata.thumbnailFilename]
+        })
+        imageStore.sweepOrphanedFiles(referencedFilenames: referenced)
+    }
+
+    func thumbnail(for entry: ClipboardEntry) -> NSImage? {
+        guard let metadata = entry.image else { return nil }
+        return imageStore.thumbnail(for: metadata)
+    }
+
+    func fullImage(for entry: ClipboardEntry) -> NSImage? {
+        guard let metadata = entry.image else { return nil }
+        return imageStore.fullImage(for: metadata)
+    }
+
+    func refreshImageDiskUsage() {
+        imageDiskUsage = imageStore.diskUsage()
     }
 
     func showPopover() {
@@ -488,12 +793,7 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
     }
 
     private func filteredEntriesForNavigation() -> [ClipboardEntry] {
-        let query = popoverState.query
-        guard !query.isEmpty else { return entries }
-        return entries.filter {
-            $0.text.localizedCaseInsensitiveContains(query) ||
-            ($0.customTitle?.localizedCaseInsensitiveContains(query) ?? false)
-        }
+        entries.filter { $0.matches(query: popoverState.query, filter: popoverState.filter) }
     }
 
     private func installPopoverMonitors(for panel: NSPanel) {
@@ -719,18 +1019,55 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
 
     func selectAndPaste(_ entry: ClipboardEntry) {
         hidePopover()
+        restoreAndOptionallyPaste(entry, shouldPaste: config.pasteAutomatically, activatePreviousApp: true)
+    }
 
+    func copyEntry(_ entry: ClipboardEntry) {
+        restoreAndOptionallyPaste(entry, shouldPaste: false, activatePreviousApp: false)
+    }
+
+    private func restoreAndOptionallyPaste(
+        _ entry: ClipboardEntry,
+        shouldPaste: Bool,
+        activatePreviousApp: Bool
+    ) {
         let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.setString(entry.text, forType: .string)
-        lastChangeCount = pb.changeCount
+        let imagePNGData: Data?
+        if entry.kind == .image, let metadata = entry.image {
+            guard let data = try? Data(contentsOf: imageStore.fullImageURL(for: metadata)) else {
+                HUDToast.shared.show(title: "Image file is missing", symbol: "exclamationmark.triangle", tint: .orange)
+                return
+            }
+            imagePNGData = data
+        } else {
+            imagePNGData = nil
+        }
 
-        if let prev = previousApp, prev.bundleIdentifier != Bundle.main.bundleIdentifier {
+        pb.clearContents()
+        if let imagePNGData {
+            pb.setData(imagePNGData, forType: .png)
+            if let image = NSImage(data: imagePNGData), let tiffData = image.tiffRepresentation {
+                pb.setData(tiffData, forType: .tiff)
+            }
+        } else {
+            pb.setString(entry.text, forType: .string)
+        }
+
+        lastChangeCount = pb.changeCount
+        latestCapturedChangeCount = lastChangeCount
+        let isImage = entry.kind == .image
+
+        if activatePreviousApp,
+           let prev = previousApp,
+           prev.bundleIdentifier != Bundle.main.bundleIdentifier {
             prev.activate()
         }
 
-        guard config.pasteAutomatically else {
-            HUDToast.shared.show(title: "Copied to clipboard", symbol: "doc.on.clipboard")
+        guard shouldPaste else {
+            HUDToast.shared.show(
+                title: isImage ? "Copied image to clipboard" : "Copied to clipboard",
+                symbol: isImage ? "photo" : "doc.on.clipboard"
+            )
             return
         }
 
@@ -747,6 +1084,37 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
             vUp?.flags = .maskCommand
             vDown?.post(tap: .cghidEventTap)
             vUp?.post(tap: .cghidEventTap)
+        }
+    }
+
+    func saveImageAs(_ entry: ClipboardEntry) {
+        guard let metadata = entry.image else { return }
+        let sourceURL = imageStore.fullImageURL(for: metadata)
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+            HUDToast.shared.show(title: "Image file is missing", symbol: "exclamationmark.triangle", tint: .orange)
+            return
+        }
+
+        let savePanel = NSSavePanel()
+        hidePopover()
+        savePanel.allowedContentTypes = [.png]
+        savePanel.canCreateDirectories = true
+        let baseName = entry.customTitle?.isEmpty == false
+            ? entry.customTitle!
+            : "Image \(metadata.pixelWidth) × \(metadata.pixelHeight)"
+        let safeName = baseName.replacingOccurrences(of: "/", with: "-")
+        savePanel.nameFieldStringValue = "\(safeName).png"
+        NSApp.activate()
+        savePanel.begin { response in
+            guard response == .OK, let destinationURL = savePanel.url else { return }
+            do {
+                let data = try Data(contentsOf: sourceURL)
+                try data.write(to: destinationURL, options: .atomic)
+                HUDToast.shared.show(title: "Image saved", symbol: "checkmark.circle")
+            } catch {
+                let alert = NSAlert(error: error)
+                alert.runModal()
+            }
         }
     }
 }

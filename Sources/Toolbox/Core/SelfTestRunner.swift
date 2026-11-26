@@ -20,6 +20,7 @@ enum SelfTestRunner {
         testGeneralConfigDefaults()
         testNavigationHistoryAndPreservation()
         testClipboardCaptureDedupConcealedAndPinning()
+        testClipboardImageHistory()
         testClipboardPanelDoesNotHideOnDeactivate()
         testClipboardDeleteAndPopoverUIState()
         testClipboardPinnedReordering()
@@ -60,7 +61,7 @@ enum SelfTestRunner {
         testWindowDragMonitorEndToEndLifecycle()
 
         if failures.isEmpty {
-            print("All 42 self-test suites passed.")
+            print("All 43 self-test suites passed.")
             return 0
         } else {
             for f in failures {
@@ -144,6 +145,7 @@ enum SelfTestRunner {
         expect(decoded.clipboard.maxItems == 42, "Clipboard maxItems mismatch")
         expect(!decoded.clipboard.pasteAutomatically, "Clipboard pasteAutomatically mismatch")
         expect(decoded.clipboard.shortcut == ShortcutSpec(key: "v", modifiers: [.command, .option]), "Clipboard default shortcut mismatch")
+        expect(decoded.clipboard.captureImages && decoded.clipboard.maxImageItems == 15 && decoded.clipboard.maxImageSizeMB == 20, "Legacy ClipboardConfig should receive image-history defaults")
         expect(decoded.extensions["my_plugin"] == .object(["threshold": .number(3.5), "active": .bool(true)]), "Extensions JSONValue mismatch")
     }
 
@@ -207,6 +209,184 @@ enum SelfTestRunner {
         clipboard.stop()
     }
 
+    private static func testClipboardImageHistory() {
+        func makeImage(width: Int = 320, height: Int = 200, color: CGColor) -> CGImage? {
+            guard let context = CGContext(
+                data: nil,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return nil }
+            context.setFillColor(color)
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            return context.makeImage()
+        }
+
+        let legacyEntryJSON = #"{"id":"6CFF2A75-66F2-42E7-9F60-9D49FC6B93E2","text":"legacy","copiedAt":0}"#
+        if let decoded = try? JSONDecoder().decode(ClipboardEntry.self, from: Data(legacyEntryJSON.utf8)) {
+            expect(decoded.kind == .text && decoded.image == nil, "Legacy ClipboardEntry should decode as text without image metadata")
+        } else {
+            failures.append("Failed to decode legacy ClipboardEntry JSON")
+        }
+        if let legacyConfig = try? JSONDecoder().decode(ClipboardConfig.self, from: Data("{}".utf8)) {
+            expect(legacyConfig.captureImages && legacyConfig.maxImageItems == 15 && legacyConfig.maxImageSizeMB == 20, "Legacy ClipboardConfig image defaults mismatch")
+        } else {
+            failures.append("Failed to decode legacy ClipboardConfig JSON")
+        }
+
+        let fileURL = NSPasteboard.PasteboardType.fileURL
+        let tiff = NSPasteboard.PasteboardType.tiff
+        let png = NSPasteboard.PasteboardType.png
+        expect(ClipboardModule.classifyPasteboard(types: [fileURL, tiff], text: nil) == .ignored, "Finder file icon TIFF should be ignored")
+        expect(ClipboardModule.classifyPasteboard(types: [fileURL, tiff], text: "file name") == .text, "Finder guard should still preserve real text")
+        expect(ClipboardModule.classifyPasteboard(types: [tiff], text: "rich text") == .text, "Text should take precedence over a rich-text TIFF preview")
+        expect(ClipboardModule.classifyPasteboard(types: [png, tiff], text: nil) == .image(png), "PNG should take priority over TIFF")
+        expect(ClipboardModule.classifyPasteboard(types: [tiff], text: "") == .image(tiff), "A TIFF-only pasteboard should capture an image")
+        expect(ClipboardModule.classifyPasteboard(types: [png], text: nil, captureImages: false) == .ignored, "Disabled image capture should ignore PNG")
+        expect(ClipboardModule.classifyPasteboard(types: [png, NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")], text: nil) == .ignored, "Concealed images should be ignored")
+        expect(!ClipboardModule.isImagePayloadAllowed(byteCount: 20 * 1024 * 1024 + 1, maxImageSizeMB: 20), "Raw image payload above maxImageSizeMB should be rejected")
+        expect(ClipboardModule.isImagePayloadAllowed(byteCount: 20 * 1024 * 1024, maxImageSizeMB: 20), "Raw image payload at maxImageSizeMB should be accepted")
+
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ClipboardImageStoreTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        let store = ClipboardImageStore(directoryURL: tempDirectory)
+        guard let redImage = makeImage(color: CGColor(red: 0.8, green: 0.2, blue: 0.2, alpha: 1)),
+              let first = try? store.saveImage(redImage),
+              let duplicate = try? store.saveImage(redImage) else {
+            failures.append("ClipboardImageStore failed to save synthetic CGImage")
+            return
+        }
+        expect(first.pixelWidth == 320 && first.pixelHeight == 200, "ClipboardImageStore should preserve exact pixel dimensions")
+        expect(first.sha256.count == 64 && first.sha256 == duplicate.sha256, "Normalized duplicate PNGs should have matching SHA-256 hashes")
+        expect(FileManager.default.fileExists(atPath: store.fullImageURL(for: first).path), "ClipboardImageStore should create the full PNG")
+        expect(FileManager.default.fileExists(atPath: store.thumbnailURL(for: first).path), "ClipboardImageStore should create the thumbnail PNG")
+        if let thumbnail = store.thumbnail(for: first) {
+            expect(max(thumbnail.size.width, thumbnail.size.height) <= 240, "Clipboard thumbnail should be at most 240 px")
+        } else {
+            failures.append("ClipboardImageStore failed to load its thumbnail")
+        }
+        if let attributes = try? FileManager.default.attributesOfItem(atPath: store.fullImageURL(for: first).path),
+           let permissions = attributes[.posixPermissions] as? NSNumber {
+            expect(permissions.intValue == 0o600, "Clipboard image files should be owner-only (0600)")
+        } else {
+            failures.append("Could not inspect clipboard image file permissions")
+        }
+        expect(store.diskUsage() > 0, "Clipboard image disk usage should include saved PNGs")
+
+        let orphanURL = tempDirectory.appendingPathComponent("orphan.png")
+        try? Data("orphan".utf8).write(to: orphanURL)
+        store.sweepOrphanedFiles(referencedFilenames: [first.filename, first.thumbnailFilename])
+        expect(FileManager.default.fileExists(atPath: store.fullImageURL(for: first).path), "Orphan sweep should keep referenced image files")
+        expect(!FileManager.default.fileExists(atPath: store.fullImageURL(for: duplicate).path), "Orphan sweep should remove unreferenced image files")
+        expect(!FileManager.default.fileExists(atPath: orphanURL.path), "Orphan sweep should remove unknown cache files")
+        store.deleteImage(first)
+        expect(!FileManager.default.fileExists(atPath: store.fullImageURL(for: first).path), "Deleting image metadata should remove its full PNG")
+        expect(!FileManager.default.fileExists(atPath: store.thumbnailURL(for: first).path), "Deleting image metadata should remove its thumbnail")
+
+        let clipboard = ClipboardModule()
+        clipboard.clearHistory(keepPinned: false)
+        var cfg = ToolboxConfig()
+        cfg.clipboard.enabled = false
+        cfg.clipboard.captureImages = false
+        cfg.clipboard.maxItems = 10
+        cfg.clipboard.maxImageItems = 1
+        cfg.clipboard.deduplicate = true
+        cfg.clipboard.persistHistory = true
+        clipboard.reload(with: cfg)
+        clipboard.clearHistory(keepPinned: false)
+
+        let moduleStore = ClipboardImageStore(
+            directoryURL: ConfigManager.shared.configURL
+                .deletingLastPathComponent()
+                .appendingPathComponent("clipboard-images", isDirectory: true)
+        )
+        guard let blueImage = makeImage(color: CGColor(red: 0.1, green: 0.3, blue: 0.9, alpha: 1)),
+              let greenImage = makeImage(width: 640, height: 360, color: CGColor(red: 0.1, green: 0.7, blue: 0.3, alpha: 1)),
+              let redMetadata = try? moduleStore.saveImage(redImage),
+              let redDuplicate = try? moduleStore.saveImage(redImage),
+              let blueMetadata = try? moduleStore.saveImage(blueImage),
+              let greenMetadata = try? moduleStore.saveImage(greenImage) else {
+            failures.append("Failed to prepare module-level clipboard image tests")
+            clipboard.stop()
+            return
+        }
+
+        clipboard.recordImage(redMetadata)
+        clipboard.recordImage(redDuplicate)
+        expect(clipboard.entries.count == 1 && clipboard.entries[0].kind == .image, "Image deduplication should leave one entry")
+        expect(clipboard.entries[0].image?.filename == redMetadata.filename, "Deduplication should reuse the original image files")
+        expect(!FileManager.default.fileExists(atPath: moduleStore.fullImageURL(for: redDuplicate).path), "Deduplication should delete the redundant new files")
+        if let imageEntry = clipboard.entries.first {
+            expect(imageEntry.matches(query: "320 × 200", filter: .images), "Image search should match pixel dimensions")
+            expect(imageEntry.matches(query: "PNG", filter: .all), "Image search should match format labels")
+            expect(!imageEntry.matches(query: "", filter: .text), "Text filter should exclude image entries")
+        }
+
+        clipboard.togglePin(clipboard.entries[0])
+        clipboard.renameEntry(clipboard.entries[0], title: "Pinned screenshot")
+        clipboard.recordImage(redDuplicate)
+        expect(clipboard.entries.count == 1 && clipboard.entries[0].isPinned && clipboard.entries[0].customTitle == "Pinned screenshot", "Recopying an image should preserve pin, title, and order")
+
+        clipboard.recordImage(blueMetadata)
+        clipboard.recordImage(greenMetadata)
+        expect(clipboard.entries.filter { $0.kind == .image && !$0.isPinned }.count == 1, "maxImageItems should limit unpinned images independently of pinned images")
+        expect(clipboard.entries.contains { $0.image?.sha256 == redMetadata.sha256 && $0.isPinned }, "Pinned image should survive image-limit eviction")
+        expect(!clipboard.entries.contains { $0.image?.sha256 == blueMetadata.sha256 }, "Older unpinned image should be evicted")
+        expect(!FileManager.default.fileExists(atPath: moduleStore.fullImageURL(for: blueMetadata).path), "Evicting an unreferenced image should delete its PNG")
+        expect(FileManager.default.fileExists(atPath: moduleStore.fullImageURL(for: redMetadata).path), "Eviction must not delete pinned image files")
+
+        clipboard.clearImageCache(keepPinned: true)
+        expect(clipboard.entries.count == 1 && clipboard.entries[0].isPinned, "Clearing unpinned image cache should preserve pinned images")
+        clipboard.clearImageCache(keepPinned: false)
+        expect(clipboard.entries.isEmpty, "Clearing all image cache should remove pinned image entries too")
+        expect(!FileManager.default.fileExists(atPath: moduleStore.fullImageURL(for: redMetadata).path), "Clearing all image cache should delete pinned image files")
+
+        guard let sharedMetadata = try? moduleStore.saveImage(blueImage) else {
+            failures.append("Failed to prepare shared image deletion test")
+            clipboard.stop()
+            return
+        }
+        cfg.clipboard.deduplicate = false
+        cfg.clipboard.maxImageItems = 5
+        clipboard.reload(with: cfg)
+        clipboard.recordImage(sharedMetadata)
+        clipboard.recordImage(sharedMetadata)
+        let sharedEntries = clipboard.entries.filter { $0.image?.filename == sharedMetadata.filename }
+        expect(sharedEntries.count == 2, "Disabled deduplication should allow entries sharing image files")
+        if let firstShared = sharedEntries.first {
+            clipboard.deleteEntry(firstShared)
+        }
+        expect(FileManager.default.fileExists(atPath: moduleStore.fullImageURL(for: sharedMetadata).path), "Deleting one entry must preserve image files still referenced by another")
+        clipboard.clearHistory(keepPinned: false)
+        expect(!FileManager.default.fileExists(atPath: moduleStore.fullImageURL(for: sharedMetadata).path), "Deleting the final reference should remove image files")
+
+        guard let temporaryMetadata = try? moduleStore.saveImage(greenImage) else {
+            failures.append("Failed to prepare nonpersistent image test")
+            clipboard.stop()
+            return
+        }
+        clipboard.recordImage(temporaryMetadata)
+        cfg.clipboard.persistHistory = false
+        clipboard.reload(with: cfg)
+        expect(!clipboard.entries.contains { $0.image?.sha256 == temporaryMetadata.sha256 }, "Disabling history persistence should purge unpinned image entries")
+        expect(!FileManager.default.fileExists(atPath: moduleStore.fullImageURL(for: temporaryMetadata).path), "Disabling history persistence should purge unpinned image files")
+
+        let orphanedCacheURL = ConfigManager.shared.configURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("clipboard-images", isDirectory: true)
+            .appendingPathComponent("orphaned-cache.png")
+        try? Data("orphan".utf8).write(to: orphanedCacheURL)
+        clipboard.clearImageCache(keepPinned: true)
+        expect(!FileManager.default.fileExists(atPath: orphanedCacheURL.path), "Clear Image Cache should sweep orphans even with no image entries")
+
+        clipboard.clearHistory(keepPinned: false)
+        clipboard.stop()
+    }
+
     private static func testGeneralConfigDefaults() {
         let cfg = ToolboxConfig()
         expect(cfg.general.showInDock, "Toolbox should show in Dock by default")
@@ -222,6 +402,9 @@ enum SelfTestRunner {
         expect(DockActionMode.allCases.contains(.sendToBack), "DockActionMode should include sendToBack")
         expect(cfg.clipboard.maxItems == 25, "Clipboard default maxItems should be 25")
         expect(cfg.clipboard.persistHistory, "Clipboard default persistHistory should be true")
+        expect(cfg.clipboard.captureImages, "Clipboard image capture should default to true")
+        expect(cfg.clipboard.maxImageItems == 15, "Clipboard default maxImageItems should be 15")
+        expect(cfg.clipboard.maxImageSizeMB == 20, "Clipboard default maxImageSizeMB should be 20")
         expect(cfg.general.showModuleCardDetails, "Dashboard showModuleCardDetails should default to true")
         expect(cfg.general.textSize == .standard, "General textSize should default to .standard")
 
@@ -1455,7 +1638,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(cfg),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.scrollDirection == cfg.scrollDirection, "ScrollDirectionConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 13, "ToolboxConfig schemaVersion should be 13")
+            expect(decoded.schemaVersion == 14, "ToolboxConfig schemaVersion should be 14")
         } else {
             failures.append("ToolboxConfig Codable encode/decode failed")
         }
@@ -2442,7 +2625,7 @@ enum SelfTestRunner {
 
     private static func testCallControlsConfigAndCoreAudioEnumeration() {
         let cfg = ToolboxConfig()
-        expect(cfg.schemaVersion == 13, "ToolboxConfig schemaVersion should be 13")
+        expect(cfg.schemaVersion == 14, "ToolboxConfig schemaVersion should be 14")
         expect(!cfg.callControls.enabled, "Call Controls should default to disabled")
         expect(cfg.callControls.overrideScope == .everywhere, "Default overrideScope should be everywhere")
         expect(cfg.callControls.typingUnmuteDelayMs == 450, "Default typingUnmuteDelayMs should be 450")
@@ -2477,7 +2660,7 @@ enum SelfTestRunner {
         let legacyJSON = "{\"schemaVersion\": 5, \"general\": {\"appEnabled\": true}}"
         if let data = legacyJSON.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 13, "Legacy config should upgrade to schemaVersion 13")
+            expect(migrated.schemaVersion == 14, "Legacy config should upgrade to schemaVersion 14")
             expect(!migrated.callControls.enabled, "Legacy config must migrate callControls.enabled = false")
             expect(migrated.callControls.overrideScope == .everywhere, "Migrated default overrideScope should be everywhere")
             expect(migrated.callControls.showFloatingPillOnlyDuringCalls, "Legacy config must migrate showFloatingPillOnlyDuringCalls = true")
@@ -2492,7 +2675,7 @@ enum SelfTestRunner {
         """
         if let data = v6JSON.data(using: .utf8),
            let upgraded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgraded.schemaVersion == 13, "v6 config should migrate to schemaVersion 13")
+            expect(upgraded.schemaVersion == 14, "v6 config should migrate to schemaVersion 14")
             expect(upgraded.callControls.overrideScope == .everywhere, "v6 active_call_app_only should upgrade to everywhere")
             expect(upgraded.callControls.showFloatingPillOnlyDuringCalls, "v6 config should upgrade showFloatingPillOnlyDuringCalls to true")
         } else {
@@ -2505,7 +2688,7 @@ enum SelfTestRunner {
         """
         if let data = v7JSON.data(using: .utf8),
            let upgradedV7 = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgradedV7.schemaVersion == 13, "v7 config should migrate to schemaVersion 13")
+            expect(upgradedV7.schemaVersion == 14, "v7 config should migrate to schemaVersion 14")
             expect(upgradedV7.callControls.showFloatingPillOnlyDuringCalls, "v7 showFloatingPillOnlyDuringCalls should upgrade to true")
         } else {
             failures.append("Failed to migrate v7 audioGuard config")
@@ -2517,7 +2700,7 @@ enum SelfTestRunner {
         """
         if let data = v8JSON.data(using: .utf8),
            let upgradedV8 = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgradedV8.schemaVersion == 13, "v8 config should migrate to schemaVersion 13")
+            expect(upgradedV8.schemaVersion == 14, "v8 config should migrate to schemaVersion 14")
             expect(upgradedV8.callControls.enabled, "v8 audioGuard.enabled must migrate to callControls.enabled")
             expect(upgradedV8.callControls.typingUnmuteDelayMs == 725, "v8 audioGuard fields must be preserved in callControls")
             expect(
@@ -3789,7 +3972,7 @@ enum SelfTestRunner {
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.callControls == micLockCfg.callControls, "CallControlsConfig mic-lock round-trip mismatch")
             expect(decoded.callControls.bluetoothMicLockFallbackUID == "usb-yeti", "Mic-lock fallback UID must survive a config round-trip")
-            expect(decoded.schemaVersion == 13, "Mic-lock config must serialize at schemaVersion 13")
+            expect(decoded.schemaVersion == 14, "Mic-lock config must serialize at schemaVersion 14")
         } else {
             failures.append("CallControlsConfig mic-lock encode/decode failed")
         }
@@ -3817,7 +4000,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(customCfg),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.screenOCR == customCfg.screenOCR, "ScreenOCRConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 13, "ToolboxConfig schemaVersion should be 13")
+            expect(decoded.schemaVersion == 14, "ToolboxConfig schemaVersion should be 14")
         } else {
             failures.append("ToolboxConfig with screenOCR failed Codable encode/decode")
         }
@@ -3827,7 +4010,7 @@ enum SelfTestRunner {
         let legacyJSON = "{\"schemaVersion\": 9, \"general\": {\"appEnabled\": true}}"
         if let data = legacyJSON.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 13, "Legacy v9 config should upgrade to schemaVersion 13")
+            expect(migrated.schemaVersion == 14, "Legacy v9 config should upgrade to schemaVersion 14")
             expect(!migrated.screenOCR.enabled, "Legacy config must migrate screenOCR.enabled = false")
         } else {
             failures.append("Failed to decode pre-ScreenOCR JSON config")
@@ -6023,7 +6206,7 @@ enum SelfTestRunner {
     private static func testWindowSnapperConfigHotKeysProfilesAndLifecycle() {
         // 1. Config defaults, migration from schema 10 -> 11, and lenient partial decode
         let defaultCfg = ToolboxConfig()
-        expect(defaultCfg.schemaVersion == 13, "ToolboxConfig schemaVersion must be 13")
+        expect(defaultCfg.schemaVersion == 14, "ToolboxConfig schemaVersion must be 14")
         expect(!defaultCfg.windowSnapper.enabled, "WindowSnapper should default to disabled")
         expect(
             defaultCfg.windowSnapper.gaps.outerMarginPoints == 0 && defaultCfg.windowSnapper.gaps.innerGapPoints == 0,
@@ -6034,7 +6217,7 @@ enum SelfTestRunner {
         let legacyV10 = "{\"schemaVersion\": 10, \"general\": {\"appEnabled\": true}}"
         if let data = legacyV10.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 13, "v10 config must upgrade to schemaVersion 13")
+            expect(migrated.schemaVersion == 14, "v10 config must upgrade to schemaVersion 14")
             expect(!migrated.windowSnapper.enabled, "Migrated windowSnapper.enabled must default to false")
             expect(
                 migrated.windowSnapper.gaps.outerMarginPoints == 0 && migrated.windowSnapper.gaps.innerGapPoints == 0,
@@ -6366,6 +6549,180 @@ enum SelfTestRunner {
         expect(
             HUDToast.shared.panelForTesting?.isVisible != true,
             "HUDToast.dismiss must hide the loading HUD panel"
+        )
+
+        expect(
+            !DisplayRegistry.shouldAnnounceReconfigurationBegan(
+                flags: .beginConfigurationFlag,
+                isScreenLocked: false,
+                isDisplayAsleep: false,
+                inUnlockSettleWindow: false
+            ).announce
+                && !DisplayRegistry.shouldAnnounceReconfigurationBegan(
+                    flags: .setModeFlag,
+                    isScreenLocked: false,
+                    isDisplayAsleep: false,
+                    inUnlockSettleWindow: false
+                ).announce
+                && !DisplayRegistry.shouldAnnounceReconfigurationBegan(
+                    flags: .desktopShapeChangedFlag,
+                    isScreenLocked: false,
+                    isDisplayAsleep: false,
+                    inUnlockSettleWindow: false
+                ).announce
+                && !DisplayRegistry.shouldAnnounceReconfigurationBegan(
+                    flags: .addFlag,
+                    isScreenLocked: true,
+                    isDisplayAsleep: false,
+                    inUnlockSettleWindow: false
+                ).announce
+                && !DisplayRegistry.shouldAnnounceReconfigurationBegan(
+                    flags: .removeFlag,
+                    isScreenLocked: false,
+                    isDisplayAsleep: true,
+                    inUnlockSettleWindow: false
+                ).announce
+                && !DisplayRegistry.shouldAnnounceReconfigurationBegan(
+                    flags: .addFlag,
+                    isScreenLocked: false,
+                    isDisplayAsleep: false,
+                    inUnlockSettleWindow: true
+                ).announce,
+            "DisplayRegistry must not announce display reconfiguration during beginConfiguration, non-topology changes, lock, sleep, or unlock settle window"
+        )
+
+        let addDecision = DisplayRegistry.shouldAnnounceReconfigurationBegan(
+            flags: .addFlag,
+            isScreenLocked: false,
+            isDisplayAsleep: false,
+            inUnlockSettleWindow: false
+        )
+        let removeDecision = DisplayRegistry.shouldAnnounceReconfigurationBegan(
+            flags: .removeFlag,
+            isScreenLocked: false,
+            isDisplayAsleep: false,
+            inUnlockSettleWindow: false
+        )
+        expect(
+            addDecision.announce && !addDecision.isRemoved
+                && removeDecision.announce && removeDecision.isRemoved,
+            "DisplayRegistry must announce add/remove reconfiguration when unlocked, awake, and settled"
+        )
+
+        let clamshellUnlock = DisplayRegistry.nextLockSleepStateOnActiveOrWake(
+            isScreenLocked: true,
+            isDisplayAsleep: true,
+            isLockEvent: true
+        )
+        let wakeWhileLocked = DisplayRegistry.nextLockSleepStateOnActiveOrWake(
+            isScreenLocked: true,
+            isDisplayAsleep: true,
+            isLockEvent: false
+        )
+        let wakeWhileUnlocked = DisplayRegistry.nextLockSleepStateOnActiveOrWake(
+            isScreenLocked: false,
+            isDisplayAsleep: true,
+            isLockEvent: false
+        )
+        expect(
+            !clamshellUnlock.isScreenLocked && !clamshellUnlock.isDisplayAsleep && clamshellUnlock.shouldScheduleReconcile
+                && wakeWhileLocked.isScreenLocked && !wakeWhileLocked.isDisplayAsleep && !wakeWhileLocked.shouldScheduleReconcile
+                && !wakeWhileUnlocked.isScreenLocked && !wakeWhileUnlocked.isDisplayAsleep && wakeWhileUnlocked.shouldScheduleReconcile,
+            "DisplayRegistry must clear sleep state on unlock for clamshell wake and defer reconcile until unlocked"
+        )
+
+        let seededEngine = ProfileEngine(axController: AXWindowController())
+        let seededDisplay = ConnectedDisplay(
+            displayID: 42,
+            signature: DisplaySignature(
+                uuidString: "SEED-TEST-UUID",
+                vendorNumber: 1,
+                modelNumber: 2,
+                serialNumber: 3,
+                localizedName: "Test Display",
+                arrangementIndex: 0
+            ),
+            frameAppKit: CGRect(x: 0, y: 0, width: 1440, height: 900),
+            visibleFrameAppKit: CGRect(x: 0, y: 0, width: 1440, height: 875),
+            frameAX: CGRect(x: 0, y: 0, width: 1440, height: 900),
+            usableAppKit: CGRect(x: 0, y: 0, width: 1440, height: 875),
+            usableAX: CGRect(x: 0, y: 25, width: 1440, height: 875),
+            safeAreaInsets: SafeAreaInsets(),
+            isMain: true,
+            primaryScreenHeight: 900
+        )
+        seededEngine.seedCurrentTopology(connectedDisplays: [seededDisplay], swapExternalDisplays: false)
+        var seededCfg = WindowSnapperConfig()
+        let testProfile = WorkspaceProfile(id: "test-auto-profile", name: "Test Profile")
+        seededCfg.profiles = [testProfile]
+        seededCfg.autoApplyProfileID = testProfile.id
+        seededEngine.handleDisplaysReconfigured(
+            connectedDisplays: [seededDisplay],
+            config: seededCfg
+        ) { _ in }
+        expect(
+            seededEngine.lastAutoTriggeredTopologyKey != nil && !seededEngine.isApplyingProfile,
+            "ProfileEngine.seedCurrentTopology must prevent handleDisplaysReconfigured from auto-applying when topology is unchanged"
+        )
+
+        expect(
+            DisplayRegistry.debounceDelay(inUnlockSettleWindow: true) == 1.5
+                && DisplayRegistry.debounceDelay(inUnlockSettleWindow: false) == 1.0,
+            "DisplayRegistry.debounceDelay must preserve 1.5s settle delay during unlock/wake window"
+        )
+
+        let keyBeforeEmpty = seededEngine.lastAutoTriggeredTopologyKey
+        seededEngine.handleDisplaysReconfigured(
+            connectedDisplays: [],
+            config: seededCfg
+        ) { _ in }
+        expect(
+            seededEngine.lastAutoTriggeredTopologyKey == keyBeforeEmpty,
+            "ProfileEngine.handleDisplaysReconfigured must ignore transient empty display lists"
+        )
+
+        let extDisplay = ConnectedDisplay(
+            displayID: 43,
+            signature: DisplaySignature(
+                uuidString: "SEED-EXT-UUID",
+                vendorNumber: 1,
+                modelNumber: 3,
+                serialNumber: 4,
+                localizedName: "External Display",
+                arrangementIndex: 1
+            ),
+            frameAppKit: CGRect(x: 1440, y: 0, width: 1920, height: 1080),
+            visibleFrameAppKit: CGRect(x: 1440, y: 0, width: 1920, height: 1055),
+            frameAX: CGRect(x: 1440, y: 0, width: 1920, height: 1080),
+            usableAppKit: CGRect(x: 1440, y: 0, width: 1920, height: 1055),
+            usableAX: CGRect(x: 1440, y: 25, width: 1920, height: 1055),
+            safeAreaInsets: SafeAreaInsets(),
+            isMain: false,
+            primaryScreenHeight: 900
+        )
+        let boundEngine = ProfileEngine(axController: AXWindowController())
+        boundEngine.seedCurrentTopology(connectedDisplays: [seededDisplay, extDisplay], swapExternalDisplays: false)
+        var boundCfg = WindowSnapperConfig()
+        var boundProfile = WorkspaceProfile(id: "bound-two-display", name: "Dual Desk")
+        boundProfile.boundDisplaySignatures = [seededDisplay.signature, extDisplay.signature]
+        boundProfile.topologyTriggerMode = .askViaHUD
+        boundCfg.profiles = [boundProfile]
+
+        boundEngine.handleDisplaysReconfigured(
+            connectedDisplays: [seededDisplay],
+            config: boundCfg
+        ) { _ in }
+        let unmatchedOneDisplayKey = ProfileEngine.topologyKey(for: [seededDisplay], swapExternalDisplays: false)
+        let disconnectedUpdatedKey = boundEngine.lastAutoTriggeredTopologyKey == unmatchedOneDisplayKey
+            && boundEngine.suggestedTopologyProfileID == nil
+
+        boundEngine.handleDisplaysReconfigured(
+            connectedDisplays: [seededDisplay, extDisplay],
+            config: boundCfg
+        ) { _ in }
+        expect(
+            disconnectedUpdatedKey && boundEngine.suggestedTopologyProfileID == boundProfile.id,
+            "ProfileEngine must update lastAutoTriggeredTopologyKey on unmatched disconnect so reconnecting re-triggers bound profiles"
         )
 
         expect(

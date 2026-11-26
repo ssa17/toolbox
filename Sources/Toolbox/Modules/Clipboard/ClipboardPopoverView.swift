@@ -4,6 +4,7 @@ import SwiftUI
 @MainActor
 final class ClipboardPopoverUIState: ObservableObject {
     @Published var query = ""
+    @Published var filter: ClipboardHistoryFilter = .all
     @Published var selectedEntryID: UUID?
     @Published var previewEntryID: UUID?
     @Published var renamingEntryID: UUID?
@@ -23,6 +24,8 @@ final class ClipboardPopoverUIState: ObservableObject {
     /// without double-animating alongside the shifting rows.
     @Published var animatedReorder = true
     @Published var openSequence = 0
+    @Published var inspectorImage: NSImage?
+    @Published var inspectorImageEntryID: UUID?
 
     private var activeDragCancelHandler: (() -> Void)?
     private var settleCleanupTask: Task<Void, Never>?
@@ -33,6 +36,7 @@ final class ClipboardPopoverUIState: ObservableObject {
 
     func resetForOpen(entries: [ClipboardEntry]) {
         query = ""
+        filter = .all
         previewEntryID = nil
         renamingEntryID = nil
         renameDraft = ""
@@ -41,6 +45,7 @@ final class ClipboardPopoverUIState: ObservableObject {
         hoveredEntryID = nil
         openedAt = Date()
         clearDragState()
+        releaseInspectorImage()
         selectedEntryID = entries.first?.id
         openSequence &+= 1
     }
@@ -176,6 +181,11 @@ final class ClipboardPopoverUIState: ObservableObject {
         }
     }
 
+    func releaseInspectorImage() {
+        inspectorImage = nil
+        inspectorImageEntryID = nil
+    }
+
     func selectedEntry(in list: [ClipboardEntry]) -> ClipboardEntry? {
         if let id = selectedEntryID, let found = list.first(where: { $0.id == id }) {
             return found
@@ -207,11 +217,7 @@ struct ClipboardPopoverView: View {
     @FocusState private var focusedRenameID: UUID?
 
     private var filteredEntries: [ClipboardEntry] {
-        guard !uiState.query.isEmpty else { return module.entries }
-        return module.entries.filter {
-            $0.text.localizedCaseInsensitiveContains(uiState.query) ||
-            ($0.customTitle?.localizedCaseInsensitiveContains(uiState.query) ?? false)
-        }
+        module.entries.filter { $0.matches(query: uiState.query, filter: uiState.filter) }
     }
 
     private var previewEntry: ClipboardEntry? {
@@ -329,7 +335,7 @@ struct ClipboardPopoverView: View {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
-                TextField("Search clipboard or pinned labels…", text: $uiState.query)
+                TextField("Search text, labels, dimensions, or sizes…", text: $uiState.query)
                     .textFieldStyle(.plain)
                     .focused($isSearchFocused)
                     .onChange(of: uiState.query) { _, _ in
@@ -356,6 +362,44 @@ struct ClipboardPopoverView: View {
 
             Divider()
 
+            HStack(spacing: 6) {
+                ForEach(ClipboardHistoryFilter.allCases) { filter in
+                    Button {
+                        let previouslySelectedID = uiState.selectedEntryID
+                        uiState.filter = filter
+                        let visible = filteredEntries
+                        if let previouslySelectedID,
+                           visible.contains(where: { $0.id == previouslySelectedID }) {
+                            uiState.selectedEntryID = previouslySelectedID
+                        } else {
+                            uiState.selectedEntryID = visible.first?.id
+                        }
+                        if let previewID = uiState.previewEntryID,
+                           !visible.contains(where: { $0.id == previewID }) {
+                            uiState.previewEntryID = nil
+                        }
+                    } label: {
+                        Text(filter.label)
+                            .toolboxFont(.caption2.weight(.semibold))
+                            .foregroundStyle(uiState.filter == filter ? Color.white : Color.secondary)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 4)
+                            .background(
+                                uiState.filter == filter ? Color.teal.opacity(0.8) : Color.primary.opacity(0.06),
+                                in: Capsule()
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .focusEffectDisabled()
+                    .pointerCursor()
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 11)
+            .padding(.vertical, 7)
+
+            Divider()
+
             ZStack {
                 Group {
                     if filteredEntries.isEmpty {
@@ -377,7 +421,7 @@ struct ClipboardPopoverView: View {
                 .allowsHitTesting(previewEntry == nil)
 
                 if let entry = previewEntry {
-                    fullRowPreview(entry)
+                    inspectorView(entry)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(.ultraThickMaterial)
                 }
@@ -388,7 +432,7 @@ struct ClipboardPopoverView: View {
 
             HStack(spacing: 8) {
                 Text(
-                    uiState.query.isEmpty
+                    uiState.query.isEmpty && uiState.filter == .all
                         ? "\(module.entries.count) saved"
                         : "\(filteredEntries.count) of \(module.entries.count)"
                 )
@@ -418,6 +462,7 @@ struct ClipboardPopoverView: View {
         }
         .onAppear {
             isSearchFocused = true
+            updateInspectorImage(for: uiState.previewEntryID)
         }
         .onChange(of: uiState.openSequence) { _, _ in
             DispatchQueue.main.async {
@@ -425,6 +470,7 @@ struct ClipboardPopoverView: View {
             }
         }
         .onChange(of: uiState.previewEntryID) { oldID, newID in
+            updateInspectorImage(for: newID)
             if oldID != nil && newID == nil && uiState.renamingEntryID == nil {
                 DispatchQueue.main.async {
                     isSearchFocused = true
@@ -451,6 +497,20 @@ struct ClipboardPopoverView: View {
         .toolboxDarkAppearance()
     }
 
+    private func updateInspectorImage(for entryID: UUID?) {
+        guard let entryID,
+              let entry = module.entries.first(where: { $0.id == entryID }),
+              entry.kind == .image else {
+            uiState.releaseInspectorImage()
+            return
+        }
+        guard uiState.inspectorImageEntryID != entryID else { return }
+        uiState.inspectorImageEntryID = entryID
+        // Keep only the currently inspected full image, and release it when the
+        // inspector closes. Thumbnails remain cached separately by the image store.
+        uiState.inspectorImage = module.fullImage(for: entry)
+    }
+
     private var activeFooterEntry: ClipboardEntry? {
         uiState.selectedEntry(in: filteredEntries)
     }
@@ -470,6 +530,13 @@ struct ClipboardPopoverView: View {
     }
 
     static func formatRowMetadata(for entry: ClipboardEntry, now: Date = Date()) -> String {
+        if entry.kind == .image {
+            let sizePart = entry.imageByteSizeText ?? "Image"
+            if entry.isPinned {
+                return sizePart
+            }
+            return "\(relativeTimestamp(from: entry.copiedAt, to: now)) · \(sizePart)"
+        }
         let lineCount = entry.text.split(separator: "\n", omittingEmptySubsequences: false).count
         let charCount = entry.text.count
         let sizePart = lineCount > 1
@@ -624,7 +691,7 @@ struct ClipboardPopoverView: View {
                         HStack(spacing: 4) {
                             ClipboardRowActionButton(
                                 systemName: "eye",
-                                helpText: "View full text (→)",
+                                helpText: "Inspect item (→)",
                                 isVisible: showActions
                             ) {
                                 uiState.selectedEntryID = entry.id
@@ -809,19 +876,191 @@ struct ClipboardPopoverView: View {
         }
     }
 
+    @ViewBuilder
     private func snippetTextBlock(_ entry: ClipboardEntry) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            if let title = entry.customTitle, !title.isEmpty {
-                Text(title)
-                    .toolboxFont(.caption.weight(.semibold))
-                    .foregroundStyle(.teal)
-                    .lineLimit(1)
+        if entry.kind == .image {
+            HStack(spacing: 10) {
+                Group {
+                    if let thumbnail = module.thumbnail(for: entry) {
+                        Image(nsImage: thumbnail)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } else {
+                        Image(systemName: "photo")
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(Color.primary.opacity(0.06))
+                    }
+                }
+                .frame(width: 48, height: 36)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5)
+                        .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.75)
+                )
+
+                VStack(alignment: .leading, spacing: 3) {
+                    if let title = entry.customTitle, !title.isEmpty {
+                        Text(title)
+                            .toolboxFont(.caption.weight(.semibold))
+                            .foregroundStyle(.teal)
+                            .lineLimit(1)
+                    }
+                    HStack(spacing: 6) {
+                        Text("IMG")
+                            .toolboxFont(.system(size: 9, weight: .bold, design: .rounded))
+                            .foregroundStyle(.teal)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.teal.opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
+                        Text(entry.text)
+                            .toolboxFont(.callout.weight(.medium))
+                            .lineLimit(1)
+                    }
+                }
             }
-            Text(entry.text)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-                .toolboxFont(.system(.callout, design: .monospaced))
+        } else {
+            VStack(alignment: .leading, spacing: 2) {
+                if let title = entry.customTitle, !title.isEmpty {
+                    Text(title)
+                        .toolboxFont(.caption.weight(.semibold))
+                        .foregroundStyle(.teal)
+                        .lineLimit(1)
+                }
+                Text(entry.text)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .toolboxFont(.system(.callout, design: .monospaced))
+            }
         }
+    }
+
+    @ViewBuilder
+    private func inspectorView(_ entry: ClipboardEntry) -> some View {
+        if entry.kind == .image {
+            imageInspector(entry)
+        } else {
+            fullRowPreview(entry)
+        }
+    }
+
+    private func imageInspector(_ entry: ClipboardEntry) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Button {
+                    uiState.selectedEntryID = entry.id
+                    uiState.previewEntryID = nil
+                } label: {
+                    Label("Back", systemImage: "chevron.left")
+                        .toolboxFont(.caption.weight(.semibold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .focusEffectDisabled()
+                .pointerCursor()
+
+                if let title = entry.customTitle, !title.isEmpty {
+                    Text(title)
+                        .toolboxFont(.callout.weight(.semibold))
+                        .foregroundStyle(.teal)
+                        .lineLimit(1)
+                }
+                Spacer()
+                if let dimensions = entry.imageDimensionsText {
+                    Text(dimensions)
+                        .toolboxFont(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Group {
+                if let image = uiState.inspectorImage, uiState.inspectorImageEntryID == entry.id {
+                    Image(nsImage: image)
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFit()
+                        .padding(8)
+                } else {
+                    VStack(spacing: 8) {
+                        Image(systemName: "photo.badge.exclamationmark")
+                            .toolboxFont(.title)
+                        Text("Image file is unavailable")
+                            .toolboxFont(.callout)
+                    }
+                    .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+
+            if let metadata = entry.image {
+                Text("\(entry.imageByteSizeText ?? "Unknown size") · PNG · SHA-256 \(metadata.sha256.prefix(12))…")
+                    .toolboxFont(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            ScrollView(.horizontal) {
+                HStack(spacing: 7) {
+                    inspectorAction("Paste", systemName: "doc.on.clipboard", prominent: true) {
+                        onSelect(entry)
+                    }
+                    inspectorAction("Copy", systemName: "square.on.square") {
+                        module.copyEntry(entry)
+                    }
+                    inspectorAction(entry.isPinned ? "Unpin" : "Pin", systemName: entry.isPinned ? "pin.fill" : "pin", tint: .teal) {
+                        module.togglePin(entry)
+                    }
+                    inspectorAction("Rename", systemName: "pencil") {
+                        uiState.previewEntryID = nil
+                        uiState.selectedEntryID = entry.id
+                        uiState.renameDraft = entry.customTitle ?? ""
+                        uiState.renamingEntryID = entry.id
+                    }
+                    inspectorAction("Save As…", systemName: "square.and.arrow.down") {
+                        module.saveImageAs(entry)
+                    }
+                    inspectorAction("Delete", systemName: "trash", tint: .red) {
+                        uiState.pendingDeleteEntry = entry
+                    }
+                }
+            }
+            .scrollIndicators(.hidden)
+        }
+        .padding(12)
+        .contextMenu {
+            entryContextMenu(for: entry, inPreview: true)
+        }
+    }
+
+    private func inspectorAction(
+        _ title: String,
+        systemName: String,
+        tint: Color = .primary,
+        prominent: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemName)
+                .toolboxFont(.caption.weight(.semibold))
+                .foregroundStyle(prominent ? Color.white : tint)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    prominent ? Color.accentColor : tint.opacity(0.09),
+                    in: RoundedRectangle(cornerRadius: 6)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(prominent ? Color.clear : tint.opacity(0.18), lineWidth: 0.75)
+                )
+        }
+        .buttonStyle(.plain)
+        .focusEffectDisabled()
+        .pointerCursor()
     }
 
     private func fullRowPreview(_ entry: ClipboardEntry) -> some View {
@@ -966,6 +1205,12 @@ struct ClipboardPopoverView: View {
         }
         .keyboardShortcut(.return, modifiers: [])
 
+        Button {
+            module.copyEntry(entry)
+        } label: {
+            Label("Copy", systemImage: "square.on.square")
+        }
+
         if inPreview {
             Button {
                 uiState.previewEntryID = nil
@@ -977,9 +1222,17 @@ struct ClipboardPopoverView: View {
             Button {
                 uiState.previewEntryID = entry.id
             } label: {
-                Label("View Full Text", systemImage: "eye")
+                Label(entry.kind == .image ? "Inspect Image" : "View Full Text", systemImage: "eye")
             }
             .keyboardShortcut("i", modifiers: .command)
+        }
+
+        if entry.kind == .image {
+            Button {
+                module.saveImageAs(entry)
+            } label: {
+                Label("Save Image As…", systemImage: "square.and.arrow.down")
+            }
         }
 
         Button {

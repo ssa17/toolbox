@@ -46,7 +46,7 @@ final class ProfileEngine: ObservableObject {
     private var activeRuleObservers: [pid_t: AXObserver] = [:]
     private var workspaceLaunchObserver: NSObjectProtocol?
     private var activeWatchedRulesByBundleID: [String: (profile: WorkspaceProfile, rule: ProfileAppRule, config: WindowSnapperConfig)] = [:]
-    private var lastAutoTriggeredTopologyKey: String?
+    private(set) var lastAutoTriggeredTopologyKey: String?
     private var placementTrackerTask: Task<Void, Never>?
     private var applyGeneration: UInt64 = 0
     /// Called whenever the restore snapshot is stored, replaced, or cleared.
@@ -1461,18 +1461,41 @@ final class ProfileEngine: ObservableObject {
 
     // MARK: - Display Topology Auto-Trigger
 
+    static func topologyKey(
+        for connectedDisplays: [ConnectedDisplay],
+        swapExternalDisplays: Bool
+    ) -> String {
+        let connectedSigs = connectedDisplays.map(\.signature)
+        return "\(connectedDisplays.count)|\(swapExternalDisplays)|\(connectedSigs.map(\.stableStorageKey).sorted().joined(separator: "|"))"
+    }
+
+    func seedCurrentTopology(
+        connectedDisplays: [ConnectedDisplay],
+        swapExternalDisplays: Bool
+    ) {
+        guard !connectedDisplays.isEmpty else { return }
+        lastAutoTriggeredTopologyKey = Self.topologyKey(
+            for: connectedDisplays,
+            swapExternalDisplays: swapExternalDisplays
+        )
+    }
+
     func handleDisplaysReconfigured(
         connectedDisplays: [ConnectedDisplay],
         config: WindowSnapperConfig,
         onPushUndoBatch: @escaping (WindowSnapUndoBatch) -> Void
     ) {
+        guard !connectedDisplays.isEmpty else { return }
         let connectedSigs = connectedDisplays.map(\.signature)
-        let topologyKey = "\(connectedDisplays.count)|\(config.swapExternalDisplays)|\(connectedSigs.map(\.stableStorageKey).sorted().joined(separator: "|"))"
+        let topologyKey = Self.topologyKey(
+            for: connectedDisplays,
+            swapExternalDisplays: config.swapExternalDisplays
+        )
         guard topologyKey != lastAutoTriggeredTopologyKey else { return }
+        lastAutoTriggeredTopologyKey = topologyKey
 
         if let autoID = config.autoApplyProfileID,
            let autoProfile = config.profiles.first(where: { $0.id == autoID }) {
-            lastAutoTriggeredTopologyKey = topologyKey
             suggestedTopologyProfileID = nil
             cancelInFlightApply()
             applyProfile(autoProfile, onPushUndoBatch: onPushUndoBatch)
@@ -1481,7 +1504,6 @@ final class ProfileEngine: ObservableObject {
 
         for profile in config.profiles where profile.topologyTriggerMode != .off && !profile.boundDisplaySignatures.isEmpty {
             if DisplayRegistry.topologiesMatch(bound: profile.boundDisplaySignatures, connected: connectedSigs) {
-                lastAutoTriggeredTopologyKey = topologyKey
                 switch profile.topologyTriggerMode {
                 case .off:
                     break

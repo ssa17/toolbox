@@ -28,9 +28,7 @@ Ordered from zero-permission, self-contained utilities to modules that interact 
 
 ### Planned Enhancements to Shipped Modules
 
-| Target Module | Enhancement | Category | Default Shortcut | Permissions Needed | Key macOS Frameworks | Spec |
-|---|---|---|---|---|---|---|
-| `clipboard` | **Image History Support** | Clipboard & Text | `⌥ ⌘ V` *(existing Clipboard hotkey)* | None *(optional Accessibility for auto-paste)* | `AppKit`, `CryptoKit`, `ImageIO` | [`clipboard_image_history.md`](feature-specs/clipboard_image_history.md) |
+*No pending enhancements. Clipboard Image History has shipped and is recorded in the Done table below.*
 
 *All default shortcuts across the 10 shipped and 9 planned modules are verified collision-free (`⌃ ⌥ ⌘ C` is reserved by `WindowSnapper` Center, so `ColorPicker` uses `⌃ ⌥ ⌘ E`).*
 
@@ -43,7 +41,7 @@ Complete reference of all shipped modules in `Sources/Toolbox/Modules/` (5 found
 | Feature | Module ID | Origin | Category | Default Shortcut | Permissions Needed | Key macOS Frameworks | Docs / Spec |
 |---|---|---|---|---|---|---|---|
 | **Dock Click to Minimize** | `dock_minimize` | Core | Window & Dock | None *(Dock click)* | Accessibility (required) | `ApplicationServices` (AX), `CoreGraphics`, `AppKit` | [`Modules/DockMinimize/`](../Sources/Toolbox/Modules/DockMinimize/) |
-| **Clipboard History** | `clipboard` | Core | Clipboard & Text | `⌥ ⌘ V` | None *(optional Accessibility for auto-paste)* | `AppKit`, `Carbon` | [`Modules/Clipboard/`](../Sources/Toolbox/Modules/Clipboard/) · *(Planned upgrade: [`clipboard_image_history.md`](feature-specs/clipboard_image_history.md))* |
+| **Clipboard History** | `clipboard` | Core | Clipboard & Text | `⌥ ⌘ V` | None *(optional Accessibility for auto-paste)* | `AppKit`, `Carbon`, `CryptoKit`, `ImageIO` | [`Modules/Clipboard/`](../Sources/Toolbox/Modules/Clipboard/) · [`clipboard_image_history.md`](feature-specs/clipboard_image_history.md) |
 | **Keep Awake** | `keep_awake` | Core | System & Power | `⌥ ⌘ K` | None | `IOKit` (`IOPMAssertion`), `CoreGraphics`, `AppKit` | [`Modules/KeepAwake/`](../Sources/Toolbox/Modules/KeepAwake/) |
 | **Custom Commands** | `custom_commands` | Core | Commands & Shortcuts | User-defined *(default presets: `⌥ ⌘ T`, `⇧ ⌥ ⌘ I`, `⇧ ⌥ ⌘ D`)* | None *(optional Accessibility for snippet auto-paste)* | `AppKit`, `Carbon`, `Foundation` | [`Modules/CustomCommands/`](../Sources/Toolbox/Modules/CustomCommands/) |
 | **Scroll Direction** | `scroll_direction` | Core | System & Power | None *(Background `CGEventTap`)* | Accessibility (required) | `CoreGraphics` (`CGEventTap`), `AppKit` | [`scroll-direction.md`](scroll-direction.md) · [`Modules/ScrollDirection/`](../Sources/Toolbox/Modules/ScrollDirection/) |

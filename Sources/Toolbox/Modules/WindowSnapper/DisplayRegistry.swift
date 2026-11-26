@@ -31,7 +31,18 @@ final class DisplayRegistry: ObservableObject {
     private var liveSignatureCache: [CGDirectDisplayID: DisplaySignature] = [:]
     private var knownOnlineDisplayIDs: Set<CGDirectDisplayID> = []
     private var suppressModeEnforcementUntil: Date = .distantPast
+    private var isScreenLocked = false
+    private var isDisplayAsleep = false
+    private var wakeOrUnlockSettleUntil: Date = .distantPast
+    private var didAnnounceReconfigForCurrentBurst = false
     private var screenObserver: NSObjectProtocol?
+    private var distributedLockObserver: NSObjectProtocol?
+    private var distributedUnlockObserver: NSObjectProtocol?
+    private var sessionResignObserver: NSObjectProtocol?
+    private var sessionBecomeActiveObserver: NSObjectProtocol?
+    private var screensSleepObserver: NSObjectProtocol?
+    private var screensWakeObserver: NSObjectProtocol?
+    private var systemWakeObserver: NSObjectProtocol?
     private var hasRegisteredCGCallback = false
     private var pendingDebounceWork: DispatchWorkItem?
 
@@ -49,7 +60,92 @@ final class DisplayRegistry: ObservableObject {
                 queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    self?.scheduleDebouncedRefresh()
+                    guard let self else { return }
+                    guard !self.isScreenLocked && !self.isDisplayAsleep else { return }
+                    self.scheduleDebouncedRefresh(
+                        delay: Self.debounceDelay(inUnlockSettleWindow: Date() < self.wakeOrUnlockSettleUntil)
+                    )
+                }
+            }
+        }
+
+        let distributedCenter = DistributedNotificationCenter.default()
+        if distributedLockObserver == nil {
+            distributedLockObserver = distributedCenter.addObserver(
+                forName: NSNotification.Name("com.apple.screenIsLocked"),
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.handleSessionInactiveOrSleep(isLock: true)
+                }
+            }
+        }
+        if distributedUnlockObserver == nil {
+            distributedUnlockObserver = distributedCenter.addObserver(
+                forName: NSNotification.Name("com.apple.screenIsUnlocked"),
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.handleSessionActiveOrWake(isLock: true)
+                }
+            }
+        }
+
+        let wsCenter = NSWorkspace.shared.notificationCenter
+        if sessionResignObserver == nil {
+            sessionResignObserver = wsCenter.addObserver(
+                forName: NSWorkspace.sessionDidResignActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.handleSessionInactiveOrSleep(isLock: true)
+                }
+            }
+        }
+        if sessionBecomeActiveObserver == nil {
+            sessionBecomeActiveObserver = wsCenter.addObserver(
+                forName: NSWorkspace.sessionDidBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.handleSessionActiveOrWake(isLock: true)
+                }
+            }
+        }
+        if screensSleepObserver == nil {
+            screensSleepObserver = wsCenter.addObserver(
+                forName: NSWorkspace.screensDidSleepNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.handleSessionInactiveOrSleep(isLock: false)
+                }
+            }
+        }
+        if screensWakeObserver == nil {
+            screensWakeObserver = wsCenter.addObserver(
+                forName: NSWorkspace.screensDidWakeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.handleSessionActiveOrWake(isLock: false)
+                }
+            }
+        }
+        if systemWakeObserver == nil {
+            systemWakeObserver = wsCenter.addObserver(
+                forName: NSWorkspace.didWakeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.handleSessionActiveOrWake(isLock: false)
                 }
             }
         }
@@ -65,9 +161,42 @@ final class DisplayRegistry: ObservableObject {
     func stopObserving() {
         pendingDebounceWork?.cancel()
         pendingDebounceWork = nil
+        isScreenLocked = false
+        isDisplayAsleep = false
+        didAnnounceReconfigForCurrentBurst = false
         if let screenObserver {
             NotificationCenter.default.removeObserver(screenObserver)
             self.screenObserver = nil
+        }
+        let distributedCenter = DistributedNotificationCenter.default()
+        if let distributedLockObserver {
+            distributedCenter.removeObserver(distributedLockObserver)
+            self.distributedLockObserver = nil
+        }
+        if let distributedUnlockObserver {
+            distributedCenter.removeObserver(distributedUnlockObserver)
+            self.distributedUnlockObserver = nil
+        }
+        let wsCenter = NSWorkspace.shared.notificationCenter
+        if let sessionResignObserver {
+            wsCenter.removeObserver(sessionResignObserver)
+            self.sessionResignObserver = nil
+        }
+        if let sessionBecomeActiveObserver {
+            wsCenter.removeObserver(sessionBecomeActiveObserver)
+            self.sessionBecomeActiveObserver = nil
+        }
+        if let screensSleepObserver {
+            wsCenter.removeObserver(screensSleepObserver)
+            self.screensSleepObserver = nil
+        }
+        if let screensWakeObserver {
+            wsCenter.removeObserver(screensWakeObserver)
+            self.screensWakeObserver = nil
+        }
+        if let systemWakeObserver {
+            wsCenter.removeObserver(systemWakeObserver)
+            self.systemWakeObserver = nil
         }
         if hasRegisteredCGCallback {
             let selfPtr = Unmanaged.passUnretained(self).toOpaque()
@@ -76,39 +205,116 @@ final class DisplayRegistry: ObservableObject {
         }
     }
 
-    private static let displayReconfigCallback: CGDisplayReconfigurationCallBack = { displayID, flags, userInfo in
-        guard let userInfo else { return }
-        let registry = Unmanaged<DisplayRegistry>.fromOpaque(userInfo).takeUnretainedValue()
-        let isBegin = flags.contains(.beginConfigurationFlag)
-        let isRemoved = flags.contains(.removeFlag)
-        Task { @MainActor in
-            registry.handleCGReconfiguration(displayID: displayID, isBegin: isBegin, isRemoved: isRemoved)
+    private func handleSessionInactiveOrSleep(isLock: Bool) {
+        if isLock {
+            isScreenLocked = true
+        } else {
+            isDisplayAsleep = true
+        }
+        pendingDebounceWork?.cancel()
+        pendingDebounceWork = nil
+        didAnnounceReconfigForCurrentBurst = false
+    }
+
+    nonisolated static func nextLockSleepStateOnActiveOrWake(
+        isScreenLocked: Bool,
+        isDisplayAsleep: Bool,
+        isLockEvent: Bool
+    ) -> (isScreenLocked: Bool, isDisplayAsleep: Bool, shouldScheduleReconcile: Bool) {
+        let nextLocked = isLockEvent ? false : isScreenLocked
+        // Unlocking or activating the session proves the display is awake,
+        // even if macOS did not deliver screensDidWakeNotification (e.g. clamshell wake).
+        let nextAsleep = false
+        return (nextLocked, nextAsleep, !nextLocked && !nextAsleep)
+    }
+
+    private func handleSessionActiveOrWake(isLock: Bool) {
+        let next = Self.nextLockSleepStateOnActiveOrWake(
+            isScreenLocked: isScreenLocked,
+            isDisplayAsleep: isDisplayAsleep,
+            isLockEvent: isLock
+        )
+        isScreenLocked = next.isScreenLocked
+        isDisplayAsleep = next.isDisplayAsleep
+        wakeOrUnlockSettleUntil = Date().addingTimeInterval(2.5)
+        if next.shouldScheduleReconcile {
+            scheduleDebouncedRefresh(delay: 1.5)
         }
     }
 
-    private func handleCGReconfiguration(displayID: CGDirectDisplayID, isBegin: Bool, isRemoved: Bool) {
-        if isBegin {
+    nonisolated static func debounceDelay(inUnlockSettleWindow: Bool) -> TimeInterval {
+        inUnlockSettleWindow ? 1.5 : 1.0
+    }
+
+    nonisolated static func shouldAnnounceReconfigurationBegan(
+        flags: CGDisplayChangeSummaryFlags,
+        isScreenLocked: Bool,
+        isDisplayAsleep: Bool,
+        inUnlockSettleWindow: Bool
+    ) -> (announce: Bool, isRemoved: Bool) {
+        guard !isScreenLocked,
+              !isDisplayAsleep,
+              !inUnlockSettleWindow,
+              !flags.contains(.beginConfigurationFlag) else {
+            return (false, false)
+        }
+        let isRemoved = flags.contains(.removeFlag)
+        let isAdded = flags.contains(.addFlag)
+        guard isAdded || isRemoved else {
+            return (false, false)
+        }
+        return (true, isRemoved)
+    }
+
+    private static let displayReconfigCallback: CGDisplayReconfigurationCallBack = { displayID, flags, userInfo in
+        guard let userInfo else { return }
+        let registry = Unmanaged<DisplayRegistry>.fromOpaque(userInfo).takeUnretainedValue()
+        let rawFlags = flags.rawValue
+        Task { @MainActor in
+            registry.handleCGReconfiguration(displayID: displayID, flags: CGDisplayChangeSummaryFlags(rawValue: rawFlags))
+        }
+    }
+
+    private func handleCGReconfiguration(displayID: CGDirectDisplayID, flags: CGDisplayChangeSummaryFlags) {
+        if flags.contains(.beginConfigurationFlag) {
             pendingDebounceWork?.cancel()
             pendingDebounceWork = nil
-            onDisplaysReconfigurationBegan?(isRemoved)
             if let existing = liveSignatureCache[displayID] {
                 disconnectedSignatureCache[displayID] = existing
             }
             return
         }
-        if isRemoved, let existing = liveSignatureCache[displayID] {
+        if flags.contains(.removeFlag), let existing = liveSignatureCache[displayID] {
             disconnectedSignatureCache[displayID] = existing
         }
-        scheduleDebouncedRefresh()
+        guard !isScreenLocked && !isDisplayAsleep else {
+            return
+        }
+        let decision = Self.shouldAnnounceReconfigurationBegan(
+            flags: flags,
+            isScreenLocked: isScreenLocked,
+            isDisplayAsleep: isDisplayAsleep,
+            inUnlockSettleWindow: Date() < wakeOrUnlockSettleUntil
+        )
+        if decision.announce && !didAnnounceReconfigForCurrentBurst {
+            didAnnounceReconfigForCurrentBurst = true
+            onDisplaysReconfigurationBegan?(decision.isRemoved)
+        }
+        scheduleDebouncedRefresh(
+            delay: Self.debounceDelay(inUnlockSettleWindow: Date() < wakeOrUnlockSettleUntil)
+        )
     }
 
-    private func scheduleDebouncedRefresh() {
+    private func scheduleDebouncedRefresh(delay: TimeInterval = 1.0) {
         pendingDebounceWork?.cancel()
         let previousSignatures = connectedDisplays.map(\.signature)
         let work = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
+                guard !self.isScreenLocked && !self.isDisplayAsleep else { return }
+                self.didAnnounceReconfigForCurrentBurst = false
                 let currentOnline = Set(Self.onlineDisplayIDs())
+                guard !currentOnline.isEmpty else { return }
                 let newlyConnected = currentOnline.subtracting(self.knownOnlineDisplayIDs)
                 self.knownOnlineDisplayIDs = currentOnline
 
@@ -129,11 +335,12 @@ final class DisplayRegistry: ObservableObject {
                 }
 
                 self.refresh()
+                guard !self.connectedDisplays.isEmpty else { return }
                 self.onDisplaysReconfigured?(self.connectedDisplays, previousSignatures)
             }
         }
         pendingDebounceWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     nonisolated static func onlineDisplayIDs() -> [CGDirectDisplayID] {

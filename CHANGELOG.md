@@ -9,6 +9,13 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 
 ## [Unreleased]
 
+### Added
+- **Clipboard Image History** — capture screenshots and copied images with thumbnails, filters, metadata previews, pinning, instant paste, Save As export, and configurable local cache limits
+
+### Fixed
+- **Window Snapper (Lock, Sleep & Wake)** — locking the screen or letting displays sleep no longer counts as a display change, so waking the Mac keeps your layout instead of re-applying the auto profile and flashing a "Display Detected" loading toast
+- **Window Snapper (Startup)** — turning Window Snapper on no longer re-applies the auto profile when the connected display setup hasn't actually changed, and duplicate reconfigure events no longer stack a second loading toast
+
 ## [1.6.3] - 2026-11-26
 
 ### Added

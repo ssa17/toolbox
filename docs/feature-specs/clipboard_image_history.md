@@ -1,6 +1,6 @@
 # Clipboard History: Image History Support — Enhancement Spec
 
-> **Status:** Planned · **Target Module:** `Modules/Clipboard/` (`clipboard`) · **Parent:** [Toolbox Feature Roadmap](../feature-roadmap.md)
+> **Status:** Shipped · **Target Module:** `Modules/Clipboard/` (`clipboard`) · **Parent:** [Toolbox Feature Roadmap](../feature-roadmap.md)
 
 ### Purpose & User Value
 Toolbox's `Clipboard History` (`⌥ ⌘ V`) currently captures text only (`recordText`), meaning copied screenshots, `QuickScreenshot` captures, design snippets, and copied web images vanish as soon as the user copies something else. Adding **Image History Support** stores copied images cleanly on disk with fast thumbnails, SHA-256 deduplication, and instant re-paste—without bloating `config.json` or RAM.

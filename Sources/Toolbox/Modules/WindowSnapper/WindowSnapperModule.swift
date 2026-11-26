@@ -362,6 +362,7 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
     private var keyboardPreviewPollTimer: Timer?
     private var didBecomeActiveObserver: NSObjectProtocol?
     private var hasShownTilingConflictToastThisLaunch = false
+    private var didShowDisplayReconfigLoadingToast = false
     private let keyboardPreviewTap = KeyboardSnapPreviewTap()
     private var lastKeyboardPreviewCancelUptime: TimeInterval = 0
 
@@ -501,6 +502,7 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
                     self.config.profiles.first(where: { $0.id == id })
                 }
                 if let autoProfile {
+                    self.didShowDisplayReconfigLoadingToast = true
                     HUDToast.shared.showLoading(
                         title: isRemoved ? "Display Disconnected" : "Display Detected",
                         subtitle: isRemoved ? "Adjusting \(autoProfile.name)…" : "Loading \(autoProfile.name)…",
@@ -508,6 +510,7 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
                         maxDuration: 5.0
                     )
                 } else if self.config.displayConnectMode == .alwaysExtend && !isRemoved {
+                    self.didShowDisplayReconfigLoadingToast = true
                     HUDToast.shared.showLoading(
                         title: "Display Detected",
                         subtitle: "Extending displays…",
@@ -515,6 +518,7 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
                         maxDuration: 5.0
                     )
                 } else if self.config.displayConnectMode == .alwaysMirror && !isRemoved {
+                    self.didShowDisplayReconfigLoadingToast = true
                     HUDToast.shared.showLoading(
                         title: "Display Detected",
                         subtitle: "Mirroring displays…",
@@ -527,6 +531,8 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
         displayRegistry.onDisplaysReconfigured = { [weak self] connected, _ in
             guard let self else { return }
             self.glassPaneController.dismiss()
+            let hadLoadingToast = self.didShowDisplayReconfigLoadingToast
+            self.didShowDisplayReconfigLoadingToast = false
             guard self.isRunning, ConfigManager.shared.config.general.appEnabled else { return }
             self.profileEngine.handleDisplaysReconfigured(
                 connectedDisplays: connected,
@@ -534,9 +540,9 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
             ) { [weak self] batch in
                 self?.recordBatchInPreSnapStore(batch)
             }
-            if !self.profileEngine.isApplyingProfile,
-               self.profileEngine.suggestedTopologyProfileID == nil,
-               self.config.autoApplyProfileID == nil {
+            if hadLoadingToast,
+               !self.profileEngine.isApplyingProfile,
+               self.profileEngine.suggestedTopologyProfileID == nil {
                 HUDToast.shared.dismiss()
             }
             if self.overlayController.isLivePreviewActive {
@@ -576,6 +582,10 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
         guard !isRunning else { return }
         isRunning = true
         displayRegistry.startObserving()
+        profileEngine.seedCurrentTopology(
+            connectedDisplays: displayRegistry.connectedDisplays,
+            swapExternalDisplays: config.swapExternalDisplays
+        )
         refreshSequoiaConflictStatus()
         if didBecomeActiveObserver == nil {
             didBecomeActiveObserver = NotificationCenter.default.addObserver(
@@ -615,6 +625,7 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
         overlayController.endOnScreenEditor()
         overlayController.hideAllPreviews()
         glassPaneController.dismiss()
+        didShowDisplayReconfigLoadingToast = false
         guard isRunning else { return }
         isRunning = false
         ModuleRegistry.shared.notifyChanged()
@@ -1817,6 +1828,10 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
         var cfg = ConfigManager.shared.config.windowSnapper
         cfg.swapExternalDisplays.toggle()
         ConfigManager.shared.config.windowSnapper = cfg
+        profileEngine.seedCurrentTopology(
+            connectedDisplays: displayRegistry.connectedDisplays,
+            swapExternalDisplays: cfg.swapExternalDisplays
+        )
 
         let targetProfile = cfg.activeProfileID.flatMap { id in cfg.profiles.first(where: { $0.id == id }) }
             ?? cfg.autoApplyProfileID.flatMap { id in cfg.profiles.first(where: { $0.id == id }) }

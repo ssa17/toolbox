@@ -63,6 +63,7 @@ private final class ClipboardLimitDraftState: ObservableObject {
     @Published var heightText: String = ""
     @Published var isCustomSizeSelected: Bool = false
     @Published var showClearConfirmation = false
+    @Published var showClearImageConfirmation = false
 }
 
 struct ClipboardSettingsView: View {
@@ -87,6 +88,10 @@ struct ClipboardSettingsView: View {
             )
         let unpinnedCount = module.entries.filter { !$0.isPinned }.count
         let hasUnpinned = unpinnedCount > 0
+        let imageCount = module.entries.filter { $0.kind == .image }.count
+        let hasImages = imageCount > 0
+        let hasPinnedImages = module.entries.contains { $0.kind == .image && $0.isPinned }
+        let hasImageCache = hasImages || module.imageDiskUsage > 0
 
         VStack(alignment: .leading, spacing: 22) {
             FeatureSection("Shortcut & Paste Behavior") {
@@ -293,6 +298,84 @@ struct ClipboardSettingsView: View {
                 }
             }
 
+            FeatureSection("Image History", subtitle: "Keep copied screenshots and images alongside text, with local PNG storage and compact thumbnails.") {
+                SettingRow(
+                    "Capture copied images",
+                    subtitle: "Ignores Finder file icons and image previews attached to copied text. Raw images larger than the size limit are skipped."
+                ) {
+                    Toggle("", isOn: $configManager.config.clipboard.captureImages)
+                        .labelsHidden()
+                        .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
+                        .pointerCursor()
+                }
+
+                Divider()
+
+                SettingRow(
+                    "Max image items",
+                    subtitle: "Limits unpinned images independently within the overall recent-history limit. Pinned images stay saved."
+                ) {
+                    HStack(spacing: 8) {
+                        Text("\(configManager.config.clipboard.maxImageItems) items")
+                            .toolboxFont(.callout.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                        Stepper("", value: $configManager.config.clipboard.maxImageItems, in: 1...100)
+                            .labelsHidden()
+                            .pointerCursor()
+                    }
+                }
+
+                Divider()
+
+                SettingRow(
+                    "Max image size (MB)",
+                    subtitle: "Rejects unusually large raw pasteboard payloads before decoding or writing them to disk."
+                ) {
+                    HStack(spacing: 8) {
+                        Text("\(configManager.config.clipboard.maxImageSizeMB) MB")
+                            .toolboxFont(.callout.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                        Stepper("", value: $configManager.config.clipboard.maxImageSizeMB, in: 1...100)
+                            .labelsHidden()
+                            .pointerCursor()
+                    }
+                }
+
+                Divider()
+
+                SettingRow(
+                    "Image disk usage",
+                    subtitle: "\(imageCount) saved \(imageCount == 1 ? "image" : "images") · \(ByteCountFormatter.string(fromByteCount: module.imageDiskUsage, countStyle: .file)) on disk"
+                ) {
+                    Button("Clear Image Cache", role: .destructive) {
+                        limitDraft.showClearImageConfirmation = true
+                    }
+                    .buttonStyle(.toolboxDestructive)
+                    .disabled(!hasImageCache)
+                    .pointerCursor(hasImageCache)
+                    .confirmationDialog(
+                        "Clear clipboard image cache?",
+                        isPresented: $limitDraft.showClearImageConfirmation,
+                        titleVisibility: .visible
+                    ) {
+                        Button(hasPinnedImages ? "Clear Unpinned Images" : "Clear Image Cache", role: .destructive) {
+                            module.clearImageCache(keepPinned: true)
+                        }
+                        if hasPinnedImages {
+                            Button("Clear All Images", role: .destructive) {
+                                module.clearImageCache(keepPinned: false)
+                            }
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("Clearing unpinned images preserves pinned images. Choose Clear All Images only if you also want to delete pinned image entries.")
+                    }
+                }
+                .onAppear {
+                    module.refreshImageDiskUsage()
+                }
+            }
+
             FeatureSection("Dropdown Size", subtitle: "Choose how large the floating Clipboard dropdown opens.") {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 10) {
@@ -346,7 +429,7 @@ struct ClipboardSettingsView: View {
                     ("Navigate items", ["↑", "↓"]),
                     ("Paste selected item", ["⏎"]),
                     ("Quick-paste item 1–9", ["⌘ 1…9"]),
-                    ("View full text", ["→", "Space", "⌘ I"]),
+                    ("Inspect text or image", ["→", "Space", "⌘ I"]),
                     ("Pin or unpin item", ["⌘ P"]),
                     ("Move pinned item", ["⌘ ↑↓", "Drag"]),
                     ("Name or rename item", ["⌘ R"]),
