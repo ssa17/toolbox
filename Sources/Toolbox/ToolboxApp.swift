@@ -54,10 +54,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registry.reloadAll(with: configManager.config)
         self.lastAppliedConfig = configManager.config
 
-        // Screen OCR: remove capture artifacts left behind by the previous session
-        // (failed captures are intentionally kept on disk for diagnosis, so they must
+        // Screen OCR & Quick Screenshot: remove capture artifacts left behind by the previous session
+        // (failed OCR captures are intentionally kept on disk for diagnosis, so they must
         // not accumulate across launches).
         ScreenOCRModule.sweepStaleTempFiles()
+        QuickScreenshotModule.sweepStaleTempFiles()
 
         let pendingReopenAt = UserDefaults.standard.double(forKey: ScreenOCRModule.pendingReopenToastKey)
         let didReopenAfterScreenGrant = pendingReopenAt > 0
@@ -109,6 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if Self.allowImmediateTermination
             || ModuleRegistry.shared.screenOCR.shouldAllowSystemQuitAndReopen
+            || ModuleRegistry.shared.quickScreenshot.shouldAllowSystemQuitAndReopen
             || ModuleRegistry.shared.windowSwitcher.shouldAllowSystemQuitAndReopen
             || PermissionsManager.shared.isAwaitingAccessibilityGrant
             || PermissionsManager.shared.shouldAllowSystemQuitAndReopenForInputMonitoring
@@ -145,6 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ModuleRegistry.shared.cleanLock.stop()
         ModuleRegistry.shared.callControls.stop()
         ModuleRegistry.shared.screenOCR.stop()
+        ModuleRegistry.shared.quickScreenshot.stop()
         ModuleRegistry.shared.windowSnapper.stop()
         ModuleRegistry.shared.finderEnhancer.stop()
         ModuleRegistry.shared.windowSwitcher.stop()

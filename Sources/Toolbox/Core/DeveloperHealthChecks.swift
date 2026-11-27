@@ -909,6 +909,9 @@ final class DeveloperHealthCheckRunner: ObservableObject {
         if cfg.windowSwitcher.enabled && !cfg.windowSwitcher.currentAppOnlyShortcut.isEmpty {
             expectedNames.append(ModuleRegistry.shared.windowSwitcher.currentAppHotKeyName)
         }
+        if cfg.quickScreenshot.enabled && !cfg.quickScreenshot.shortcut.isEmpty {
+            expectedNames.append(ModuleRegistry.shared.quickScreenshot.hotKeyName)
+        }
 
         let missing = expectedNames.filter { !hk.isRegistered(name: $0) }
         if missing.isEmpty {

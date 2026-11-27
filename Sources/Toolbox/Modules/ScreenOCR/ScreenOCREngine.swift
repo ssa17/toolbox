@@ -422,8 +422,9 @@ enum ScreenOCREngine {
         }
 
         let source = CGImageSourceCreateWithURL(url as CFURL, nil)
+        let decodeOptions = [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
         guard let source,
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+              let image = CGImageSourceCreateImageAtIndex(source, 0, decodeOptions) else {
             return CapturedImageLoad(
                 kind: .failed,
                 image: nil,

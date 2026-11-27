@@ -95,6 +95,22 @@ enum ShortcutCatalog {
         ))
 
         result.append(ShortcutDescriptor(
+            id: "quick_screenshot",
+            moduleID: "quick_screenshot",
+            moduleName: "Quick Screenshot",
+            actionTitle: "Capture Quick Screenshot",
+            subtitle: "Capture an area or window to annotate, redact secrets, copy, or save.",
+            registrationKey: "quick_screenshot.capture",
+            isPrimary: true,
+            defaultSpec: QuickScreenshotConfig().shortcut,
+            conflictDisplayLabel: "Quick Screenshot",
+            isModuleEnabled: { $0.quickScreenshot.enabled },
+            participatesInConflicts: { cfg, _ in cfg.quickScreenshot.enabled },
+            read: { $0.quickScreenshot.shortcut },
+            write: { spec, cfg in cfg.quickScreenshot.shortcut = spec }
+        ))
+
+        result.append(ShortcutDescriptor(
             id: "keep_awake",
             moduleID: "keep_awake",
             moduleName: "Keep Awake",

@@ -398,12 +398,14 @@ final class PointerCursorNSView: NSView {
             dragCursor.set()
             return true
         }
+        let mouse = NSEvent.mouseLocation
         guard window.isVisible,
               isManagedCursorWindow(window),
+              isWindowTopmostAtMouse(window, screenPoint: mouse),
               let rootView = window.contentView?.superview ?? window.contentView else {
             return false
         }
-        let pt = window.convertPoint(fromScreen: NSEvent.mouseLocation)
+        let pt = window.convertPoint(fromScreen: mouse)
         guard rootView.bounds.contains(pt) else { return false }
         if containsPointerCursorView(in: rootView, atWindowPoint: pt) {
             forcePointingHandCursor()
@@ -461,6 +463,24 @@ final class PointerCursorNSView: NSView {
         return nil
     }
 
+    static func selectTopmostManagedWindow(from candidates: [NSWindow], topWindowNumber: Int) -> NSWindow? {
+        if topWindowNumber > 0 {
+            return candidates.first(where: { $0.windowNumber == topWindowNumber })
+        }
+        return candidates.max { lhs, rhs in
+            lhs.level.rawValue < rhs.level.rawValue
+        }
+    }
+
+    static func isWindowTopmostAtMouse(_ window: NSWindow, screenPoint mouse: NSPoint = NSEvent.mouseLocation) -> Bool {
+        guard window.isVisible, window.windowNumber > 0 else { return false }
+        let topNumber = NSWindow.windowNumber(at: mouse, belowWindowWithWindowNumber: 0)
+        if topNumber > 0 {
+            return topNumber == window.windowNumber
+        }
+        return topmostManagedWindow(atScreenPoint: mouse) === window
+    }
+
     private static func topmostManagedWindow(atScreenPoint mouse: NSPoint) -> NSWindow? {
         var candidates: [NSWindow] = []
         var seen = Set<ObjectIdentifier>()
@@ -479,9 +499,8 @@ final class PointerCursorNSView: NSView {
                 candidates.append(win)
             }
         }
-        return candidates.max { lhs, rhs in
-            lhs.level.rawValue < rhs.level.rawValue
-        }
+        let topNumber = NSWindow.windowNumber(at: mouse, belowWindowWithWindowNumber: 0)
+        return selectTopmostManagedWindow(from: candidates, topWindowNumber: topNumber)
     }
 
     static func syncCursor(in window: NSWindow) {
@@ -495,10 +514,10 @@ final class PointerCursorNSView: NSView {
         }
         guard isManagedCursorWindow(window) else { return }
         let mouse = NSEvent.mouseLocation
-        if let topWindow = topmostManagedWindow(atScreenPoint: mouse),
-           topWindow !== window,
-           topWindow.level.rawValue > window.level.rawValue {
-            syncCursor(in: topWindow)
+        if !isWindowTopmostAtMouse(window, screenPoint: mouse) {
+            if let topWindow = topmostManagedWindow(atScreenPoint: mouse), topWindow !== window {
+                syncCursor(in: topWindow)
+            }
             return
         }
         guard let rootView = window.contentView?.superview ?? window.contentView else { return }
@@ -508,10 +527,11 @@ final class PointerCursorNSView: NSView {
             forcePointingHandCursor()
         } else if let custom = customHoverCursor(in: rootView, atWindowPoint: ptInWindow) {
             custom.set()
-        } else if NSCursor.currentSystem?.hotSpot == NSCursor.pointingHand.hotSpot
+        } else if NSCursor.current === NSCursor.crosshair
+            || NSCursor.currentSystem?.hotSpot == NSCursor.pointingHand.hotSpot
             || NSCursor.currentSystem?.hotSpot == NSCursor.openHand.hotSpot
             || NSCursor.currentSystem?.hotSpot == NSCursor.closedHand.hotSpot {
-            // Reset only if we're leaving a pointing-hand or drag-hand region so IBeam/resize cursors remain untouched.
+            // Reset only if we're leaving a pointing-hand, crosshair, or drag-hand region.
             NSCursor.arrow.set()
         }
     }
@@ -544,7 +564,8 @@ final class PointerCursorNSView: NSView {
         localEventMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.leftMouseDown, .leftMouseUp, .mouseMoved, .cursorUpdate]
         ) { event in
-            guard let window = event.window ?? topmostManagedWindow(atScreenPoint: NSEvent.mouseLocation) ?? NSApp.keyWindow,
+            let mouse = NSEvent.mouseLocation
+            guard let window = topmostManagedWindow(atScreenPoint: mouse) ?? event.window ?? NSApp.keyWindow,
                   isManagedCursorWindow(window) else {
                 return event
             }
@@ -673,7 +694,10 @@ final class PointerCursorNSView: NSView {
             dragCursor.set()
             return
         }
-        guard let window, window.isVisible else { return }
+        guard let window, window.isVisible, Self.isWindowTopmostAtMouse(window) else {
+            isHovered = false
+            return
+        }
         let ptInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
         let nowHovered = Self.isPoint(ptInWindow, inside: self)
         let wasHovered = isHovered
@@ -682,7 +706,8 @@ final class PointerCursorNSView: NSView {
             Self.forcePointingHandCursor()
             RunLoop.main.perform(inModes: [.eventTracking, .common]) { [weak self] in
                 MainActor.assumeIsolated {
-                    guard let self, let win = self.window, win.isVisible else { return }
+                    guard let self, let win = self.window, win.isVisible,
+                          Self.isWindowTopmostAtMouse(win) else { return }
                     let pt = win.convertPoint(fromScreen: NSEvent.mouseLocation)
                     if Self.isPoint(pt, inside: self) {
                         Self.forcePointingHandCursor()
@@ -699,7 +724,7 @@ final class PointerCursorNSView: NSView {
             dragCursor.set()
             return
         }
-        if let window, window.isVisible {
+        if let window, window.isVisible, Self.isWindowTopmostAtMouse(window) {
             let ptInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
             isHovered = Self.isPoint(ptInWindow, inside: self)
         } else {
@@ -717,7 +742,10 @@ final class PointerCursorNSView: NSView {
             dragCursor.set()
             return
         }
-        guard let window, window.isVisible else { return }
+        guard let window, window.isVisible, Self.isWindowTopmostAtMouse(window) else {
+            isHovered = false
+            return
+        }
         let ptInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
         isHovered = Self.isPoint(ptInWindow, inside: self)
         guard isHovered else { return }
@@ -725,7 +753,8 @@ final class PointerCursorNSView: NSView {
         // Re-apply on the next tracking-loop turn in case NSMenu resets the cursor upon initial window entry.
         RunLoop.main.perform(inModes: [.eventTracking, .common]) { [weak self] in
             MainActor.assumeIsolated {
-                guard let self, let win = self.window, win.isVisible else { return }
+                guard let self, let win = self.window, win.isVisible,
+                      Self.isWindowTopmostAtMouse(win) else { return }
                 let pt = win.convertPoint(fromScreen: NSEvent.mouseLocation)
                 if Self.isPoint(pt, inside: self) {
                     Self.forcePointingHandCursor()

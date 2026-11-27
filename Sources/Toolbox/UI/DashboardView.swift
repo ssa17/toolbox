@@ -24,6 +24,7 @@ struct DashboardView: View {
     @ObservedObject private var permissions = PermissionsManager.shared
     @ObservedObject private var registry = ModuleRegistry.shared
     @ObservedObject private var screenOCR = ModuleRegistry.shared.screenOCR
+    @ObservedObject private var quickScreenshot = ModuleRegistry.shared.quickScreenshot
     @ObservedObject private var windowSnapper = ModuleRegistry.shared.windowSnapper
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -66,7 +67,7 @@ struct DashboardView: View {
 
                     if !permissions.isAccessibilityGranted {
                         accessibilityBanner
-                    } else if configManager.config.screenOCR.enabled && !screenOCR.screenRecordingGranted {
+                    } else if needsScreenRecordingBanner {
                         screenRecordingBanner
                     }
 
@@ -332,10 +333,22 @@ struct DashboardView: View {
         }
     }
 
+    private var needsScreenOCRPermission: Bool {
+        configManager.config.screenOCR.enabled && !screenOCR.screenRecordingGranted
+    }
+
+    private var needsQuickScreenshotPermission: Bool {
+        configManager.config.quickScreenshot.enabled && !quickScreenshot.screenRecordingGranted
+    }
+
+    private var needsScreenRecordingBanner: Bool {
+        needsScreenOCRPermission || needsQuickScreenshotPermission
+    }
+
     @ViewBuilder
     private var accessibilityBannerBadges: some View {
         HStack(spacing: 6) {
-            if configManager.config.screenOCR.enabled && !screenOCR.screenRecordingGranted {
+            if needsScreenRecordingBanner {
                 StatusBadge(text: "Step 1 of 2", color: .orange)
             }
             if permissions.isAwaitingAccessibilityGrant {
@@ -345,28 +358,36 @@ struct DashboardView: View {
     }
 
     private var screenRecordingBanner: some View {
-        SectionCard(accentTint: .orange) {
+        let bothNeed = needsScreenOCRPermission && needsQuickScreenshotPermission
+        let onlyQuickShot = !needsScreenOCRPermission && needsQuickScreenshotPermission
+        let featureTitle = bothNeed
+            ? "Screen Capture Modules"
+            : (onlyQuickShot ? "Quick Screenshot" : "Screen OCR")
+        let targetModuleID = onlyQuickShot ? "quick_screenshot" : "screen_ocr"
+        let isAwaiting = screenOCR.isAwaitingScreenPermission || quickScreenshot.isAwaitingScreenPermission
+
+        return SectionCard(accentTint: .orange) {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top, spacing: 14) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 10)
                             .fill(Color.orange.opacity(0.16))
                             .frame(width: 42, height: 42)
-                        Image(systemName: "text.viewfinder")
+                        Image(systemName: onlyQuickShot ? "camera.viewfinder" : "text.viewfinder")
                             .toolboxFont(.title3.weight(.semibold))
                             .foregroundStyle(.orange)
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 8) {
-                            Text("Enable Screen Recording for Screen OCR")
+                            Text("Enable Screen Recording for \(featureTitle)")
                                 .toolboxFont(.headline)
                             StatusBadge(
-                                text: screenOCR.isAwaitingScreenPermission ? "Waiting for permission…" : "Step 2 of 2",
+                                text: isAwaiting ? "Waiting for permission…" : "Step 2 of 2",
                                 color: .orange
                             )
                         }
-                        Text("Accessibility is active. Next, in System Settings → Privacy & Security → Screen & System Audio Recording, turn on Toolbox.app so Screen OCR can capture screen regions offline.")
+                        Text("Accessibility is active. Next, in System Settings → Privacy & Security → Screen & System Audio Recording, turn on Toolbox.app so \(featureTitle) can capture screen regions offline.")
                             .toolboxFont(.system(size: 13))
                             .foregroundStyle(Color.primary.opacity(0.78))
                             .fixedSize(horizontal: false, vertical: true)
@@ -378,9 +399,9 @@ struct DashboardView: View {
                     Spacer(minLength: 0)
 
                     Button {
-                        onSelectModule("screen_ocr")
+                        onSelectModule(targetModuleID)
                     } label: {
-                        Label("Screen OCR Settings", systemImage: "slider.horizontal.3")
+                        Label("\(onlyQuickShot ? "Quick Screenshot" : "Screen OCR") Settings", systemImage: "slider.horizontal.3")
                             .toolboxFont(.callout.weight(.medium))
                             .padding(.horizontal, 4)
                     }
@@ -389,15 +410,23 @@ struct DashboardView: View {
                     .pointerCursor()
 
                     Button {
-                        if screenOCR.isAwaitingScreenPermission {
-                            screenOCR.openScreenSettings()
+                        if isAwaiting {
+                            if onlyQuickShot {
+                                quickScreenshot.openScreenSettings()
+                            } else {
+                                screenOCR.openScreenSettings()
+                            }
                         } else {
-                            screenOCR.requestScreenAccess()
+                            if onlyQuickShot {
+                                quickScreenshot.requestScreenAccess()
+                            } else {
+                                screenOCR.requestScreenAccess()
+                            }
                         }
                     } label: {
                         Label(
-                            screenOCR.isAwaitingScreenPermission ? "Open Settings…" : "Grant Screen Access…",
-                            systemImage: "text.viewfinder"
+                            isAwaiting ? "Open Settings…" : "Grant Screen Access…",
+                            systemImage: onlyQuickShot ? "camera.viewfinder" : "text.viewfinder"
                         )
                         .toolboxFont(.callout.weight(.semibold))
                         .padding(.horizontal, 6)
@@ -624,7 +653,9 @@ private struct DashboardModuleCard: View {
 
     private var badgeColor: Color {
         let isEnabled = module.isEnabled(in: config)
-        let missingScreenPermission = (module as? ScreenOCRModule).map { !$0.screenRecordingGranted } ?? false
+        let missingScreenPermission = (module as? ScreenOCRModule).map { !$0.screenRecordingGranted }
+            ?? (module as? QuickScreenshotModule).map { !$0.screenRecordingGranted }
+            ?? false
         if !isEnabled { return .secondary }
         if !config.general.appEnabled { return .orange }
         if module.requiresAccessibility && !accessibilityGranted { return .orange }

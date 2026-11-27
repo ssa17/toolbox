@@ -142,7 +142,8 @@ struct GeneralConfig: Codable, Equatable, Sendable {
         "window_snapper",
         "finder_enhancer",
         "window_switcher",
-        "hyper_key"
+        "hyper_key",
+        "quick_screenshot"
     ]
 
     var appEnabled: Bool = true
@@ -2856,13 +2857,91 @@ struct HyperKeyConfig: Codable, Equatable, Sendable {
     }
 }
 
+enum RedactStyle: String, Codable, CaseIterable, Identifiable, Sendable {
+    case solidBlack = "solid_black"
+    case blur = "blur"
+    case pixelate = "pixelate"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .solidBlack: return "Solid Opaque Box"
+        case .blur: return "Smooth Blur"
+        case .pixelate: return "Pixelate"
+        }
+    }
+
+    var shortLabel: String {
+        switch self {
+        case .solidBlack: return "Solid"
+        case .blur: return "Blur"
+        case .pixelate: return "Pixelate"
+        }
+    }
+}
+
+enum ScreenshotSaveFormat: String, Codable, CaseIterable, Identifiable, Sendable {
+    case png
+    case jpeg
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .png: return "PNG"
+        case .jpeg: return "JPEG"
+        }
+    }
+
+    var fileExtension: String { rawValue }
+}
+
+struct QuickScreenshotConfig: Codable, Equatable, Sendable {
+    static let defaultShortcut = ShortcutSpec(key: "5", modifiers: [.control, .option, .command])
+
+    var enabled: Bool = false
+    var shortcut: ShortcutSpec = QuickScreenshotConfig.defaultShortcut
+    var openEditorAfterCapture: Bool = true
+    var closeEditorAfterCopy: Bool = true
+    var omitWindowShadow: Bool = false
+    var defaultRedactMode: RedactStyle = .solidBlack
+    var defaultSaveDirectory: String = "~/Desktop"
+    var saveFormat: ScreenshotSaveFormat = .png
+    var jpegQuality: Double = 0.9
+    var showToast: Bool = true
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        shortcut = try c.decodeIfPresent(ShortcutSpec.self, forKey: .shortcut) ?? Self.defaultShortcut
+        openEditorAfterCapture = try c.decodeIfPresent(Bool.self, forKey: .openEditorAfterCapture) ?? true
+        closeEditorAfterCopy = try c.decodeIfPresent(Bool.self, forKey: .closeEditorAfterCopy) ?? true
+        omitWindowShadow = try c.decodeIfPresent(Bool.self, forKey: .omitWindowShadow) ?? false
+        defaultRedactMode = try c.decodeIfPresent(RedactStyle.self, forKey: .defaultRedactMode) ?? .solidBlack
+        let rawDir = (try c.decodeIfPresent(String.self, forKey: .defaultSaveDirectory) ?? "~/Desktop")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        defaultSaveDirectory = rawDir.isEmpty ? "~/Desktop" : rawDir
+        saveFormat = try c.decodeIfPresent(ScreenshotSaveFormat.self, forKey: .saveFormat) ?? .png
+        let rawQuality = try c.decodeIfPresent(Double.self, forKey: .jpegQuality) ?? 0.9
+        jpegQuality = Self.clampedJPEGQuality(rawQuality)
+        showToast = try c.decodeIfPresent(Bool.self, forKey: .showToast) ?? true
+    }
+
+    static func clampedJPEGQuality(_ quality: Double) -> Double {
+        min(max(quality, 0.1), 1.0)
+    }
+}
+
 struct ToolboxConfig: Codable, Equatable, Sendable {
     private enum LegacyCodingKeys: String, CodingKey {
         case audioGuard
         case windowSnapping
     }
 
-    var schemaVersion: Int = 17
+    var schemaVersion: Int = 18
     var general: GeneralConfig = GeneralConfig()
     var dockMinimize: DockMinimizeConfig = DockMinimizeConfig()
     var clipboard: ClipboardConfig = ClipboardConfig()
@@ -2877,6 +2956,7 @@ struct ToolboxConfig: Codable, Equatable, Sendable {
     var finderEnhancer: FinderEnhancerConfig = FinderEnhancerConfig()
     var windowSwitcher: WindowSwitcherConfig = WindowSwitcherConfig()
     var hyperKey: HyperKeyConfig = HyperKeyConfig()
+    var quickScreenshot: QuickScreenshotConfig = QuickScreenshotConfig()
     var extensions: [String: JSONValue] = [:]
 
     init() {}
@@ -2909,7 +2989,7 @@ struct ToolboxConfig: Codable, Equatable, Sendable {
         if decodedSchema < 8 {
             decodedCallControls.showFloatingPillOnlyDuringCalls = true
         }
-        schemaVersion = max(decodedSchema, 17)
+        schemaVersion = max(decodedSchema, 18)
         callControls = decodedCallControls
         windowSnapper = try c.decodeIfPresent(WindowSnapperConfig.self, forKey: .windowSnapper)
             ?? legacyContainer.decodeIfPresent(WindowSnapperConfig.self, forKey: .windowSnapping)
@@ -2917,6 +2997,7 @@ struct ToolboxConfig: Codable, Equatable, Sendable {
         finderEnhancer = try c.decodeIfPresent(FinderEnhancerConfig.self, forKey: .finderEnhancer) ?? FinderEnhancerConfig()
         windowSwitcher = try c.decodeIfPresent(WindowSwitcherConfig.self, forKey: .windowSwitcher) ?? WindowSwitcherConfig()
         hyperKey = try c.decodeIfPresent(HyperKeyConfig.self, forKey: .hyperKey) ?? HyperKeyConfig()
+        quickScreenshot = try c.decodeIfPresent(QuickScreenshotConfig.self, forKey: .quickScreenshot) ?? QuickScreenshotConfig()
         extensions = try c.decodeIfPresent([String: JSONValue].self, forKey: .extensions) ?? [:]
     }
 

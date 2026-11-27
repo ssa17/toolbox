@@ -1,6 +1,6 @@
 # Quick Screenshot — Feature Spec
 
-> **Status:** Planned · **Module:** `Modules/QuickScreenshot/` · **Parent:** [Toolbox Feature Roadmap](../feature-roadmap.md)
+> **Status:** Shipped · **Module:** `Modules/QuickScreenshot/` · **Parent:** [Toolbox Feature Roadmap](../feature-roadmap.md)
 
 ### Purpose & User Value
 macOS's built-in screenshot tool drops files onto the Desktop and offers slow, basic Markup—making it tedious to capture an area, add an arrow or step number, **irreversibly redact** sensitive emails/API keys, and copy straight to the clipboard for Slack, GitHub, email, or AI chats. **Quick Screenshot** (`⌃ ⌥ ⌘ 5`) gives users a fast, CleanShot X / Shottr-style floating capture editor with solid-box redaction, one-click Vision OCR, and seamless integration with Toolbox's `Clipboard` history.
@@ -10,8 +10,8 @@ macOS's built-in screenshot tool drops files onto the Desktop and offers slow, b
   - Launches `/usr/sbin/screencapture -i -x [-o] <tempPath>` (pressing `Space` toggles window capture; `Esc` cancels cleanly with no toast).
   - If `openEditorAfterCapture == true` (default), opens a crisp floating **Quick Editor** window containing the captured image; if `false`, copies straight to `NSPasteboard.general` with a `HUDToast` and optional compact corner preview card to open the editor on click.
 - **Quick Editor Canvas:**
-  - **Tools:** Select/Move (`V`), Arrow (`A`), Rectangle (`R`), Ellipse (`O`), Highlighter (`H`), Text Callout (`T`), Auto-Increment Step Counter (`N`: `1`, `2`, `3`…), **Redact (`B` — Solid Opaque Box default, or Pixelate)**, and Crop (`C`).
-  - **Style & History Bar:** Color swatches, stroke thickness, `Undo (⌘ Z)` / `Redo (⇧ ⌘ Z)`.
+  - **Tools:** Select/Move (`S`), Arrow (`A`), Rect (`R`), Ellipse (`E`), Highlight (`H`), Text (`T`), Number (`N`: `1`, `2`, `3`…), **Redact (`X` — Solid Opaque Box default, or Pixelate)**, and Crop (`C`).
+  - **Style & History Bar:** Contextual color swatches & stroke thickness (or Solid/Pixelate style when Redact is active/selected), `Undo (⌘ Z)` / `Redo (⇧ ⌘ Z)`.
   - **Smart Actions:**
     - **Auto-Redact Secrets/PII:** Runs local `Vision` text recognition + pattern matching (emails, `sk-...`, `ghp_...`, `AKIA...`, `Bearer ...`, JWTs, phone/card numbers) and places editable solid-black redaction boxes over matches so users can review or undo before exporting.
     - **Copy Text (OCR):** Reuses `ScreenOCREngine` to copy extracted text from the screenshot.

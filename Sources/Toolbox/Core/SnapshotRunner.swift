@@ -245,6 +245,86 @@ enum SnapshotRunner {
         )
         ocrModule.replaceRecentCaptures([])
 
+        let quickScreenshotModule = registry.quickScreenshot
+        quickScreenshotModule.setScreenRecordingGrantedForTesting(true)
+        let navQuickScreenshot = NavigationState()
+        navQuickScreenshot.selection = .module("quick_screenshot")
+        navQuickScreenshot.isSidebarVisible = true
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navQuickScreenshot),
+            size: NSSize(width: 940, height: 1120),
+            to: outURL.appendingPathComponent("module_quick_screenshot.png")
+        )
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navQuickScreenshot),
+            size: NSSize(width: 820, height: 1180),
+            to: outURL.appendingPathComponent("module_quick_screenshot_minwidth.png")
+        )
+
+        if let editorSample = syntheticQuickScreenshotSample() {
+            let editorSession = ScreenshotEditorSession(image: editorSample, defaultRedactStyle: .solidBlack)
+            editorSession.activeTool = .redact
+            editorSession.addStepBadge(at: CGPoint(x: 92, y: 170))
+            editorSession.addAnnotation(
+                AnnotationItem(
+                    kind: .arrow,
+                    startPoint: CGPoint(x: 112, y: 170),
+                    endPoint: CGPoint(x: 344, y: 228),
+                    color: .red,
+                    strokeWidth: 4
+                ),
+                selectAfterAdd: false
+            )
+            editorSession.addAnnotation(
+                AnnotationItem(
+                    kind: .rectangle,
+                    rect: CGRect(x: 352, y: 205, width: 396, height: 64),
+                    color: .orange,
+                    strokeWidth: 4
+                ),
+                selectAfterAdd: false
+            )
+            editorSession.applyAutoRedactSuggestions([
+                AutoRedactCandidate(
+                    category: .apiKey,
+                    rect: CGRect(x: 244, y: 318, width: 332, height: 32),
+                    maskedSnippet: "sk-proj-••••9a2f",
+                    confidence: 0.98
+                ),
+                AutoRedactCandidate(
+                    category: .email,
+                    rect: CGRect(x: 210, y: 368, width: 172, height: 30),
+                    maskedSnippet: "al•••@acme.dev",
+                    confidence: 0.96
+                )
+            ])
+            editorSession.redactStyle = .pixelate
+            editorSession.addAnnotation(
+                AnnotationItem(
+                    kind: .redact,
+                    rect: CGRect(x: 452, y: 220, width: 280, height: 34),
+                    redactStyle: .pixelate
+                ),
+                selectAfterAdd: true
+            )
+            editorSession.activeTool = .select
+            saveViewSnapshot(
+                QuickScreenshotEditorView(
+                    session: editorSession,
+                    onCopy: {},
+                    onSave: {},
+                    onSaveAs: {},
+                    onShare: { _ in },
+                    onAutoRedact: {},
+                    onCopyOCR: {},
+                    onRequestClose: {}
+                )
+                .frame(width: 1080, height: 740),
+                size: NSSize(width: 1080, height: 740),
+                to: outURL.appendingPathComponent("quick_screenshot_editor.png")
+            )
+        }
+
         let navCommands = NavigationState()
         navCommands.selection = .module("custom_commands")
         navCommands.isSidebarVisible = true
@@ -1453,6 +1533,49 @@ enum SnapshotRunner {
             }
         }
         return img
+    }
+
+    private static func syntheticQuickScreenshotSample() -> CGImage? {
+        let width = 920
+        let height = 540
+        let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: width,
+            pixelsHigh: height,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        )
+        guard let rep, let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = ctx
+
+        NSColor(calibratedRed: 0.12, green: 0.14, blue: 0.18, alpha: 1.0).setFill()
+        NSRect(x: 0, y: 0, width: width, height: height).fill()
+
+        NSColor(calibratedRed: 0.17, green: 0.19, blue: 0.25, alpha: 1.0).setFill()
+        NSRect(x: 44, y: 44, width: width - 88, height: height - 88).fill()
+
+        let titleAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 24, weight: .bold),
+            .foregroundColor: NSColor.white
+        ]
+        ("Production Deploy Config" as NSString).draw(at: NSPoint(x: 80, y: 420), withAttributes: titleAttrs)
+
+        let bodyAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 18, weight: .medium),
+            .foregroundColor: NSColor(white: 0.85, alpha: 1.0)
+        ]
+        ("ENDPOINT=https://api.acme.dev/v2" as NSString).draw(at: NSPoint(x: 365, y: 292), withAttributes: bodyAttrs)
+        ("OPENAI_API_KEY=sk-proj-examplekey12349a2f" as NSString).draw(at: NSPoint(x: 84, y: 192), withAttributes: bodyAttrs)
+        ("OWNER_EMAIL=alex@acme.dev" as NSString).draw(at: NSPoint(x: 84, y: 142), withAttributes: bodyAttrs)
+
+        NSGraphicsContext.restoreGraphicsState()
+        return rep.cgImage
     }
 
     private static func saveUpdateDialogSnapshot(to url: URL) {

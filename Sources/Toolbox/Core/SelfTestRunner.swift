@@ -71,9 +71,14 @@ enum SelfTestRunner {
         testHyperKeyConfigAndCapsLockRemapperLogic()
         testHyperKeyStateMachineDirectDispatchAndRollover()
         testHyperKeyModuleLifecycleAndShortcutsNavigation()
+        testQuickScreenshotConfigAndMigration()
+        testQuickScreenshotAnnotationModelUndoRedoAndCoordinates()
+        testQuickScreenshotRendererFlatteningAndExport()
+        testQuickScreenshotAutoRedactorPatterns()
+        testQuickScreenshotModuleLifecycleAndChordTap()
 
         if failures.isEmpty {
-            print("All 55 self-test suites passed.")
+            print("All 60 self-test suites passed.")
             return 0
         } else {
             for f in failures {
@@ -1578,6 +1583,28 @@ enum SelfTestRunner {
                 "Menu bar popover panel at .popUpMenu level must use PointerCursorNSPanel and be managed by PointerCursorNSView"
             )
         }
+        let backWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 200),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let frontWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 200),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        expect(backWindow.windowNumber > 0 && frontWindow.windowNumber > 0 && backWindow.windowNumber != frontWindow.windowNumber,
+               "Buffered test windows must receive distinct positive window numbers")
+        expect(
+            PointerCursorNSView.selectTopmostManagedWindow(from: [backWindow, frontWindow], topWindowNumber: frontWindow.windowNumber) === frontWindow,
+            "Z-order selector must pick the WindowServer-topmost window rather than falling back to occluded same-level windows"
+        )
+        expect(
+            PointerCursorNSView.selectTopmostManagedWindow(from: [backWindow, frontWindow], topWindowNumber: 999_999_999) == nil,
+            "Z-order selector must return nil when an external unmanaged window is topmost"
+        )
         if let rootView = win.contentView?.superview ?? win.contentView {
             let contentTop = win.contentLayoutRect.maxY
             let windowTop = rootView.bounds.maxY
@@ -1654,7 +1681,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(cfg),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.scrollDirection == cfg.scrollDirection, "ScrollDirectionConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 17, "ToolboxConfig schemaVersion should be 17")
+            expect(decoded.schemaVersion == 18, "ToolboxConfig schemaVersion should be 18")
         } else {
             failures.append("ToolboxConfig Codable encode/decode failed")
         }
@@ -1954,7 +1981,7 @@ enum SelfTestRunner {
     private static func testMenuBarCustomizationOrderAndVisibility() {
         var cfg = ToolboxConfig()
         let registry = ModuleRegistry.shared
-        let expectedDefaultOrder = ["dock_minimize", "clipboard", "port_killer", "screen_ocr", "keep_awake", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer", "window_switcher", "hyper_key"]
+        let expectedDefaultOrder = ["dock_minimize", "clipboard", "port_killer", "screen_ocr", "keep_awake", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer", "window_switcher", "hyper_key", "quick_screenshot"]
 
         expect(!cfg.general.hasCustomMenuBarLayout, "Default config should not report custom menu bar layout")
         expect(cfg.general.showQuickActionsInMenuBar, "Quick actions should be shown in menu bar by default")
@@ -1965,32 +1992,32 @@ enum SelfTestRunner {
         )
         expect(
             registry.visibleMenuBarModules(for: cfg).map(\.id) == expectedDefaultOrder,
-            "All 12 menu-bar-eligible modules should be visible in menu bar by default"
+            "All 13 menu-bar-eligible modules should be visible in menu bar by default"
         )
 
         cfg.general.moveModuleInMenuBar(id: "keep_awake", direction: -1)
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["dock_minimize", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer", "window_switcher", "hyper_key"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["dock_minimize", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer", "window_switcher", "hyper_key", "quick_screenshot"],
             "Moving keep_awake up by 1 should place it before screen_ocr"
         )
         expect(cfg.general.hasCustomMenuBarLayout, "Reordering should mark hasCustomMenuBarLayout = true")
 
         cfg.general.moveModuleInMenuBar(fromId: "scroll_direction", toId: "dock_minimize")
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "dock_minimize", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "call_controls", "window_snapper", "finder_enhancer", "window_switcher", "hyper_key"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "dock_minimize", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "call_controls", "window_snapper", "finder_enhancer", "window_switcher", "hyper_key", "quick_screenshot"],
             "Dragging scroll_direction to dock_minimize should place it first"
         )
 
         cfg.general.setModuleVisibleInMenuBar("dock_minimize", visible: false)
         expect(
-            registry.visibleMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "call_controls", "window_snapper", "finder_enhancer", "window_switcher", "hyper_key"],
+            registry.visibleMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "call_controls", "window_snapper", "finder_enhancer", "window_switcher", "hyper_key", "quick_screenshot"],
             "Hiding dock_minimize from menu bar should omit it from visibleMenuBarModules"
         )
         expect(cfg.dockMinimize.enabled, "Hiding dock_minimize from status bar menu must not disable the module itself")
 
         cfg.general.menuBarModuleOrder = ["keep_awake", "clean_lock", "keep_awake", "unknown_id"]
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["keep_awake", "dock_minimize", "clipboard", "port_killer", "screen_ocr", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer", "window_switcher", "hyper_key"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["keep_awake", "dock_minimize", "clipboard", "port_killer", "screen_ocr", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer", "window_switcher", "hyper_key", "quick_screenshot"],
             "Partial, non-menu-bar, or unknown menuBarModuleOrder must normalize with remaining eligible modules and no duplicates"
         )
 
@@ -2018,7 +2045,7 @@ enum SelfTestRunner {
             return
         }
         expect(settingsLayout.distanceAboveDraggedCenter == 266, "distanceAboveDraggedCenter for index 4 should be 266 (got \(settingsLayout.distanceAboveDraggedCenter))")
-        expect(settingsLayout.distanceBelowDraggedCenter == 446, "distanceBelowDraggedCenter for index 4 of 12 should be 446 (got \(settingsLayout.distanceBelowDraggedCenter))")
+        expect(settingsLayout.distanceBelowDraggedCenter == 506, "distanceBelowDraggedCenter for index 4 of 13 should be 506 (got \(settingsLayout.distanceBelowDraggedCenter))")
         expect(settingsLayout.restingShift(forRowAt: 2, targetIndex: 1) == 60, "Row shifting down past 52pt card + 8pt spacing should shift +60")
 
         let dragState = VerticalDragReorderState<String>()
@@ -2034,7 +2061,7 @@ enum SelfTestRunner {
         }
         expect(!dragState.isDragging, "finishDrag should end active drag")
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["clipboard", "port_killer", "screen_ocr", "keep_awake", "dock_minimize", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer", "window_switcher", "hyper_key"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["clipboard", "port_killer", "screen_ocr", "keep_awake", "dock_minimize", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer", "window_switcher", "hyper_key", "quick_screenshot"],
             "Downward Settings drag should place dock_minimize after keep_awake (got \(registry.orderedMenuBarModules(for: cfg).map(\.id)))"
         )
         expect(!cfg.general.menuBarModuleOrder.contains("clean_lock"), "menuBarModuleOrder must never include non-menu-bar clean_lock")
@@ -2048,7 +2075,7 @@ enum SelfTestRunner {
             cfg.general.moveModuleInMenuBar(fromId: draggedID, toId: targetID, allModuleIDs: eligibleIDs)
         }
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["call_controls", "clipboard", "port_killer", "screen_ocr", "keep_awake", "dock_minimize", "custom_commands", "scroll_direction", "window_snapper", "finder_enhancer", "window_switcher", "hyper_key"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["call_controls", "clipboard", "port_killer", "screen_ocr", "keep_awake", "dock_minimize", "custom_commands", "scroll_direction", "window_snapper", "finder_enhancer", "window_switcher", "hyper_key", "quick_screenshot"],
             "Upward Settings drag should place call_controls at top (got \(registry.orderedMenuBarModules(for: cfg).map(\.id)))"
         )
 
@@ -2641,7 +2668,7 @@ enum SelfTestRunner {
 
     private static func testCallControlsConfigAndCoreAudioEnumeration() {
         let cfg = ToolboxConfig()
-        expect(cfg.schemaVersion == 17, "ToolboxConfig schemaVersion should be 17")
+        expect(cfg.schemaVersion == 18, "ToolboxConfig schemaVersion should be 18")
         expect(!cfg.callControls.enabled, "Call Controls should default to disabled")
         expect(cfg.callControls.overrideScope == .everywhere, "Default overrideScope should be everywhere")
         expect(cfg.callControls.typingUnmuteDelayMs == 450, "Default typingUnmuteDelayMs should be 450")
@@ -2676,7 +2703,7 @@ enum SelfTestRunner {
         let legacyJSON = "{\"schemaVersion\": 5, \"general\": {\"appEnabled\": true}}"
         if let data = legacyJSON.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 17, "Legacy config should upgrade to schemaVersion 17")
+            expect(migrated.schemaVersion == 18, "Legacy config should upgrade to schemaVersion 18")
             expect(!migrated.callControls.enabled, "Legacy config must migrate callControls.enabled = false")
             expect(migrated.callControls.overrideScope == .everywhere, "Migrated default overrideScope should be everywhere")
             expect(migrated.callControls.showFloatingPillOnlyDuringCalls, "Legacy config must migrate showFloatingPillOnlyDuringCalls = true")
@@ -2691,7 +2718,7 @@ enum SelfTestRunner {
         """
         if let data = v6JSON.data(using: .utf8),
            let upgraded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgraded.schemaVersion == 17, "v6 config should migrate to schemaVersion 17")
+            expect(upgraded.schemaVersion == 18, "v6 config should migrate to schemaVersion 18")
             expect(upgraded.callControls.overrideScope == .everywhere, "v6 active_call_app_only should upgrade to everywhere")
             expect(upgraded.callControls.showFloatingPillOnlyDuringCalls, "v6 config should upgrade showFloatingPillOnlyDuringCalls to true")
         } else {
@@ -2704,7 +2731,7 @@ enum SelfTestRunner {
         """
         if let data = v7JSON.data(using: .utf8),
            let upgradedV7 = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgradedV7.schemaVersion == 17, "v7 config should migrate to schemaVersion 17")
+            expect(upgradedV7.schemaVersion == 18, "v7 config should migrate to schemaVersion 18")
             expect(upgradedV7.callControls.showFloatingPillOnlyDuringCalls, "v7 showFloatingPillOnlyDuringCalls should upgrade to true")
         } else {
             failures.append("Failed to migrate v7 audioGuard config")
@@ -2716,7 +2743,7 @@ enum SelfTestRunner {
         """
         if let data = v8JSON.data(using: .utf8),
            let upgradedV8 = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgradedV8.schemaVersion == 17, "v8 config should migrate to schemaVersion 17")
+            expect(upgradedV8.schemaVersion == 18, "v8 config should migrate to schemaVersion 18")
             expect(upgradedV8.callControls.enabled, "v8 audioGuard.enabled must migrate to callControls.enabled")
             expect(upgradedV8.callControls.typingUnmuteDelayMs == 725, "v8 audioGuard fields must be preserved in callControls")
             expect(
@@ -3988,7 +4015,7 @@ enum SelfTestRunner {
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.callControls == micLockCfg.callControls, "CallControlsConfig mic-lock round-trip mismatch")
             expect(decoded.callControls.bluetoothMicLockFallbackUID == "usb-yeti", "Mic-lock fallback UID must survive a config round-trip")
-            expect(decoded.schemaVersion == 17, "Mic-lock config must serialize at schemaVersion 17")
+            expect(decoded.schemaVersion == 18, "Mic-lock config must serialize at schemaVersion 18")
         } else {
             failures.append("CallControlsConfig mic-lock encode/decode failed")
         }
@@ -4016,7 +4043,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(customCfg),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.screenOCR == customCfg.screenOCR, "ScreenOCRConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 17, "ToolboxConfig schemaVersion should be 17")
+            expect(decoded.schemaVersion == 18, "ToolboxConfig schemaVersion should be 18")
         } else {
             failures.append("ToolboxConfig with screenOCR failed Codable encode/decode")
         }
@@ -4026,7 +4053,7 @@ enum SelfTestRunner {
         let legacyJSON = "{\"schemaVersion\": 9, \"general\": {\"appEnabled\": true}}"
         if let data = legacyJSON.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 17, "Legacy v9 config should upgrade to schemaVersion 17")
+            expect(migrated.schemaVersion == 18, "Legacy v9 config should upgrade to schemaVersion 18")
             expect(!migrated.screenOCR.enabled, "Legacy config must migrate screenOCR.enabled = false")
         } else {
             failures.append("Failed to decode pre-ScreenOCR JSON config")
@@ -6223,7 +6250,7 @@ enum SelfTestRunner {
     private static func testWindowSnapperConfigHotKeysProfilesAndLifecycle() {
         // 1. Config defaults, migration from schema 10 -> 11, and lenient partial decode
         let defaultCfg = ToolboxConfig()
-        expect(defaultCfg.schemaVersion == 17, "ToolboxConfig schemaVersion must be 17")
+        expect(defaultCfg.schemaVersion == 18, "ToolboxConfig schemaVersion must be 18")
         expect(!defaultCfg.windowSnapper.enabled, "WindowSnapper should default to disabled")
         expect(
             defaultCfg.windowSnapper.gaps.outerMarginPoints == 0 && defaultCfg.windowSnapper.gaps.innerGapPoints == 0,
@@ -6234,7 +6261,7 @@ enum SelfTestRunner {
         let legacyV10 = "{\"schemaVersion\": 10, \"general\": {\"appEnabled\": true}}"
         if let data = legacyV10.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 17, "v10 config must upgrade to schemaVersion 17")
+            expect(migrated.schemaVersion == 18, "v10 config must upgrade to schemaVersion 18")
             expect(!migrated.windowSnapper.enabled, "Migrated windowSnapper.enabled must default to false")
             expect(
                 migrated.windowSnapper.gaps.outerMarginPoints == 0 && migrated.windowSnapper.gaps.innerGapPoints == 0,
@@ -7957,7 +7984,7 @@ enum SelfTestRunner {
 
     private static func testFinderEnhancerConfigAndMigration() {
         let defaults = ToolboxConfig()
-        expect(defaults.schemaVersion == 17, "ToolboxConfig schemaVersion should be 17")
+        expect(defaults.schemaVersion == 18, "ToolboxConfig schemaVersion should be 18")
         expect(!defaults.finderEnhancer.enabled, "FinderEnhancer should default to disabled")
         expect(defaults.finderEnhancer.enableCutAndPaste, "enableCutAndPaste should default to true")
         expect(defaults.finderEnhancer.showCutToast, "showCutToast should default to true")
@@ -7988,7 +8015,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(custom),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.finderEnhancer == custom.finderEnhancer, "FinderEnhancerConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 17, "Encoded FinderEnhancer config must preserve schemaVersion 17")
+            expect(decoded.schemaVersion == 18, "Encoded FinderEnhancer config must preserve schemaVersion 18")
         } else {
             failures.append("FinderEnhancerConfig Codable encode/decode failed")
         }
@@ -7997,7 +8024,7 @@ enum SelfTestRunner {
         let legacyV14 = "{\"schemaVersion\": 14, \"general\": {\"appEnabled\": true}}"
         if let data = legacyV14.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 17, "v14 config should upgrade to schemaVersion 17")
+            expect(migrated.schemaVersion == 18, "v14 config should upgrade to schemaVersion 18")
             expect(migrated.finderEnhancer == FinderEnhancerConfig(), "Migrated finderEnhancer should equal defaults")
         } else {
             failures.append("Failed to decode legacy v14 config")
@@ -8514,7 +8541,7 @@ enum SelfTestRunner {
 
     private static func testWindowSwitcherConfigAndMigration() {
         let defaults = ToolboxConfig()
-        expect(defaults.schemaVersion == 17, "ToolboxConfig schemaVersion should be 17")
+        expect(defaults.schemaVersion == 18, "ToolboxConfig schemaVersion should be 18")
         expect(!defaults.windowSwitcher.enabled, "WindowSwitcher should default to disabled")
         expect(defaults.windowSwitcher.triggerModifier == .option, "Default triggerModifier should be .option")
         expect(defaults.windowSwitcher.triggerKey == "tab", "Default triggerKey should be 'tab'")
@@ -8545,7 +8572,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(custom),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.windowSwitcher == custom.windowSwitcher, "WindowSwitcherConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 17, "Encoded WindowSwitcher config must preserve schemaVersion 17")
+            expect(decoded.schemaVersion == 18, "Encoded WindowSwitcher config must preserve schemaVersion 18")
         } else {
             failures.append("WindowSwitcherConfig Codable encode/decode failed")
         }
@@ -8554,7 +8581,7 @@ enum SelfTestRunner {
         let legacyV15 = "{\"schemaVersion\": 15, \"general\": {\"appEnabled\": true}}"
         if let data = legacyV15.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 17, "v15 config should upgrade to schemaVersion 17")
+            expect(migrated.schemaVersion == 18, "v15 config should upgrade to schemaVersion 18")
             expect(migrated.windowSwitcher == WindowSwitcherConfig(), "Migrated windowSwitcher should equal defaults")
         } else {
             failures.append("Failed to decode legacy v15 config")
@@ -9103,7 +9130,7 @@ enum SelfTestRunner {
 
     private static func testHyperKeyConfigAndCapsLockRemapperLogic() {
         let defaults = ToolboxConfig()
-        expect(defaults.schemaVersion == 17, "ToolboxConfig schemaVersion must be 17")
+        expect(defaults.schemaVersion == 18, "ToolboxConfig schemaVersion must be 18")
         expect(!defaults.hyperKey.enabled, "HyperKey must default to disabled")
         expect(defaults.hyperKey.holdMode == .toolboxChord, "HyperKey holdMode must default to .toolboxChord")
         expect(defaults.hyperKey.tapAction == .capsLock, "HyperKey tapAction must default to .capsLock")
@@ -9117,7 +9144,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(custom),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.hyperKey == custom.hyperKey, "HyperKeyConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 17, "Encoded HyperKey config must preserve schemaVersion 17")
+            expect(decoded.schemaVersion == 18, "Encoded HyperKey config must preserve schemaVersion 18")
         } else {
             failures.append("HyperKeyConfig Codable encode/decode failed")
         }
@@ -9125,7 +9152,7 @@ enum SelfTestRunner {
         let legacyV16 = "{\"schemaVersion\": 16, \"general\": {\"appEnabled\": true}}"
         if let data = legacyV16.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 17, "v16 config must upgrade to schemaVersion 17")
+            expect(migrated.schemaVersion == 18, "v16 config must upgrade to schemaVersion 18")
             expect(migrated.hyperKey == HyperKeyConfig(), "Migrated hyperKey should equal defaults")
         } else {
             failures.append("Failed to decode legacy v16 config")
@@ -9425,6 +9452,595 @@ enum SelfTestRunner {
             expect(pm.shouldAllowSystemQuitAndReopenForInputMonitoring, "Awaiting Input Monitoring must allow Quit & Reopen")
             pm.stopAwaitingInputMonitoringGrantForTesting()
             expect(!pm.isAwaitingInputMonitoringGrant, "stopAwaitingInputMonitoringGrantForTesting must clear awaiting flag")
+        }
+    }
+
+    // MARK: - Quick Screenshot Tests
+
+    private static func testQuickScreenshotConfigAndMigration() {
+        let defaults = ToolboxConfig()
+        expect(defaults.schemaVersion == 18, "ToolboxConfig schemaVersion must be 18")
+        expect(!defaults.quickScreenshot.enabled, "QuickScreenshot must default to disabled")
+        expect(
+            defaults.quickScreenshot.shortcut == ShortcutSpec(key: "5", modifiers: [.control, .option, .command]),
+            "QuickScreenshot default shortcut must be ⌃ ⌥ ⌘ 5"
+        )
+        expect(defaults.quickScreenshot.openEditorAfterCapture, "openEditorAfterCapture must default to true")
+        expect(defaults.quickScreenshot.closeEditorAfterCopy, "closeEditorAfterCopy must default to true")
+        expect(!defaults.quickScreenshot.omitWindowShadow, "omitWindowShadow must default to false")
+        expect(defaults.quickScreenshot.defaultRedactMode == .solidBlack, "defaultRedactMode must default to .solidBlack")
+        expect(defaults.quickScreenshot.defaultSaveDirectory == "~/Desktop", "defaultSaveDirectory must default to ~/Desktop")
+        expect(defaults.quickScreenshot.saveFormat == .png, "saveFormat must default to .png")
+        expect(abs(defaults.quickScreenshot.jpegQuality - 0.9) < 0.001, "jpegQuality must default to 0.9")
+        expect(defaults.quickScreenshot.showToast, "showToast must default to true")
+        expect(
+            defaults.general.menuBarModuleOrder.contains("quick_screenshot"),
+            "defaultMenuBarModuleOrder must include quick_screenshot"
+        )
+
+        var custom = ToolboxConfig()
+        custom.quickScreenshot.enabled = true
+        custom.quickScreenshot.shortcut = ShortcutSpec(key: "6", modifiers: [.control, .option, .command])
+        custom.quickScreenshot.openEditorAfterCapture = false
+        custom.quickScreenshot.closeEditorAfterCopy = false
+        custom.quickScreenshot.omitWindowShadow = true
+        custom.quickScreenshot.defaultRedactMode = .pixelate
+        custom.quickScreenshot.defaultSaveDirectory = "~/Pictures/Screenshots"
+        custom.quickScreenshot.saveFormat = .jpeg
+        custom.quickScreenshot.jpegQuality = 0.75
+        custom.quickScreenshot.showToast = false
+
+        if let data = try? JSONEncoder().encode(custom),
+           let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
+            expect(decoded.quickScreenshot == custom.quickScreenshot, "QuickScreenshotConfig Codable round-trip mismatch")
+            expect(decoded.schemaVersion == 18, "Encoded QuickScreenshot config must preserve schemaVersion 18")
+        } else {
+            failures.append("QuickScreenshotConfig Codable encode/decode failed")
+        }
+
+        let legacyV17 = "{\"schemaVersion\": 17, \"general\": {\"appEnabled\": true}}"
+        if let data = legacyV17.data(using: .utf8),
+           let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
+            expect(migrated.schemaVersion == 18, "v17 config must upgrade to schemaVersion 18")
+            expect(migrated.quickScreenshot == QuickScreenshotConfig(), "Migrated quickScreenshot must equal defaults")
+        } else {
+            failures.append("Failed to decode legacy v17 config")
+        }
+
+        let partialJSON = """
+        {"schemaVersion": 18, "quickScreenshot": {"enabled": true, "jpegQuality": 2.5, "defaultSaveDirectory": "   "}}
+        """
+        if let data = partialJSON.data(using: .utf8),
+           let decodedPartial = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
+            expect(decodedPartial.quickScreenshot.enabled, "Partial quickScreenshot.enabled must decode")
+            expect(decodedPartial.quickScreenshot.jpegQuality == 1.0, "Out-of-range jpegQuality must clamp to 1.0")
+            expect(decodedPartial.quickScreenshot.defaultSaveDirectory == "~/Desktop", "Blank defaultSaveDirectory must fall back to ~/Desktop")
+            expect(decodedPartial.quickScreenshot.saveFormat == .png, "Omitted saveFormat must default to .png")
+        } else {
+            failures.append("Partial QuickScreenshotConfig JSON decode failed")
+        }
+    }
+
+    private static func makeSyntheticScreenshotImage(width: Int = 400, height: Int = 300) -> CGImage? {
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(
+                data: nil,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else {
+            return nil
+        }
+        // Paint top-left half blue, bottom-right half green, with a bright white band across the middle
+        ctx.setFillColor(CGColor(srgbRed: 0.15, green: 0.45, blue: 0.90, alpha: 1.0))
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        ctx.setFillColor(CGColor(srgbRed: 0.95, green: 0.80, blue: 0.20, alpha: 1.0))
+        ctx.fill(CGRect(x: 40, y: 60, width: 160, height: 120))
+        ctx.setFillColor(CGColor(srgbRed: 0.10, green: 0.82, blue: 0.45, alpha: 1.0))
+        ctx.fill(CGRect(x: 220, y: 40, width: 140, height: 180))
+        return ctx.makeImage()
+    }
+
+    private static func testQuickScreenshotAnnotationModelUndoRedoAndCoordinates() {
+        guard let image = makeSyntheticScreenshotImage(width: 1600, height: 1200) else {
+            failures.append("Could not create synthetic image for QuickScreenshot model tests")
+            return
+        }
+
+        // Non-1.0 scale Retina coordinate mapper test (1600x1200 image rendered into 800x600 view rect offset at (20, 40))
+        let mapper = CanvasCoordinateMapper(
+            imageSize: CGSize(width: 1600, height: 1200),
+            renderedImageRect: CGRect(x: 20, y: 40, width: 800, height: 600)
+        )
+        let mappedPx = mapper.viewPointToImagePixel(CGPoint(x: 420, y: 340))
+        expect(abs(mappedPx.x - 800) < 0.01 && abs(mappedPx.y - 600) < 0.01, "Non-1.0 scale center mapping failed: \(mappedPx)")
+        let roundTripView = mapper.imagePixelToViewPoint(mappedPx)
+        expect(abs(roundTripView.x - 420) < 0.01 && abs(roundTripView.y - 340) < 0.01, "Coordinate round-trip mismatch: \(roundTripView)")
+        let mappedRect = mapper.viewRectToImagePixel(CGRect(x: 120, y: 140, width: 200, height: 150))
+        expect(mappedRect == CGRect(x: 200, y: 200, width: 400, height: 300), "Non-1.0 scale rect mapping failed: \(mappedRect)")
+
+        let session = ScreenshotEditorSession(image: image, defaultRedactStyle: .solidBlack)
+        expect(!session.canUndo && !session.canRedo && !session.hasUnexportedChanges, "Fresh editor session must be clean")
+
+        // Auto-increment step counter 1, 2, 3
+        let s1 = session.addStepBadge(at: CGPoint(x: 100, y: 100))
+        let s2 = session.addStepBadge(at: CGPoint(x: 200, y: 150))
+        let s3 = session.addStepBadge(at: CGPoint(x: 300, y: 200))
+        expect(s1.stepNumber == 1 && s2.stepNumber == 2 && s3.stepNumber == 3, "Step badges must auto-increment 1, 2, 3")
+        expect(session.annotations.count == 3 && session.canUndo && session.hasUnexportedChanges, "Adding annotations must mark session dirty and undoable")
+
+        // Move & delete + multi-step Undo / Redo
+        session.moveAnnotation(id: s2.id, by: CGSize(width: 40, height: -20))
+        expect(session.annotations[1].startPoint == CGPoint(x: 240, y: 130), "moveAnnotation must translate step point")
+
+        session.deleteAnnotation(id: s1.id)
+        expect(session.annotations.count == 2, "deleteAnnotation must remove item")
+
+        session.undo() // restores s1
+        expect(session.annotations.count == 3, "Undo delete must restore item")
+        session.undo() // undoes move
+        expect(session.annotations[1].startPoint == CGPoint(x: 200, y: 150), "Undo move must restore original point")
+        session.undo() // removes s3 and restores nextStepNumber == 3
+        expect(session.annotations.count == 2 && session.nextStepNumber == 3, "Undo step must restore nextStepNumber")
+        session.redo()
+        expect(session.annotations.count == 3 && session.nextStepNumber == 4, "Redo step must advance nextStepNumber")
+
+        // Undo everything -> clean state
+        while session.canUndo {
+            session.undo()
+        }
+        expect(session.annotations.isEmpty && !session.hasUnexportedChanges && session.canRedo, "Undoing all edits must restore clean state")
+
+        // Coalesced text callout undo: 30 keystrokes on a newly created callout must undo in 1 step
+        let t1 = session.beginTextCallout(at: CGPoint(x: 120, y: 120), initialText: "")
+        var typed = ""
+        for i in 1...30 {
+            typed.append(Character(UnicodeScalar(65 + (i % 26))!))
+            session.updateTextAnnotation(id: t1.id, text: typed)
+        }
+        expect(session.annotations.last?.text == typed, "Text callout should hold final 30-char string")
+        session.undo()
+        expect(!session.annotations.contains(where: { $0.id == t1.id }), "Single undo after 30 keystrokes on new text callout must remove callout in 1 step")
+
+        // Coalesced text re-edit undo: 15 keystrokes during beginEditingTextAnnotation -> finishTextEditing -> 1 undo step
+        let t2 = session.beginTextCallout(at: CGPoint(x: 160, y: 200), initialText: "Initial")
+        session.finishTextEditing()
+        session.beginEditingTextAnnotation(id: t2.id)
+        var editedText = "Initial"
+        for i in 1...15 {
+            editedText.append("\(i % 10)")
+            session.updateTextAnnotation(id: t2.id, text: editedText)
+        }
+        session.finishTextEditing()
+        expect(session.annotations.first(where: { $0.id == t2.id })?.text == editedText, "Re-edited text callout should hold updated string")
+        session.undo()
+        expect(session.annotations.first(where: { $0.id == t2.id })?.text == "Initial", "Single undo after re-edit must restore pre-edit text")
+
+        // State-based hasUnexportedChanges relative to lastExportedState
+        session.markExported()
+        expect(!session.hasUnexportedChanges, "markExported must clear hasUnexportedChanges")
+        session.addStepBadge(at: CGPoint(x: 240, y: 260))
+        expect(session.hasUnexportedChanges, "Adding annotation after export must mark hasUnexportedChanges = true")
+        session.undo()
+        expect(!session.hasUnexportedChanges, "Undoing back to last exported state must clear hasUnexportedChanges")
+        session.undo()
+        expect(session.hasUnexportedChanges, "Undoing past last exported state must mark hasUnexportedChanges = true")
+
+        // Action-letter shortcuts must all be unique and round-trip cleanly
+        let keys = ScreenshotTool.allCases.map { $0.shortcutKey.lowercased() }
+        expect(Set(keys).count == ScreenshotTool.allCases.count, "All ScreenshotTool shortcut keys must be unique: \(keys)")
+        expect(ScreenshotTool.tool(forKeyCharacter: "s") == .select, "S must map to Select")
+        expect(ScreenshotTool.tool(forKeyCharacter: "a") == .arrow, "A must map to Arrow")
+        expect(ScreenshotTool.tool(forKeyCharacter: "r") == .rectangle, "R must map to Rect")
+        expect(ScreenshotTool.tool(forKeyCharacter: "e") == .ellipse, "E must map to Ellipse")
+        expect(ScreenshotTool.tool(forKeyCharacter: "h") == .highlighter, "H must map to Highlight")
+        expect(ScreenshotTool.tool(forKeyCharacter: "t") == .text, "T must map to Text")
+        expect(ScreenshotTool.tool(forKeyCharacter: "n") == .step, "N must map to Number")
+        expect(ScreenshotTool.tool(forKeyCharacter: "x") == .redact, "X must map to Redact")
+        expect(ScreenshotTool.tool(forKeyCharacter: "c") == .crop, "C must map to Crop")
+
+        // Updating color/stroke while an annotation is selected must update that annotation and undo cleanly
+        let rectItem = session.addAnnotation(
+            AnnotationItem(kind: .rectangle, rect: CGRect(x: 50, y: 50, width: 100, height: 80), color: .red, strokeWidth: 4),
+            selectAfterAdd: true
+        )
+        session.updateColorForExistingSelectionOrTool(.green)
+        session.updateStrokeWidthForExistingSelectionOrTool(11)
+        expect(session.annotations.first(where: { $0.id == rectItem.id })?.color == .green, "Selected annotation color must update")
+        expect(session.annotations.first(where: { $0.id == rectItem.id })?.strokeWidth == 11, "Selected annotation strokeWidth must update")
+        session.undo()
+        expect(session.annotations.first(where: { $0.id == rectItem.id })?.strokeWidth == 4, "Undo must restore strokeWidth")
+
+        // Switching tools must clear selectedAnnotationID so the contextual menu updates immediately
+        _ = session.addAnnotation(
+            AnnotationItem(kind: .arrow, startPoint: CGPoint(x: 20, y: 20), endPoint: CGPoint(x: 120, y: 60), color: .red),
+            selectAfterAdd: true
+        )
+        expect(session.selectedAnnotationID != nil, "Adding arrow selects it")
+        session.selectTool(.redact)
+        expect(session.activeTool == .redact && session.selectedAnnotationID == nil,
+               "Switching to .redact must clear selectedAnnotationID so Redact options appear immediately")
+        _ = session.addAnnotation(
+            AnnotationItem(kind: .redact, rect: CGRect(x: 30, y: 90, width: 90, height: 30), redactStyle: .blur),
+            selectAfterAdd: true
+        )
+        session.selectTool(.arrow)
+        expect(session.activeTool == .arrow && session.selectedAnnotationID == nil,
+               "Switching to .arrow must clear selectedAnnotationID so Color/Stroke options appear immediately")
+
+        // Undo must restore the tool that performed the undone action so the user can retry cleanly
+        let toolUndoSession = ScreenshotEditorSession(image: image, defaultRedactStyle: .solidBlack)
+        toolUndoSession.activeTool = .redact
+        let redactForToolTest = toolUndoSession.addAnnotation(
+            AnnotationItem(kind: .redact, rect: CGRect(x: 40, y: 40, width: 80, height: 30), redactStyle: .solidBlack)
+        )
+        toolUndoSession.activeTool = .select
+        toolUndoSession.undo()
+        expect(toolUndoSession.activeTool == .redact && !toolUndoSession.annotations.contains(where: { $0.id == redactForToolTest.id }),
+               "Undo must restore activeTool (.redact) from before the undone action")
+        toolUndoSession.redo()
+        expect(toolUndoSession.annotations.contains(where: { $0.id == redactForToolTest.id }),
+               "Redo must restore redaction annotation")
+
+        // Deleting a step badge resets nextStepNumber cleanly, while Undo restores original sequence
+        let stepSeqSession = ScreenshotEditorSession(image: image, defaultRedactStyle: .solidBlack)
+        _ = stepSeqSession.addStepBadge(at: CGPoint(x: 80, y: 80))
+        _ = stepSeqSession.addStepBadge(at: CGPoint(x: 160, y: 80))
+        let step3 = stepSeqSession.addStepBadge(at: CGPoint(x: 240, y: 80))
+        stepSeqSession.deleteAnnotation(id: step3.id)
+        expect(stepSeqSession.nextStepNumber == 3, "Deleting highest step badge must reset nextStepNumber to 3")
+        stepSeqSession.undo()
+        expect(stepSeqSession.annotations.count == 3 && stepSeqSession.nextStepNumber == 4,
+               "Undo after deleting step badge must restore [1, 2, 3] and nextStepNumber == 4")
+
+        // Hollow rectangle/ellipse hit-testing targets borders, while redact targets filled interior
+        let hollowRect = AnnotationItem(kind: .rectangle, rect: CGRect(x: 100, y: 100, width: 200, height: 140), strokeWidth: 4)
+        expect(hollowRect.contains(pixelPoint: CGPoint(x: 100, y: 150)), "Rectangle border must hit-test true")
+        expect(!hollowRect.contains(pixelPoint: CGPoint(x: 200, y: 170)), "Hollow rectangle interior center must hit-test false")
+
+        let hollowEllipse = AnnotationItem(kind: .ellipse, rect: CGRect(x: 100, y: 100, width: 200, height: 140), strokeWidth: 4)
+        expect(hollowEllipse.contains(pixelPoint: CGPoint(x: 200, y: 100)), "Ellipse perimeter must hit-test true")
+        expect(!hollowEllipse.contains(pixelPoint: CGPoint(x: 200, y: 170)), "Hollow ellipse interior center must hit-test false")
+
+        let redactHitItem = AnnotationItem(kind: .redact, rect: CGRect(x: 100, y: 100, width: 120, height: 40), redactStyle: .blur)
+        expect(redactHitItem.contains(pixelPoint: CGPoint(x: 150, y: 120), directEditMode: true), "Redact filled interior must hit-test true")
+        expect(!redactHitItem.contains(pixelPoint: CGPoint(x: 95, y: 120), directEditMode: true), "Point 5px outside redact in directEditMode must hit-test false")
+    }
+
+    private static func pixelRGBA(in image: CGImage, topLeftX x: Int, topLeftY y: Int) -> (UInt8, UInt8, UInt8, UInt8)? {
+        guard x >= 0, y >= 0, x < image.width, y < image.height,
+              let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(
+                data: nil,
+                width: image.width,
+                height: image.height,
+                bitsPerComponent: 8,
+                bytesPerRow: image.width * 4,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else {
+            return nil
+        }
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        guard let ptr = ctx.data?.assumingMemoryBound(to: UInt8.self) else { return nil }
+        let offset = (y * image.width + x) * 4
+        return (ptr[offset], ptr[offset + 1], ptr[offset + 2], ptr[offset + 3])
+    }
+
+    private static func testQuickScreenshotRendererFlatteningAndExport() {
+        guard let base = makeSyntheticScreenshotImage(width: 400, height: 300) else {
+            failures.append("Could not create 400x300 synthetic image")
+            return
+        }
+
+        // 1. Solid redaction sets every pixel inside the target rect to pure opaque black (0, 0, 0, 255)
+        let solidRect = CGRect(x: 50, y: 40, width: 60, height: 50)
+        let solidItem = AnnotationItem(kind: .redact, rect: solidRect, redactStyle: .solidBlack)
+        guard let solidOut = ScreenshotRenderer.render(baseImage: base, annotations: [solidItem], cropRect: nil) else {
+            failures.append("ScreenshotRenderer failed to render solid redaction")
+            return
+        }
+        expect(solidOut.width == 400 && solidOut.height == 300, "Uncropped output dimensions must stay 400x300")
+        for sampleY in stride(from: 42, to: 88, by: 6) {
+            for sampleX in stride(from: 52, to: 108, by: 6) {
+                if let px = pixelRGBA(in: solidOut, topLeftX: sampleX, topLeftY: sampleY) {
+                    expect(px.0 == 0 && px.1 == 0 && px.2 == 0 && px.3 == 255, "Solid redaction pixel at (\(sampleX),\(sampleY)) must be opaque black, got \(px)")
+                }
+            }
+        }
+        if let outsidePx = pixelRGBA(in: solidOut, topLeftX: 10, topLeftY: 10),
+           let baseOutside = pixelRGBA(in: base, topLeftX: 10, topLeftY: 10) {
+            expect(outsidePx == baseOutside, "Pixels outside solid redaction must remain untouched")
+        }
+
+        // 2. Pixelate redaction modifies pixels inside rect without touching pixels outside rect
+        let pixRect = CGRect(x: 200, y: 120, width: 90, height: 70)
+        let pixItem = AnnotationItem(kind: .redact, rect: pixRect, redactStyle: .pixelate)
+        guard let pixOut = ScreenshotRenderer.render(baseImage: base, annotations: [pixItem], cropRect: nil) else {
+            failures.append("ScreenshotRenderer failed to render pixelate redaction")
+            return
+        }
+        if let outsideBefore = pixelRGBA(in: base, topLeftX: 195, topLeftY: 125),
+           let outsideAfter = pixelRGBA(in: pixOut, topLeftX: 195, topLeftY: 125) {
+            expect(outsideBefore == outsideAfter, "Pixelate redaction must not bleed outside target rect")
+        }
+        var changedInside = false
+        for sampleY in stride(from: 130, to: 185, by: 10) {
+            for sampleX in stride(from: 202, to: 288, by: 2) {
+                if let before = pixelRGBA(in: base, topLeftX: sampleX, topLeftY: sampleY),
+                   let after = pixelRGBA(in: pixOut, topLeftX: sampleX, topLeftY: sampleY),
+                   before != after {
+                    changedInside = true
+                }
+            }
+        }
+        expect(changedInside, "Pixelate redaction must alter heterogeneous pixels inside target rect")
+
+        // 2b. Smooth blur redaction modifies pixels inside rect without touching pixels outside rect
+        let blurItem = AnnotationItem(kind: .redact, rect: pixRect, redactStyle: .blur)
+        guard let blurOut = ScreenshotRenderer.render(baseImage: base, annotations: [blurItem], cropRect: nil) else {
+            failures.append("ScreenshotRenderer failed to render blur redaction")
+            return
+        }
+        if let outsideBefore = pixelRGBA(in: base, topLeftX: 195, topLeftY: 125),
+           let outsideAfter = pixelRGBA(in: blurOut, topLeftX: 195, topLeftY: 125) {
+            expect(outsideBefore == outsideAfter, "Blur redaction must not bleed outside target rect")
+        }
+        var blurChangedInside = false
+        for sampleY in stride(from: 130, to: 185, by: 10) {
+            for sampleX in stride(from: 202, to: 288, by: 2) {
+                if let before = pixelRGBA(in: base, topLeftX: sampleX, topLeftY: sampleY),
+                   let after = pixelRGBA(in: blurOut, topLeftX: sampleX, topLeftY: sampleY),
+                   before != after {
+                    blurChangedInside = true
+                }
+            }
+        }
+        expect(blurChangedInside, "Blur redaction must alter heterogeneous pixels inside target rect")
+
+        // 3. Vector annotations (arrow, rectangle, step badge, text) + crop exact dimensions
+        let annotations: [AnnotationItem] = [
+            solidItem,
+            AnnotationItem(kind: .arrow, startPoint: CGPoint(x: 30, y: 30), endPoint: CGPoint(x: 180, y: 140), color: .red, strokeWidth: 4),
+            AnnotationItem(kind: .rectangle, rect: CGRect(x: 120, y: 110, width: 120, height: 80), color: .orange, strokeWidth: 4),
+            AnnotationItem(kind: .step, startPoint: CGPoint(x: 150, y: 80), color: .blue, strokeWidth: 4, stepNumber: 1),
+            AnnotationItem(kind: .text, startPoint: CGPoint(x: 160, y: 210), color: .white, strokeWidth: 4, text: "API Endpoint")
+        ]
+        let cropRect = CGRect(x: 20, y: 30, width: 220, height: 150)
+        guard let croppedOut = ScreenshotRenderer.render(baseImage: base, annotations: annotations, cropRect: cropRect) else {
+            failures.append("ScreenshotRenderer failed to render cropped annotated image")
+            return
+        }
+        expect(croppedOut.width == 220 && croppedOut.height == 150, "Cropped render must yield exact 220x150 dimensions (got \(croppedOut.width)x\(croppedOut.height))")
+
+        // 4. PNG + JPEG export (including JPEG alpha-over-white compositing on transparent base)
+        let pngData = ScreenshotRenderer.encodePNG(croppedOut)
+        expect(pngData != nil && (pngData?.count ?? 0) > 100, "PNG encoding must produce valid image data")
+
+        if let alphaCS = CGColorSpace(name: CGColorSpace.sRGB),
+           let alphaCtx = CGContext(
+            data: nil,
+            width: 80,
+            height: 80,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: alphaCS,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+           ),
+           let transparentImg = alphaCtx.makeImage(),
+           let jpegData = ScreenshotRenderer.encodeJPEG(transparentImg, quality: 0.85),
+           let src = CGImageSourceCreateWithData(jpegData as CFData, nil),
+           let decodedJPEG = CGImageSourceCreateImageAtIndex(src, 0, nil),
+           let centerPx = pixelRGBA(in: decodedJPEG, topLeftX: 40, topLeftY: 40) {
+            expect(centerPx.0 > 245 && centerPx.1 > 245 && centerPx.2 > 245, "Transparent image exported as JPEG must composite onto opaque white (got \(centerPx))")
+        } else {
+            failures.append("JPEG alpha compositing export test failed")
+        }
+
+        // 5. End-to-end session: Arrow -> selectTool(.redact) -> Pixelate -> render -> isolated NSPasteboard PNG + TIFF verification
+        let arrowPixelateSession = ScreenshotEditorSession(image: base, defaultRedactStyle: .solidBlack)
+        arrowPixelateSession.selectTool(.arrow)
+        _ = arrowPixelateSession.addAnnotation(
+            AnnotationItem(kind: .arrow, startPoint: CGPoint(x: 50, y: 50), endPoint: CGPoint(x: 150, y: 50), color: .red, strokeWidth: 4),
+            selectAfterAdd: true
+        )
+        arrowPixelateSession.selectTool(.redact)
+        arrowPixelateSession.updateRedactStyleForExistingSelectionOrTool(.pixelate)
+        _ = arrowPixelateSession.addAnnotation(
+            AnnotationItem(kind: .redact, rect: pixRect, redactStyle: arrowPixelateSession.redactStyle),
+            selectAfterAdd: true
+        )
+        guard let flattenedExport = ScreenshotRenderer.render(
+            baseImage: base,
+            annotations: arrowPixelateSession.annotations,
+            cropRect: arrowPixelateSession.cropRect
+        ) else {
+            failures.append("Arrow + Pixelate end-to-end render returned nil")
+            return
+        }
+        let testPB = NSPasteboard.withUniqueName()
+        defer { testPB.releaseGlobally() }
+        expect(ScreenshotRenderer.copyToPasteboard(flattenedExport, pasteboard: testPB),
+               "copyToPasteboard must succeed for Arrow + Pixelate export")
+
+        for pbType in [NSPasteboard.PasteboardType.png, NSPasteboard.PasteboardType.tiff] {
+            guard let rawData = testPB.data(forType: pbType),
+                  let src = CGImageSourceCreateWithData(rawData as CFData, nil),
+                  let decoded = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
+                failures.append("Pasteboard payload for \(pbType.rawValue) failed to decode")
+                continue
+            }
+            if let outsideBefore = pixelRGBA(in: base, topLeftX: 195, topLeftY: 125),
+               let outsideAfter = pixelRGBA(in: decoded, topLeftX: 195, topLeftY: 125) {
+                expect(outsideBefore == outsideAfter, "Pasteboard \(pbType.rawValue) pixelate redaction must not bleed outside rect")
+            }
+            var decodedPixChanged = false
+            for sampleY in stride(from: 130, to: 185, by: 10) {
+                for sampleX in stride(from: 202, to: 288, by: 2) {
+                    if let before = pixelRGBA(in: base, topLeftX: sampleX, topLeftY: sampleY),
+                       let after = pixelRGBA(in: decoded, topLeftX: sampleX, topLeftY: sampleY),
+                       before != after {
+                        decodedPixChanged = true
+                    }
+                }
+            }
+            expect(decodedPixChanged, "Pasteboard \(pbType.rawValue) must persist pixelated redaction pixels")
+
+            var sawRedArrow = false
+            for sampleX in stride(from: 80, to: 120, by: 4) {
+                if let px = pixelRGBA(in: decoded, topLeftX: sampleX, topLeftY: 50),
+                   px.0 > 180 && px.1 < 100 && px.2 < 100 {
+                    sawRedArrow = true
+                }
+            }
+            expect(sawRedArrow, "Pasteboard \(pbType.rawValue) must also contain red arrow annotation")
+        }
+    }
+
+    private static func testQuickScreenshotAutoRedactorPatterns() {
+        let sample = """
+        Contact support at alice.dev@acme-corp.io or call (415) 555-0192.
+        OPENAI_KEY=sk-proj-abc1234567890XYZ999
+        GITHUB=ghp_1234567890abcdefghijklmnop
+        AWS=AKIAIOSFODNN7EXAMPLE
+        Authorization: Bearer tok_live_998877665544332211
+        JWT=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c
+        CARD=4111 1111 1111 1111
+        """
+        let matches = ScreenshotAutoRedactor.detectSensitiveMatches(in: sample)
+        let categories = Set(matches.map(\.category))
+        expect(categories.contains(.email), "AutoRedactor must detect email addresses")
+        expect(categories.contains(.phone), "AutoRedactor must detect formatted phone numbers")
+        expect(categories.contains(.apiKey), "AutoRedactor must detect sk- API keys")
+        expect(categories.contains(.githubToken), "AutoRedactor must detect GitHub tokens")
+        expect(categories.contains(.awsKey), "AutoRedactor must detect AWS keys")
+        expect(categories.contains(.bearerToken), "AutoRedactor must detect Bearer tokens")
+        expect(categories.contains(.jwt), "AutoRedactor must detect JWTs")
+        expect(categories.contains(.creditCard), "AutoRedactor must detect Luhn-valid credit cards")
+
+        // Reject invalid Luhn card numbers and ordinary prose / bare timestamps
+        expect(!ScreenshotAutoRedactor.passesLuhnCheck("4111 1111 1111 1112"), "Invalid Luhn checksum must be rejected")
+        expect(!ScreenshotAutoRedactor.passesLuhnCheck("0000 0000 0000 0000"), "All-zero sequence must be rejected")
+
+        let prose = "Deployed build 1732700000 on macOS 15.2 with 120ms latency and zero errors."
+        let proseMatches = ScreenshotAutoRedactor.detectSensitiveMatches(in: prose)
+        expect(proseMatches.isEmpty, "Ordinary prose and bare timestamps must not false-positive (got \(proseMatches))")
+    }
+
+    private static func testQuickScreenshotModuleLifecycleAndChordTap() {
+        let registry = ModuleRegistry.shared
+        guard let registered = registry.module(withID: "quick_screenshot") as? QuickScreenshotModule else {
+            failures.append("ModuleRegistry must expose QuickScreenshotModule under id 'quick_screenshot'")
+            return
+        }
+        expect(registered.category == .productivity, "QuickScreenshot category must be .productivity")
+        expect(!registered.requiresAccessibility, "QuickScreenshot must not require Accessibility by default")
+        expect(registered.supportsMenuBar && registered.supportsEnableToggle, "QuickScreenshot must support menu bar and toggle")
+
+        var cfg = ToolboxConfig()
+        expect(!registered.isEnabled(in: cfg), "QuickScreenshot must start disabled")
+        expect(registered.statusText(in: cfg, accessibilityGranted: true) == "Disabled", "Disabled status mismatch")
+
+        registered.setEnabled(true, in: &cfg)
+        expect(cfg.quickScreenshot.enabled, "setEnabled(true) must mutate config.quickScreenshot.enabled")
+        expect(registered.shortcutText(in: cfg) == "⌃ ⌥ ⌘ 5", "Enabled shortcutText must be ⌃ ⌥ ⌘ 5")
+
+        registered.setScreenRecordingGrantedForTesting(true)
+        expect(
+            registered.statusText(in: cfg, accessibilityGranted: false) == "Standby",
+            "QuickScreenshot does not require Accessibility and must report Standby when enabled/not started"
+        )
+        cfg.general.appEnabled = false
+        expect(registered.statusText(in: cfg, accessibilityGranted: true) == "Paused", "Paused status text mismatch")
+
+        // Module lifecycle: reload enable -> hotkey registered -> master pause unregisters
+        let testModule = QuickScreenshotModule()
+        var activeCfg = ToolboxConfig()
+        activeCfg.general.appEnabled = true
+        activeCfg.quickScreenshot.enabled = true
+        testModule.reload(with: activeCfg)
+        expect(testModule.isRunning, "QuickScreenshotModule must run when enabled")
+        expect(HotKeyManager.shared.isRegistered(name: testModule.hotKeyName), "QuickScreenshot hotkey must register when active")
+
+        activeCfg.general.appEnabled = false
+        testModule.reload(with: activeCfg)
+        expect(!testModule.isRunning, "Master pause must stop QuickScreenshotModule")
+        expect(!HotKeyManager.shared.isRegistered(name: testModule.hotKeyName), "Master pause must unregister QuickScreenshot hotkey")
+
+        testModule.stop()
+        expect(!testModule.isRunning, "stop() must leave QuickScreenshotModule inactive")
+
+        // Private temp directory (0700) + stale file sweep
+        do {
+            let privateDir = try QuickScreenshotModule.ensurePrivateTempDirectory()
+            let attrs = try FileManager.default.attributesOfItem(atPath: privateDir.path)
+            let perms = (attrs[.posixPermissions] as? NSNumber)?.intValue ?? 0
+            expect((perms & 0o777) == 0o700, "Private screenshot temp folder must have 0700 permissions (got \(String(perms, radix: 8)))")
+
+            let staleRoot = FileManager.default.temporaryDirectory.appendingPathComponent("toolbox-shot-stale-\(UUID().uuidString).png")
+            let stalePrivate = privateDir.appendingPathComponent("toolbox-shot-inner-\(UUID().uuidString).png")
+            let keepFile = FileManager.default.temporaryDirectory.appendingPathComponent("toolbox-unrelated-\(UUID().uuidString).txt")
+            try Data([1, 2, 3]).write(to: staleRoot)
+            try Data([4, 5, 6]).write(to: stalePrivate)
+            try Data([7, 8, 9]).write(to: keepFile)
+            defer { try? FileManager.default.removeItem(at: keepFile) }
+
+            QuickScreenshotModule.sweepStaleTempFiles()
+            expect(!FileManager.default.fileExists(atPath: staleRoot.path), "sweepStaleTempFiles must remove root toolbox-shot-* files")
+            expect(!FileManager.default.fileExists(atPath: stalePrivate.path), "sweepStaleTempFiles must remove files inside toolbox-shot-private")
+            var isDir: ObjCBool = false
+            let dirStillExists = FileManager.default.fileExists(atPath: privateDir.path, isDirectory: &isDir) && isDir.boolValue
+            let postSweepPerms = ((try? FileManager.default.attributesOfItem(atPath: privateDir.path)[.posixPermissions]) as? NSNumber)?.intValue ?? 0
+            expect(dirStillExists && (postSweepPerms & 0o777) == 0o700, "sweepStaleTempFiles must preserve toolbox-shot-private directory with 0700 permissions")
+            expect(FileManager.default.fileExists(atPath: keepFile.path), "sweepStaleTempFiles must leave unrelated temp files untouched")
+        } catch {
+            failures.append("Private temp directory test failed: \(error)")
+        }
+
+        // Concurrent editor cap (maxOpenEditors == 5) & origin app focus preservation
+        if let sampleImg = makeSyntheticScreenshotImage(width: 240, height: 180) {
+            let originController = testModule.openEditor(
+                for: sampleImg,
+                previousFrontmostApp: NSRunningApplication.current
+            )
+            expect(originController?.previousFrontmostApp?.processIdentifier == ProcessInfo.processInfo.processIdentifier,
+                   "openEditor(for:previousFrontmostApp:) must store origin app reference")
+            originController?.forceClose()
+
+            var openedControllers: [QuickScreenshotEditorWindowController] = []
+            for _ in 0..<QuickScreenshotModule.maxOpenEditors {
+                if let c = testModule.openEditor(for: sampleImg) {
+                    expect(c.previousFrontmostApp == nil, "openEditor(for:) must default previousFrontmostApp to nil")
+                    openedControllers.append(c)
+                }
+            }
+            expect(testModule.openEditorCount == QuickScreenshotModule.maxOpenEditors, "Opening 5 editors must yield openEditorCount == 5 (got \(testModule.openEditorCount))")
+
+            // 6th open when unmodified closes oldest clean editor and keeps count at 5
+            if let sixth = testModule.openEditor(for: sampleImg) {
+                openedControllers.append(sixth)
+            } else {
+                failures.append("Opening 6th editor while an unmodified editor exists should succeed")
+            }
+            expect(testModule.openEditorCount == QuickScreenshotModule.maxOpenEditors, "6th editor must evict oldest clean editor (count == 5)")
+
+            // Mark all live editors dirty -> 6th open returns nil without discarding unsaved work
+            let liveControllers = openedControllers.filter { $0.session.baseImage != nil }
+            expect(liveControllers.count == QuickScreenshotModule.maxOpenEditors, "Expected 5 live editors after eviction")
+            for c in liveControllers {
+                c.session.addStepBadge(at: CGPoint(x: 40, y: 40))
+            }
+            let blocked = testModule.openEditor(for: sampleImg)
+            expect(blocked == nil, "Opening a new editor when all 5 have unsaved edits must return nil")
+            expect(testModule.openEditorCount == QuickScreenshotModule.maxOpenEditors, "openEditorCount must remain 5 when blocked")
+
+            for c in liveControllers {
+                c.forceClose()
+            }
+            expect(testModule.openEditorCount == 0, "Force-closing all editors must reset openEditorCount to 0")
         }
     }
 }

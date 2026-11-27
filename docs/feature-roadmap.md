@@ -21,7 +21,6 @@ Ordered from zero-permission, self-contained utilities to modules that interact 
 | **Floating File Drop Shelf** | `drop_shelf` | Clipboard & Text | `⌃ ⌥ ⌘ D` *(+ drag shake)* | None | `AppKit` (`NSPanel`, `NSDraggingDestination`, `NSFilePromiseReceiver`), `UniformTypeIdentifiers` | [`drop_shelf.md`](feature-specs/drop_shelf.md) |
 | **Local Image Compressor & Cropper** | `image_compressor` | Clipboard & Text | `⌃ ⌥ ⌘ I` | None | `ImageIO`, `CoreImage`, `AppKit`, `UniformTypeIdentifiers` | [`image_compressor.md`](feature-specs/image_compressor.md) |
 | **Meeting Shield (Presentation Mode)** | `meeting_shield` | System & Power | `⌃ ⌥ ⌘ S` | None *(optional Focus Shortcuts)* | `AppKit`, `IOKit`, `Foundation` | [`meeting_shield.md`](feature-specs/meeting_shield.md) |
-| **Quick Screenshot** | `quick_screenshot` | Clipboard & Text | `⌃ ⌥ ⌘ 5` | Screen Recording (OS-managed via `screencapture`) | `AppKit`, `CoreGraphics`, `Vision` (optional OCR) | [`quick_screenshot.md`](feature-specs/quick_screenshot.md) |
 
 ### Planned Enhancements to Shipped Modules
 
@@ -50,6 +49,7 @@ Complete reference of all shipped modules in `Sources/Toolbox/Modules/` (foundat
 | **Finder Enhancer** | `finder_enhancer` | Roadmap | System & Power | None *(Finder-scoped `⌘ X`/`⌘ V`/`Return`/`F2` + auto-quit)* | Accessibility (required) | `CoreGraphics` (`CGEventTap`), `ApplicationServices` (AX), `AppKit` | [`finder_enhancer.md`](feature-specs/finder_enhancer.md) |
 | **Window Switcher (`Alt+Tab`)** | `window_switcher` | Roadmap | Window & Dock | `⌥ Tab` / `⌥ ⇧ Tab` *(opt-in)* | Accessibility (required); Screen Recording (optional, for thumbnails) | `ApplicationServices` (AX), `CoreGraphics`, `ScreenCaptureKit` (optional), `AppKit` | [`window_switcher.md`](feature-specs/window_switcher.md) |
 | **Keyboard Shortcuts Hub & Caps Lock Hyper Key** | `hyper_key` *(Sidebar: Keyboard Shortcuts)* | Roadmap | Commands & Shortcuts | Hold `Caps Lock` (`⌃ ⌥ ⌘` or `⌃ ⌥ ⇧ ⌘`); Tap `Caps Lock` *(opt-in)* | None *(Shortcuts Hub)*; Accessibility & Input Monitoring *(required for Caps Lock Hyper Key)* | `IOKit` (`IOHIDServiceClientSetProperty`, `IOHIDSetModifierLockState`), `CoreGraphics`, `AppKit`, `Carbon` | [`keyboard_shortcuts_hub.md`](feature-specs/keyboard_shortcuts_hub.md) · [`Modules/HyperKey/`](../Sources/Toolbox/Modules/HyperKey/) |
+| **Quick Screenshot** | `quick_screenshot` | Roadmap | Clipboard & Text | `⌃ ⌥ ⌘ 5` | Screen Recording (OS-managed via `screencapture`) | `AppKit`, `CoreGraphics`, `CoreImage`, `Vision` | [`quick_screenshot.md`](feature-specs/quick_screenshot.md) · [`Modules/QuickScreenshot/`](../Sources/Toolbox/Modules/QuickScreenshot/) |
 
 ---
 

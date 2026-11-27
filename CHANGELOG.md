@@ -10,6 +10,7 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 ## [Unreleased]
 
 ### Added
+- **Quick Screenshot** — capture any screen area or window (`⌃ ⌥ ⌘ 5`) into a floating editor with arrows, shapes, numbered badges, crop, irreversible solid, blur, or pixelated redaction, on-device Auto-Redact for secrets and PII, Vision OCR text copy, and one-click clipboard/save/share export
 - **Keyboard Shortcuts Hub & Caps Lock Hyper Key** — browse, search, test, and resolve conflicts across every Toolbox shortcut in one dedicated sidebar view (with a Visual Key Map and Press-Key-to-Find), and optionally turn Caps Lock into a dual-role Hyper Key (hold for `⌃ ⌥ ⌘` or `⌃ ⌥ ⇧ ⌘`, quick tap to toggle Caps Lock or send Escape)
 - **Window Switcher (`⌥ Tab`)** — cycle through individual open, minimized, and hidden-app windows in a `⌘ Tab`-style horizontal thumbnail strip (or compact list) with `/` type-to-filter and instant Close (`W`), Minimize (`M`), Hide (`H`), and Quit (`Q`) actions
 

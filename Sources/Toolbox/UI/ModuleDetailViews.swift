@@ -36,7 +36,9 @@ struct ModuleDetailContainerView: View {
     }
 
     private var statusBadgeColor: Color {
-        let missingScreenPermission = (module as? ScreenOCRModule).map { !$0.screenRecordingGranted } ?? false
+        let missingScreenPermission = (module as? ScreenOCRModule).map { !$0.screenRecordingGranted }
+            ?? (module as? QuickScreenshotModule).map { !$0.screenRecordingGranted }
+            ?? false
         if !isEnabled { return .secondary }
         if !configManager.config.general.appEnabled { return .orange }
         if module.requiresAccessibility && !permissions.isAccessibilityGranted { return .orange }

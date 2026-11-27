@@ -988,6 +988,7 @@ struct MenuBarPopoverView: View {
     @ObservedObject private var keepAwake = ModuleRegistry.shared.keepAwake
     @ObservedObject private var clipboard = ModuleRegistry.shared.clipboard
     @ObservedObject private var portKiller = ModuleRegistry.shared.portKiller
+    @ObservedObject private var quickScreenshot = ModuleRegistry.shared.quickScreenshot
     @ObservedObject private var callControls = ModuleRegistry.shared.callControls
     @ObservedObject private var windowSnapper = ModuleRegistry.shared.windowSnapper
     @ObservedObject private var overlayController = ZoneOverlayController.shared
@@ -1772,6 +1773,35 @@ struct MenuBarPopoverView: View {
                     .allowsHitTesting(isAppEnabled && isEnabled && clampedPill > 0.99)
                     .pointerCursor(isAppEnabled && isEnabled && clampedPill > 0.99)
                 }
+            } else if module.id == "quick_screenshot" && isEnabled && isAppEnabled {
+                Button {
+                    onClosePopover(false)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                        quickScreenshot.captureRegion()
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "camera.viewfinder")
+                            .toolboxFont(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.red)
+                        Text("Capture")
+                            .toolboxFont(.caption2.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                    }
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Color.red.opacity(0.14), in: RoundedRectangle(cornerRadius: 6))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(Color.red.opacity(0.32), lineWidth: 0.75)
+                    )
+                    .contentShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .focusEffectDisabled()
+                .help("Capture area or window now")
+                .pointerCursor(isAppEnabled && isEnabled)
             } else if let shortcut = module.shortcutText(in: configManager.config) {
                 ShortcutPill(text: shortcut)
                     .opacity(isEnabled ? 1.0 : 0.6)

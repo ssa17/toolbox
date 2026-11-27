@@ -13,6 +13,7 @@ enum DeveloperEventCategory: String, CaseIterable, Identifiable, Sendable {
     case windowSwitcher = "Window Switcher"
     case hyperKey = "Hyper Key"
     case ocr = "Screen OCR"
+    case quickScreenshot = "Quick Screenshot"
     case config = "Config"
     case updates = "Updates"
 
