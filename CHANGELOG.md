@@ -9,10 +9,13 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 
 ## [Unreleased]
 
+## [1.6.5] - 2026-11-27
+
 ### Added
-- **Quick Screenshot** — capture any screen area or window (`⌃ ⌥ ⌘ 5`) into a floating editor with per-tool remembered defaults, arrows, shapes, spotlights, customizable text pills, numbered badges, crop, Beautify gradient frames, Pin on Screen, pinch/scroll zoom, irreversible Pixelate/Blur/Solid/Smart Erase redaction, on-device Apple Vision Auto-Redact with a review tray for keys, codes, and PII, Vision OCR text copy, and one-click clipboard/save/share export
-- **Keyboard Shortcuts Hub & Caps Lock Hyper Key** — browse, search, test, and resolve conflicts across every Toolbox shortcut in one dedicated sidebar view (with a Visual Key Map and Press-Key-to-Find), and optionally turn Caps Lock into a dual-role Hyper Key (hold for `⌃ ⌥ ⌘` or `⌃ ⌥ ⇧ ⌘`, quick tap to toggle Caps Lock or send Escape)
-- **Window Switcher (`⌥ Tab`)** — cycle through individual open, minimized, and hidden-app windows in a `⌘ Tab`-style horizontal thumbnail strip (or compact list) with `/` type-to-filter and instant Close (`W`), Minimize (`M`), Hide (`H`), and Quit (`Q`) actions
+- **Quick Screenshot (`⌃ ⌥ ⌘ 5`)** — capture any area or window into a floating editor with per-tool remembered defaults, arrows, shapes, spotlights, customizable text pills, numbered badges, crop, Beautify gradient frames, Pin on Screen, pinch/scroll zoom, and one-click copy, save, or share
+- **On-Device Auto-Redact & OCR** — detect and redact API keys, secret files, recovery codes, emails, and cards 100% locally with Apple Vision and a review tray, choose Pixelate, Blur, Solid, or Smart Erase (permanently flattened on export), or copy extracted text in one click
+- **Keyboard Shortcuts Hub & Caps Lock Hyper Key** — browse, search, test, and resolve conflicts across every Toolbox shortcut in one dedicated sidebar view (with a Visual Key Map and Press-Key-to-Find), and optionally turn Caps Lock into a dual-role Hyper Key
+- **Window Switcher (`⌥ Tab`)** — cycle through individual open, minimized, and hidden-app windows in a `⌘ Tab`-style horizontal thumbnail strip or compact list with `/` type-to-filter and instant Close (`W`), Minimize (`M`), Hide (`H`), and Quit (`Q`) actions
 
 ## [1.6.4] - 2026-11-26
 
