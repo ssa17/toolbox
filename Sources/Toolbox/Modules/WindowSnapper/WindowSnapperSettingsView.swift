@@ -158,6 +158,7 @@ struct WindowSnapperSettingsView: View {
     @ObservedObject private var displayRegistry = DisplayRegistry.shared
     @ObservedObject private var overlayController = ZoneOverlayController.shared
     @ObservedObject private var screenOCR = ModuleRegistry.shared.screenOCR
+    @ObservedObject private var navState = MainWindowController.shared.navState
     @ObservedObject var module: WindowSnapperModule
     @ObservedObject private var profileEngine: ProfileEngine
     @StateObject private var uiState: WindowSnapperSettingsUIState
@@ -237,6 +238,12 @@ struct WindowSnapperSettingsView: View {
             }
         }
         .onAppear {
+            if let pending = navState.pendingModuleFocus,
+               pending.moduleID == "window_snapper",
+               pending.anchor == .shortcuts {
+                uiState.selectedTab = .shortcutsAndHistory
+                uiState.shortcutCategory = .all
+            }
             displayRegistry.refresh(gaps: configManager.config.windowSnapper.gaps)
             module.refreshSequoiaConflictStatus()
             if !PermissionsManager.isRunningInDiagnosticMode {
@@ -255,6 +262,14 @@ struct WindowSnapperSettingsView: View {
         .onDisappear {
             if !overlayController.isEditingOnScreen {
                 overlayController.hideAllPreviews()
+            }
+        }
+        .onChange(of: navState.pendingModuleFocus) { _, pending in
+            if let pending,
+               pending.moduleID == "window_snapper",
+               pending.anchor == .shortcuts {
+                uiState.selectedTab = .shortcutsAndHistory
+                uiState.shortcutCategory = .all
             }
         }
     }
@@ -3277,6 +3292,7 @@ struct WindowSnapperSettingsView: View {
                 .opacity(cfg.keyboardSnappingEnabled ? 1.0 : 0.62)
             }
         }
+        .id(ModuleFocusAnchor.shortcuts.rawValue)
 
         FeatureSection(
             "Workspace Profile Shortcuts",

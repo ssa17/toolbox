@@ -109,8 +109,24 @@ struct ShortcutSpec: Codable, Equatable, Hashable, Sendable {
         reverseKeyMap[UInt32(keyCode)]
     }
 
+    private nonisolated(unsafe) static var cachedLayoutCharacters: [UInt16: String?] = [:]
+    private nonisolated(unsafe) static var hasRegisteredInputSourceObserver = false
+
     private static func layoutCharacter(for keyCode: UInt16) -> String? {
         guard Thread.isMainThread else { return nil }
+        if !hasRegisteredInputSourceObserver {
+            hasRegisteredInputSourceObserver = true
+            DistributedNotificationCenter.default().addObserver(
+                forName: NSNotification.Name(kTISNotifySelectedKeyboardInputSourceChanged as String),
+                object: nil,
+                queue: .main
+            ) { _ in
+                cachedLayoutCharacters.removeAll()
+            }
+        }
+        if let cached = cachedLayoutCharacters[keyCode] {
+            return cached
+        }
         let sources: [TISInputSource?] = [
             TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
             TISCopyCurrentASCIICapableKeyboardLayoutInputSource()?.takeRetainedValue()
@@ -148,9 +164,12 @@ struct ShortcutSpec: Codable, Equatable, Hashable, Sendable {
                     || (scalar.value >= 0xA1 && scalar.value < 0x2000)
             }
             if isPrintable {
-                return str.uppercased()
+                let result = str.uppercased()
+                cachedLayoutCharacters[keyCode] = result
+                return result
             }
         }
+        cachedLayoutCharacters[keyCode] = .some(nil)
         return nil
     }
 

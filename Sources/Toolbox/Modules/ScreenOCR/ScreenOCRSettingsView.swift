@@ -145,6 +145,7 @@ struct ScreenOCRSettingsView: View {
                 .fixedSize(horizontal: true, vertical: false)
             }
         }
+        .id(ModuleFocusAnchor.shortcuts.rawValue)
     }
 
     // MARK: - Recognition Options

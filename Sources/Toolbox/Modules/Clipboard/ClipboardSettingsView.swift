@@ -215,6 +215,7 @@ struct ClipboardSettingsView: View {
                     }
                 }
             }
+            .id(ModuleFocusAnchor.shortcuts.rawValue)
 
             FeatureSection("History & Privacy", subtitle: "Control retention limits, password manager filtering, and local storage.") {
                 VStack(alignment: .leading, spacing: 8) {

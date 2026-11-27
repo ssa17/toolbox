@@ -1,6 +1,6 @@
 # Keyboard Shortcuts Hub & Caps Lock Hyper Key — Feature Spec
 
-> **Status:** Planned · **Module / Shell:** `Core/ShortcutCatalog.swift`, `Modules/HyperKey/`, `UI/ShortcutsHubView.swift` · **Sidebar:** `SidebarDestination.shortcuts` · **Parent:** [Toolbox Feature Roadmap](../feature-roadmap.md)
+> **Status:** Done · **Module / Shell:** `Core/ShortcutCatalog.swift`, `Modules/HyperKey/`, `UI/ShortcutsHubView.swift` · **Sidebar:** `SidebarDestination.shortcuts` · **Parent:** [Toolbox Feature Roadmap](../feature-roadmap.md)
 
 ### Purpose & User Value
 Two tightly connected problems solved in one place:

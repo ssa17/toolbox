@@ -820,50 +820,10 @@ final class DeveloperHealthCheckRunner: ObservableObject {
         let hk = HotKeyManager.shared
         var candidates: [(sourceID: String, label: String, spec: ShortcutSpec)] = []
 
-        if !cfg.dockMinimize.shortcut.isEmpty {
-            candidates.append(("dock_minimize", "Dock Click to Minimize", cfg.dockMinimize.shortcut))
-        }
-        if cfg.clipboard.enabled && !cfg.clipboard.shortcut.isEmpty {
-            candidates.append(("clipboard", "Clipboard History", cfg.clipboard.shortcut))
-        }
-        if cfg.portKiller.enabled && !cfg.portKiller.shortcut.isEmpty {
-            candidates.append(("port_killer", "Port Killer", cfg.portKiller.shortcut))
-        }
-        if cfg.keepAwake.enabled && !cfg.keepAwake.shortcut.isEmpty {
-            candidates.append(("keep_awake", "Keep Awake", cfg.keepAwake.shortcut))
-        }
-        if !cfg.scrollDirection.shortcut.isEmpty {
-            candidates.append(("scroll_direction", "Scroll Direction", cfg.scrollDirection.shortcut))
-        }
-        if cfg.callControls.enabled {
-            if !cfg.callControls.micShortcut.isEmpty {
-                candidates.append(("call_controls.mic", "Call Controls (Mic)", cfg.callControls.micShortcut))
-            }
-            if !cfg.callControls.videoShortcut.isEmpty {
-                candidates.append(("call_controls.video", "Call Controls (Video)", cfg.callControls.videoShortcut))
-            }
-            if !cfg.callControls.osMuteShortcut.isEmpty {
-                candidates.append(("call_controls.os_mute", "Call Controls (OS Mute)", cfg.callControls.osMuteShortcut))
-            }
-            if !cfg.callControls.cycleOutputShortcut.isEmpty {
-                candidates.append(("call_controls.cycle_output", "Call Controls (Cycle Output)", cfg.callControls.cycleOutputShortcut))
-            }
-        }
-        if cfg.customCommands.enabled {
-            for cmd in cfg.customCommands.commands where cmd.enabled && !cmd.shortcut.isEmpty {
-                candidates.append(("custom_command.\(cmd.id)", "Command '\(cmd.name)'", cmd.shortcut))
-            }
-        }
-        if cfg.windowSnapper.enabled {
-            for entry in cfg.windowSnapper.allShortcutEntries(
-                includeHotKeys: cfg.windowSnapper.keyboardSnappingEnabled,
-                includeProfilesAndZones: true
-            ) {
-                candidates.append((entry.sourceID, entry.label, entry.shortcut))
-            }
-        }
-        if cfg.windowSwitcher.enabled && !cfg.windowSwitcher.currentAppOnlyShortcut.isEmpty {
-            candidates.append(("window_switcher.current_app", "Window Switcher (Current App)", cfg.windowSwitcher.currentAppOnlyShortcut))
+        for descriptor in ShortcutCatalog.descriptors(in: cfg) {
+            let spec = descriptor.read(cfg)
+            guard !spec.isEmpty, descriptor.participatesInConflicts(cfg, nil) else { continue }
+            candidates.append((descriptor.id, descriptor.conflictDisplayLabel, spec))
         }
 
         var issues: [String] = []

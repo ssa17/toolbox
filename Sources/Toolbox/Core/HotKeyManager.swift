@@ -1,12 +1,22 @@
 import AppKit
 import Carbon
 import Foundation
+import os
 
 /// Read-only snapshot of an active registration inside `HotKeyManager`.
 struct RegisteredHotKeySnapshot: Identifiable, Sendable {
     let id: UInt32
     let name: String
     let shortcut: ShortcutSpec
+    let isArmed: Bool
+}
+
+/// Thread-safe snapshot of a registered hotkey used by background event taps for direct dispatch.
+struct ActiveHotKeyBinding: Equatable, Sendable {
+    let name: String
+    let shortcut: ShortcutSpec
+    let keyCode: UInt32
+    let modifiers: [KeyModifier]
     let isArmed: Bool
 }
 
@@ -25,13 +35,46 @@ final class HotKeyManager: ObservableObject {
     @Published private(set) var registrationErrors: [String: String] = [:]
     @Published private(set) var isSuspendedForRecording: Bool = false
 
+    nonisolated private static let sharedActiveBindingsLock = OSAllocatedUnfairLock<[ActiveHotKeyBinding]>(initialState: [])
+
+    private struct SymbolicHotKeyPair: Hashable {
+        let keyCode: UInt32
+        let modifiers: UInt
+    }
+
+    private struct SymbolicCarbonPair: Hashable {
+        let keyCode: UInt32
+        let modifiers: UInt32
+    }
+
     private var nextID: UInt32 = 1
     private var registrationsByName: [String: UInt32] = [:]
     private var registrationsByID: [UInt32: Registration] = [:]
     private var eventHandlerRef: EventHandlerRef?
+    private var cachedUserSymbolicHotKeys: Set<SymbolicHotKeyPair> = []
+    private var cachedUserSymbolicHotKeysAt: Date = .distantPast
+    private var cachedSystemSymbolicHotKeys: Set<SymbolicCarbonPair> = []
+    private var cachedSystemSymbolicHotKeysAt: Date = .distantPast
+    private var activeObserver: NSObjectProtocol?
+
+    private static let symbolicCacheTTL: TimeInterval = 2.0
 
     private init() {
         installHandlerIfNeeded()
+        activeObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.invalidateSymbolicHotKeyCache()
+            }
+        }
+    }
+
+    func invalidateSymbolicHotKeyCache() {
+        cachedUserSymbolicHotKeysAt = .distantPast
+        cachedSystemSymbolicHotKeysAt = .distantPast
     }
 
     @discardableResult
@@ -64,6 +107,7 @@ final class HotKeyManager: ObservableObject {
                 hotKeyRef: nil,
                 handler: handler
             )
+            syncActiveBindingsSnapshot()
             return true
         }
 
@@ -78,6 +122,7 @@ final class HotKeyManager: ObservableObject {
             hotKeyRef: ref,
             handler: handler
         )
+        syncActiveBindingsSnapshot()
         return true
     }
 
@@ -90,6 +135,7 @@ final class HotKeyManager: ObservableObject {
         if let ref = reg.hotKeyRef {
             UnregisterEventHotKey(ref)
         }
+        syncActiveBindingsSnapshot()
     }
 
     /// Temporarily disarms active Carbon hotkeys while a shortcut recorder is listening,
@@ -115,6 +161,40 @@ final class HotKeyManager: ObservableObject {
                     registrationsByID[id] = reg
                 }
             }
+        }
+        syncActiveBindingsSnapshot()
+    }
+
+    private func syncActiveBindingsSnapshot() {
+        let bindings: [ActiveHotKeyBinding] = registrationsByID.values.compactMap { reg in
+            guard let keyCode = reg.shortcut.carbonKeyCode else { return nil }
+            return ActiveHotKeyBinding(
+                name: reg.name,
+                shortcut: reg.shortcut,
+                keyCode: keyCode,
+                modifiers: reg.shortcut.modifiers,
+                isArmed: reg.hotKeyRef != nil
+            )
+        }
+        .sorted { $0.name < $1.name }
+
+        Self.sharedActiveBindingsLock.withLock { state in
+            state = bindings
+        }
+    }
+
+    nonisolated static func currentActiveBindingsSnapshot() -> [ActiveHotKeyBinding] {
+        sharedActiveBindingsLock.withLock { $0 }
+    }
+
+    nonisolated func activeBindingsSnapshot() -> [ActiveHotKeyBinding] {
+        Self.currentActiveBindingsSnapshot()
+    }
+
+    nonisolated func matchingArmedBinding(keyCode: UInt16, modifiers: [KeyModifier]) -> ActiveHotKeyBinding? {
+        let targetCode = UInt32(keyCode)
+        return Self.sharedActiveBindingsLock.withLock { bindings in
+            bindings.first { $0.isArmed && $0.keyCode == targetCode && $0.modifiers == modifiers }
         }
     }
 
@@ -236,81 +316,11 @@ final class HotKeyManager: ObservableObject {
         excludingSourceID: String?,
         in config: ToolboxConfig
     ) -> String? {
-        guard !shortcut.isEmpty else { return nil }
-        var matches: [String] = []
-        if excludingSourceID != "clipboard",
-           config.clipboard.enabled,
-           !config.clipboard.shortcut.isEmpty,
-           config.clipboard.shortcut == shortcut {
-            matches.append("Clipboard History")
-        }
-        if excludingSourceID != "port_killer",
-           config.portKiller.enabled,
-           !config.portKiller.shortcut.isEmpty,
-           config.portKiller.shortcut == shortcut {
-            matches.append("Port Killer")
-        }
-        if excludingSourceID != "screen_ocr",
-           config.screenOCR.enabled,
-           !config.screenOCR.shortcut.isEmpty,
-           config.screenOCR.shortcut == shortcut {
-            matches.append("Screen OCR")
-        }
-        if excludingSourceID != "keep_awake",
-           config.keepAwake.enabled,
-           !config.keepAwake.shortcut.isEmpty,
-           config.keepAwake.shortcut == shortcut {
-            matches.append("Keep Awake")
-        }
-        if excludingSourceID != "scroll_direction",
-           !config.scrollDirection.shortcut.isEmpty,
-           config.scrollDirection.shortcut == shortcut {
-            matches.append("Scroll Direction")
-        }
-        if excludingSourceID != "dock_minimize",
-           !config.dockMinimize.shortcut.isEmpty,
-           config.dockMinimize.shortcut == shortcut {
-            matches.append("Dock Click to Minimize")
-        }
-        if excludingSourceID != "window_switcher.current_app",
-           config.windowSwitcher.enabled,
-           !config.windowSwitcher.currentAppOnlyShortcut.isEmpty,
-           config.windowSwitcher.currentAppOnlyShortcut == shortcut {
-            matches.append("Window Switcher (Current App Only)")
-        }
-        if config.callControls.enabled || (excludingSourceID?.hasPrefix("call_controls.") == true) {
-            let callControlShortcuts: [(String, String, ShortcutSpec)] = [
-                ("call_controls.mic", "Call Controls (Mic Keybind)", config.callControls.micShortcut),
-                ("call_controls.video", "Call Controls (Video Keybind)", config.callControls.videoShortcut),
-                ("call_controls.os_mute", "Call Controls (OS Mic Mute)", config.callControls.osMuteShortcut),
-                ("call_controls.cycle_output", "Call Controls (Cycle Output)", config.callControls.cycleOutputShortcut)
-            ]
-            for (sourceID, label, spec) in callControlShortcuts where sourceID != excludingSourceID && !spec.isEmpty && spec == shortcut {
-                matches.append(label)
-            }
-        }
-        if config.customCommands.enabled {
-            for cmd in config.customCommands.commands where cmd.enabled && !cmd.shortcut.isEmpty {
-                let sourceID = "custom_command.\(cmd.id)"
-                if sourceID != excludingSourceID && cmd.shortcut == shortcut {
-                    matches.append("Custom Command '\(cmd.name)'")
-                }
-            }
-        }
-        let checkWindowHotKeys = (config.windowSnapper.enabled && config.windowSnapper.keyboardSnappingEnabled)
-            || (excludingSourceID?.hasPrefix("window_snapper.") == true)
-        let checkWindowProfilesAndZones = config.windowSnapper.enabled
-            || (excludingSourceID?.hasPrefix("window_snapper.") == true)
-        if checkWindowHotKeys || checkWindowProfilesAndZones {
-            for entry in config.windowSnapper.allShortcutEntries(
-                includeHotKeys: checkWindowHotKeys,
-                includeProfilesAndZones: checkWindowProfilesAndZones
-            ) where entry.sourceID != excludingSourceID && entry.shortcut == shortcut {
-                matches.append(entry.label)
-            }
-        }
-        guard !matches.isEmpty else { return nil }
-        return "Conflicts with \(matches.joined(separator: ", ")) (\(shortcut.displayString))."
+        ShortcutCatalog.inAppConflictDescription(
+            for: shortcut,
+            excludingSourceID: excludingSourceID,
+            in: config
+        )
     }
 
     /// Unbinds any other active shortcut in `config` that collides with `shortcut`.
@@ -319,92 +329,11 @@ final class HotKeyManager: ObservableObject {
         excludingSourceID: String?,
         in config: inout ToolboxConfig
     ) {
-        guard !shortcut.isEmpty else { return }
-        if excludingSourceID != "clipboard",
-           config.clipboard.enabled,
-           config.clipboard.shortcut == shortcut {
-            config.clipboard.shortcut = .none
-        }
-        if excludingSourceID != "port_killer",
-           config.portKiller.enabled,
-           config.portKiller.shortcut == shortcut {
-            config.portKiller.shortcut = .none
-        }
-        if excludingSourceID != "screen_ocr",
-           config.screenOCR.enabled,
-           config.screenOCR.shortcut == shortcut {
-            config.screenOCR.shortcut = .none
-        }
-        if excludingSourceID != "keep_awake",
-           config.keepAwake.enabled,
-           config.keepAwake.shortcut == shortcut {
-            config.keepAwake.shortcut = .none
-        }
-        if excludingSourceID != "scroll_direction",
-           config.scrollDirection.shortcut == shortcut {
-            config.scrollDirection.shortcut = .none
-        }
-        if excludingSourceID != "dock_minimize",
-           config.dockMinimize.shortcut == shortcut {
-            config.dockMinimize.shortcut = .none
-        }
-        if excludingSourceID != "window_switcher.current_app",
-           config.windowSwitcher.enabled,
-           config.windowSwitcher.currentAppOnlyShortcut == shortcut {
-            config.windowSwitcher.currentAppOnlyShortcut = .none
-        }
-        if config.callControls.enabled || (excludingSourceID?.hasPrefix("call_controls.") == true) {
-            if excludingSourceID != "call_controls.mic", config.callControls.micShortcut == shortcut {
-                config.callControls.micShortcut = .none
-            }
-            if excludingSourceID != "call_controls.video", config.callControls.videoShortcut == shortcut {
-                config.callControls.videoShortcut = .none
-            }
-            if excludingSourceID != "call_controls.os_mute", config.callControls.osMuteShortcut == shortcut {
-                config.callControls.osMuteShortcut = .none
-            }
-            if excludingSourceID != "call_controls.cycle_output", config.callControls.cycleOutputShortcut == shortcut {
-                config.callControls.cycleOutputShortcut = .none
-            }
-        }
-        if config.customCommands.enabled {
-            for idx in config.customCommands.commands.indices {
-                let cmd = config.customCommands.commands[idx]
-                let sourceID = "custom_command.\(cmd.id)"
-                if cmd.enabled && sourceID != excludingSourceID && cmd.shortcut == shortcut {
-                    config.customCommands.commands[idx].shortcut = .none
-                }
-            }
-        }
-        let clearWindowHotKeys = (config.windowSnapper.enabled && config.windowSnapper.keyboardSnappingEnabled)
-            || (excludingSourceID?.hasPrefix("window_snapper.") == true)
-        let clearWindowProfilesAndZones = config.windowSnapper.enabled
-            || (excludingSourceID?.hasPrefix("window_snapper.") == true)
-        if clearWindowHotKeys {
-            for action in WindowSnapperHotKeyAction.allCases {
-                if action.sourceID != excludingSourceID && config.windowSnapper.hotKeys.shortcut(for: action) == shortcut {
-                    config.windowSnapper.hotKeys.setShortcut(.none, for: action)
-                }
-            }
-        }
-        if clearWindowProfilesAndZones {
-            for idx in config.windowSnapper.profiles.indices {
-                let sourceID = "window_snapper.profile.\(config.windowSnapper.profiles[idx].id)"
-                if sourceID != excludingSourceID && config.windowSnapper.profiles[idx].shortcut == shortcut {
-                    config.windowSnapper.profiles[idx].shortcut = .none
-                }
-            }
-            for layoutIdx in config.windowSnapper.displayLayouts.indices {
-                let layoutID = config.windowSnapper.displayLayouts[layoutIdx].id
-                for zoneIdx in config.windowSnapper.displayLayouts[layoutIdx].customZones.indices {
-                    let zoneID = config.windowSnapper.displayLayouts[layoutIdx].customZones[zoneIdx].id
-                    let sourceID = "window_snapper.zone.\(layoutID).\(zoneID)"
-                    if sourceID != excludingSourceID && config.windowSnapper.displayLayouts[layoutIdx].customZones[zoneIdx].shortcut == shortcut {
-                        config.windowSnapper.displayLayouts[layoutIdx].customZones[zoneIdx].shortcut = .none
-                    }
-                }
-            }
-        }
+        ShortcutCatalog.clearConflictingShortcuts(
+            matching: shortcut,
+            excludingSourceID: excludingSourceID,
+            in: &config
+        )
     }
 
     /// Checks whether `shortcut` collides with a Toolbox main-menu shortcut or an active macOS system shortcut.
@@ -437,7 +366,7 @@ final class HotKeyManager: ObservableObject {
         | NSEvent.ModifierFlags.shift.rawValue
         | NSEvent.ModifierFlags.control.rawValue
 
-    private static let wellKnownSystemShortcuts: [ShortcutSpec: String] = [
+    static let wellKnownSystemShortcuts: [ShortcutSpec: String] = [
         ShortcutSpec(key: "space", modifiers: [.command]): "Spotlight Search",
         ShortcutSpec(key: "space", modifiers: [.command, .option]): "Finder Search Window",
         ShortcutSpec(key: "space", modifiers: [.control]): "Input Source Switching",
@@ -490,31 +419,56 @@ final class HotKeyManager: ObservableObject {
         }
 
         var rawArray: Unmanaged<CFArray>?
-        let status = CopySymbolicHotKeys(&rawArray)
-        guard status == noErr,
-              let hotKeys = rawArray?.takeRetainedValue() as? [[String: Any]] else {
-            return false
+        let now = Date()
+        if now.timeIntervalSince(cachedSystemSymbolicHotKeysAt) >= Self.symbolicCacheTTL {
+            let status = CopySymbolicHotKeys(&rawArray)
+            if status == noErr,
+               let hotKeys = rawArray?.takeRetainedValue() as? [[String: Any]] {
+                var parsed = Set<SymbolicCarbonPair>()
+                for entry in hotKeys {
+                    guard let enabled = (entry["kHISymbolicHotKeyEnabled"] as? NSNumber)?.boolValue, enabled,
+                          let code = (entry["kHISymbolicHotKeyCode"] as? NSNumber)?.uint32Value,
+                          let mods = (entry["kHISymbolicHotKeyModifiers"] as? NSNumber)?.uint32Value else {
+                        continue
+                    }
+                    parsed.insert(SymbolicCarbonPair(keyCode: code, modifiers: mods & Self.symbolicModifierMask))
+                }
+                cachedSystemSymbolicHotKeys = parsed
+            } else {
+                cachedSystemSymbolicHotKeys = []
+            }
+            cachedSystemSymbolicHotKeysAt = now
         }
 
         let targetMods = shortcut.carbonModifiers & Self.symbolicModifierMask
-        for entry in hotKeys {
-            guard let enabled = (entry["kHISymbolicHotKeyEnabled"] as? NSNumber)?.boolValue, enabled,
-                  let code = (entry["kHISymbolicHotKeyCode"] as? NSNumber)?.uint32Value,
-                  let mods = (entry["kHISymbolicHotKeyModifiers"] as? NSNumber)?.uint32Value else {
-                continue
-            }
-            if code == targetCode && (mods & Self.symbolicModifierMask) == targetMods {
-                return true
-            }
-        }
-        return false
+        return cachedSystemSymbolicHotKeys.contains(SymbolicCarbonPair(keyCode: targetCode, modifiers: targetMods))
     }
 
     private func isExplicitlyEnabledInUserSymbolicHotKeys(targetCode: UInt32, shortcut: ShortcutSpec) -> Bool {
-        guard let domain = UserDefaults(suiteName: "com.apple.symbolichotkeys"),
-              let table = domain.dictionary(forKey: "AppleSymbolicHotKeys") else {
-            return false
+        let now = Date()
+        if now.timeIntervalSince(cachedUserSymbolicHotKeysAt) >= Self.symbolicCacheTTL {
+            if let domain = UserDefaults(suiteName: "com.apple.symbolichotkeys"),
+               let table = domain.dictionary(forKey: "AppleSymbolicHotKeys") {
+                var parsed = Set<SymbolicHotKeyPair>()
+                for rawEntry in table.values {
+                    guard let entry = rawEntry as? [String: Any],
+                          let enabled = (entry["enabled"] as? NSNumber)?.boolValue, enabled,
+                          let value = entry["value"] as? [String: Any],
+                          let params = value["parameters"] as? [NSNumber],
+                          params.count >= 3 else {
+                        continue
+                    }
+                    let keyCode = params[1].uint32Value
+                    let mods = params[2].uintValue & Self.cocoaSymbolicModifierMask
+                    parsed.insert(SymbolicHotKeyPair(keyCode: keyCode, modifiers: mods))
+                }
+                cachedUserSymbolicHotKeys = parsed
+            } else {
+                cachedUserSymbolicHotKeys = []
+            }
+            cachedUserSymbolicHotKeysAt = now
         }
+
         var expectedCocoaMods: UInt = 0
         for mod in shortcut.modifiers {
             switch mod {
@@ -524,21 +478,7 @@ final class HotKeyManager: ObservableObject {
             case .shift: expectedCocoaMods |= NSEvent.ModifierFlags.shift.rawValue
             }
         }
-        for rawEntry in table.values {
-            guard let entry = rawEntry as? [String: Any],
-                  let enabled = (entry["enabled"] as? NSNumber)?.boolValue, enabled,
-                  let value = entry["value"] as? [String: Any],
-                  let params = value["parameters"] as? [NSNumber],
-                  params.count >= 3 else {
-                continue
-            }
-            let keyCode = params[1].uint32Value
-            let mods = params[2].uintValue & Self.cocoaSymbolicModifierMask
-            if keyCode == targetCode && mods == expectedCocoaMods {
-                return true
-            }
-        }
-        return false
+        return cachedUserSymbolicHotKeys.contains(SymbolicHotKeyPair(keyCode: targetCode, modifiers: expectedCocoaMods))
     }
 
     private func matchingMainMenuItemTitle(for shortcut: ShortcutSpec) -> String? {

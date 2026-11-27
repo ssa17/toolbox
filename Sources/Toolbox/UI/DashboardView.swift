@@ -29,8 +29,12 @@ struct DashboardView: View {
 
     let onSelectModule: (String) -> Void
 
+    private var dashboardModules: [any ToolboxModule] {
+        registry.modules.filter { $0.id != "hyper_key" }
+    }
+
     private var toggleableModules: [any ToolboxModule] {
-        registry.modules.filter(\.supportsEnableToggle)
+        dashboardModules.filter(\.supportsEnableToggle)
     }
 
     private var activeCount: Int {
@@ -54,7 +58,7 @@ struct DashboardView: View {
             let availableGridWidth = max(0, proxy.size.width - 44)
             let columnCount = DashboardLayoutMetrics.columnCount(forAvailableWidth: availableGridWidth)
             let gridSpacing = DashboardLayoutMetrics.gridSpacing(showDetails: showDetails)
-            let rows = chunkedModules(registry.modules, intoColumns: columnCount)
+            let rows = chunkedModules(dashboardModules, intoColumns: columnCount)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {

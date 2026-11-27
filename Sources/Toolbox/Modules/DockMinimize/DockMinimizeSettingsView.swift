@@ -113,6 +113,7 @@ struct DockMinimizeSettingsView: View {
                     }
                 }
             }
+            .id(ModuleFocusAnchor.shortcuts.rawValue)
 
             FeatureSection("Excluded Applications", subtitle: "Apps listed here keep default macOS Dock click behavior.") {
                 VStack(alignment: .leading, spacing: 10) {

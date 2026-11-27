@@ -1725,6 +1725,23 @@ final class CallControlsModule: ToolboxModule, ObservableObject {
         }
     }
 
+    func triggerUnifiedActionFromHyperKey(_ action: CallActionKind) {
+        switch action {
+        case .mic:
+            if developerSimulation != nil {
+                triggerSimulatedAction(.mic, fallbackToDefaultIfUnbound: true, respectSimulatedAccessibility: true)
+            } else {
+                toggleSmartMicMute()
+            }
+        case .video:
+            if developerSimulation != nil {
+                triggerSimulatedAction(.video, fallbackToDefaultIfUnbound: true, respectSimulatedAccessibility: true)
+            } else {
+                toggleCallVideo()
+            }
+        }
+    }
+
     func refreshAudioDevices() {
         let updated = CoreAudioController.listDevices()
         if devices != updated {

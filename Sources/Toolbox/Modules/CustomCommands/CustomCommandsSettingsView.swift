@@ -91,6 +91,7 @@ struct CustomCommandsSettingsView: View {
                     }
                 }
             }
+            .id(ModuleFocusAnchor.shortcuts.rawValue)
 
             if let output = module.lastOutput {
                 FeatureSection("Last Run Output") {

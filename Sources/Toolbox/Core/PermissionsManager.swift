@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import IOKit.hidsystem
 
 @MainActor
 final class PermissionsManager: ObservableObject {
@@ -19,26 +20,52 @@ final class PermissionsManager: ObservableObject {
     )!
 
     private static let awaitingGrantWindowSeconds: TimeInterval = 180
+    static let pendingInputMonitoringReadyToastKey = "toolbox.pendingInputMonitoringReadyToastAt"
+
+    static let inputMonitoringSettingsURL = URL(
+        string: "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ListenEvent"
+    )!
+    static let legacyInputMonitoringSettingsURL = URL(
+        string: "x-apple.preference.security?Privacy_ListenEvent"
+    )!
 
     @Published private(set) var isAccessibilityGranted: Bool = false
     @Published private(set) var simulatedAccessibilityGranted: Bool? = nil
+    @Published private(set) var isInputMonitoringGranted: Bool = false
+    @Published private(set) var simulatedInputMonitoringGranted: Bool? = nil
     @Published var isPresentingOnboardingModal: Bool = false
     @Published private(set) var isAwaitingAccessibilityGrant: Bool = false
     @Published private(set) var hasAttemptedGrantWithoutSuccess: Bool = false
     @Published private(set) var isResettingAccessibility: Bool = false
+    @Published private(set) var isAwaitingInputMonitoringGrant: Bool = false
+    @Published private(set) var hasAttemptedInputMonitoringGrantWithoutSuccess: Bool = false
+    @Published private(set) var isResettingInputMonitoring: Bool = false
 
     let isAdHocSigned: Bool
 
     var onAccessibilityChanged: ((Bool) -> Void)?
+    var onInputMonitoringChanged: ((Bool) -> Void)?
     var onReturnToAppRequested: (() -> Void)?
 
     private var lastActualAccessibilityGranted: Bool = false
+    private var lastActualInputMonitoringGranted: Bool = false
     private var timer: Timer?
     private var fastPollTimer: Timer?
     private var promptMonitorTimer: Timer?
     private var awaitingGrantDeadline: Date?
     private var isRequestInFlight: Bool = false
     private var didVisitSystemSettingsWhileAwaiting: Bool = false
+    private var awaitingInputMonitoringGrantDeadline: Date?
+    private var recentInputMonitoringGrantUntil: Date = .distantPast
+    private var isInputMonitoringRequestInFlight: Bool = false
+    private var didVisitSystemSettingsWhileAwaitingInputMonitoring: Bool = false
+    private var inputMonitoringPromptTimer: Timer?
+    private var inputMonitoringSheetWaitTask: Task<Void, Never>?
+    private var liveProbedInputMonitoringValue: Bool? = nil
+    private var isInputMonitoringProbeInFlight: Bool = false
+    private var needsFollowUpInputMonitoringProbe: Bool = false
+    private var hasPromptedInputMonitoringThisSession: Bool = false
+    private var inputMonitoringPollTask: Task<Void, Never>?
     private var axNotificationHoldoffUntil: Date = .distantPast
     private var ignoringSelfPostedNotificationUntil: Date = .distantPast
     private var nextAllowedCacheFlushAt: Date = .distantPast
@@ -89,6 +116,20 @@ final class PermissionsManager: ObservableObject {
         return result != 0
     }
 
+    nonisolated static func checkInputMonitoringGranted() -> Bool {
+        IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted
+    }
+
+    var actualInputMonitoringGranted: Bool {
+        liveProbedInputMonitoringValue ?? Self.checkInputMonitoringGranted()
+    }
+
+    /// True while awaiting or right after granting Input Monitoring so macOS System Settings'
+    /// "Quit & Reopen" button can terminate and relaunch Toolbox even when `dockQuitBehavior == .closeWindow`.
+    var shouldAllowSystemQuitAndReopenForInputMonitoring: Bool {
+        isAwaitingInputMonitoringGrant || Date() <= recentInputMonitoringGrantUntil
+    }
+
     nonisolated(unsafe) private static var cachedLiveTrustedState: Bool = (
         tccCheckAccessibilityGranted() ?? AXIsProcessTrusted()
     )
@@ -129,19 +170,23 @@ final class PermissionsManager: ObservableObject {
         type == .tapDisabledByTimeout && isTrusted
     }
 
-    static var isRunningInDiagnosticMode: Bool {
+    nonisolated static var isRunningInDiagnosticMode: Bool {
         let args = CommandLine.arguments
         return args.contains("--self-test")
             || args.contains("--snapshot-ui")
             || args.contains("--ocr-file")
             || args.contains("--ocr-capture")
             || args.contains("--check-screen-recording")
+            || args.contains("--check-input-monitoring")
     }
 
     private init() {
         let actual = Self.isProcessTrusted()
         lastActualAccessibilityGranted = actual
         isAccessibilityGranted = actual
+        let actualInput = Self.checkInputMonitoringGranted()
+        lastActualInputMonitoringGranted = actualInput
+        isInputMonitoringGranted = actualInput
         isAdHocSigned = RuntimeDiagnosticsSnapshot.inspectCodeSignature().isAdHoc
 
         let bgTimer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
@@ -200,8 +245,49 @@ final class PermissionsManager: ObservableObject {
         }
         Self.cachedLiveTrustedState = actual
         applyAccessibilityCheck(actual)
+        applyInputMonitoringCheck(actualInputMonitoringGranted)
         ModuleRegistry.shared.screenOCR.refreshScreenPermission()
         ModuleRegistry.shared.windowSwitcher.refreshScreenPermission()
+    }
+
+    private func applyInputMonitoringCheck(_ actual: Bool) {
+        let wasActualGranted = lastActualInputMonitoringGranted
+        let changed = actual != wasActualGranted
+        lastActualInputMonitoringGranted = actual
+
+        let effective = simulatedInputMonitoringGranted ?? actual
+        if effective != isInputMonitoringGranted {
+            isInputMonitoringGranted = effective
+        }
+
+        if changed {
+            onInputMonitoringChanged?(actual)
+        }
+
+        if actual {
+            let shouldReturn = Self.shouldReturnToAppOnGrant(
+                isAwaiting: isAwaitingInputMonitoringGrantWindowActive,
+                wasGranted: wasActualGranted,
+                nowGranted: actual,
+                isDiagnosticMode: Self.isRunningInDiagnosticMode,
+                simulatedOverride: simulatedInputMonitoringGranted
+            )
+            stopAwaitingInputMonitoringGrant()
+            hasAttemptedInputMonitoringGrantWithoutSuccess = false
+
+            if shouldReturn {
+                recentInputMonitoringGrantUntil = Date().addingTimeInterval(60)
+                UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.pendingInputMonitoringReadyToastKey)
+                waitForSystemSettingsSheetAndReturnForInputMonitoring()
+            }
+        } else if let deadline = awaitingInputMonitoringGrantDeadline, Date() > deadline {
+            stopAwaitingInputMonitoringGrant()
+        }
+    }
+
+    private var isAwaitingInputMonitoringGrantWindowActive: Bool {
+        guard isAwaitingInputMonitoringGrant, let deadline = awaitingInputMonitoringGrantDeadline else { return false }
+        return Date() <= deadline
     }
 
     private func scheduleHIServicesCacheResync(force: Bool = false) {
@@ -231,6 +317,7 @@ final class PermissionsManager: ObservableObject {
 
         if actualChanged {
             onAccessibilityChanged?(actual)
+            probeInputMonitoringUncachedAsync()
         }
 
         if actual {
@@ -288,26 +375,34 @@ final class PermissionsManager: ObservableObject {
     }
 
     private func handleWorkspaceAppActivated(bundleID: String?) {
-        if bundleID == "com.apple.systempreferences", isAwaitingGrantWindowActive {
-            didVisitSystemSettingsWhileAwaiting = true
+        if bundleID == "com.apple.systempreferences" {
+            if isAwaitingGrantWindowActive {
+                didVisitSystemSettingsWhileAwaiting = true
+            }
+            if isAwaitingInputMonitoringGrantWindowActive {
+                didVisitSystemSettingsWhileAwaitingInputMonitoring = true
+            }
         }
         refresh()
+        probeInputMonitoringUncachedAsync()
     }
 
     private func handleAppDidBecomeActive() {
         refresh()
+        probeInputMonitoringUncachedAsync()
         if isAwaitingGrantWindowActive,
            didVisitSystemSettingsWhileAwaiting,
            !actualAccessibilityGranted {
             hasAttemptedGrantWithoutSuccess = true
         }
+        if isAwaitingInputMonitoringGrantWindowActive,
+           didVisitSystemSettingsWhileAwaitingInputMonitoring,
+           !actualInputMonitoringGranted {
+            hasAttemptedInputMonitoringGrantWithoutSuccess = true
+        }
     }
 
-    private func beginAwaitingAccessibilityGrant() {
-        isAwaitingAccessibilityGrant = true
-        awaitingGrantDeadline = Date().addingTimeInterval(Self.awaitingGrantWindowSeconds)
-        didVisitSystemSettingsWhileAwaiting = false
-
+    private func ensureFastPollTimerRunning() {
         guard fastPollTimer == nil else { return }
         let fastTimer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
@@ -318,12 +413,127 @@ final class PermissionsManager: ObservableObject {
         fastPollTimer = fastTimer
     }
 
+    private func stopFastPollTimerIfIdle() {
+        guard !isAwaitingAccessibilityGrant && !isAwaitingInputMonitoringGrant else { return }
+        fastPollTimer?.invalidate()
+        fastPollTimer = nil
+    }
+
+    private func beginAwaitingAccessibilityGrant() {
+        isAwaitingAccessibilityGrant = true
+        awaitingGrantDeadline = Date().addingTimeInterval(Self.awaitingGrantWindowSeconds)
+        didVisitSystemSettingsWhileAwaiting = false
+        ensureFastPollTimerRunning()
+    }
+
     private func stopAwaitingAccessibilityGrant() {
         isAwaitingAccessibilityGrant = false
         awaitingGrantDeadline = nil
         didVisitSystemSettingsWhileAwaiting = false
-        fastPollTimer?.invalidate()
-        fastPollTimer = nil
+        stopFastPollTimerIfIdle()
+    }
+
+    func probeInputMonitoringUncachedAsync() {
+        guard !Self.isRunningInDiagnosticMode,
+              let executableURL = Bundle.main.executableURL else {
+            return
+        }
+        if isInputMonitoringProbeInFlight {
+            needsFollowUpInputMonitoringProbe = true
+            return
+        }
+        isInputMonitoringProbeInFlight = true
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let proc = Process()
+            proc.executableURL = executableURL
+            proc.arguments = ["--check-input-monitoring"]
+            proc.standardOutput = FileHandle.nullDevice
+            proc.standardError = FileHandle.nullDevice
+            let granted: Bool
+            do {
+                try proc.run()
+                proc.waitUntilExit()
+                granted = (proc.terminationStatus == 0)
+            } catch {
+                granted = false
+            }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.isInputMonitoringProbeInFlight = false
+                    self.liveProbedInputMonitoringValue = granted
+                    self.applyInputMonitoringCheck(granted)
+                    if self.needsFollowUpInputMonitoringProbe {
+                        self.needsFollowUpInputMonitoringProbe = false
+                        self.probeInputMonitoringUncachedAsync()
+                    }
+                }
+            }
+        }
+    }
+
+    private func beginAwaitingInputMonitoringGrant() {
+        isAwaitingInputMonitoringGrant = true
+        awaitingInputMonitoringGrantDeadline = Date().addingTimeInterval(Self.awaitingGrantWindowSeconds)
+        didVisitSystemSettingsWhileAwaitingInputMonitoring = false
+        ensureFastPollTimerRunning()
+
+        inputMonitoringPollTask?.cancel()
+        guard !Self.isRunningInDiagnosticMode else {
+            inputMonitoringPollTask = nil
+            return
+        }
+        inputMonitoringPollTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 450_000_000)
+                if Task.isCancelled { return }
+                guard let self, self.isAwaitingInputMonitoringGrantWindowActive else {
+                    self?.stopAwaitingInputMonitoringGrant()
+                    return
+                }
+                self.probeInputMonitoringUncachedAsync()
+                if self.actualInputMonitoringGranted {
+                    return
+                }
+            }
+        }
+    }
+
+    private func stopAwaitingInputMonitoringGrant() {
+        isAwaitingInputMonitoringGrant = false
+        awaitingInputMonitoringGrantDeadline = nil
+        didVisitSystemSettingsWhileAwaitingInputMonitoring = false
+        inputMonitoringPollTask?.cancel()
+        inputMonitoringPollTask = nil
+        stopFastPollTimerIfIdle()
+    }
+
+    private func waitForSystemSettingsSheetAndReturnForInputMonitoring() {
+        inputMonitoringSheetWaitTask?.cancel()
+        inputMonitoringSheetWaitTask = Task { @MainActor [weak self] in
+            // Give System Settings ~350ms to present its post-toggle "Quit & Reopen / Later" sheet.
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            if Task.isCancelled { return }
+
+            let deadline = Date().addingTimeInterval(30)
+            while !Task.isCancelled && Date() <= deadline {
+                let hasSheet = Self.hasSystemSettingsAlertSheet()
+                    || Self.hasSystemPermissionPromptWindow()
+                if !hasSheet {
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+            if Task.isCancelled { return }
+            guard let self, self.actualInputMonitoringGranted else { return }
+            UserDefaults.standard.removeObject(forKey: Self.pendingInputMonitoringReadyToastKey)
+            MainWindowController.shared.show(destination: .shortcuts)
+            HUDToast.shared.show(
+                title: "Input Monitoring granted — Caps Lock Hyper Key is ready",
+                symbol: "checkmark.shield.fill",
+                tint: .green
+            )
+        }
     }
 
     private func returnToAppAfterGrant() {
@@ -356,6 +566,153 @@ final class PermissionsManager: ObservableObject {
     func setSimulatedAccessibilityGranted(_ simulated: Bool?) {
         simulatedAccessibilityGranted = simulated
         refresh()
+    }
+
+    /// Overrides the UI-reported Input Monitoring status in-memory for tests and snapshots.
+    func setSimulatedInputMonitoringGranted(_ simulated: Bool?) {
+        simulatedInputMonitoringGranted = simulated
+        refresh()
+    }
+
+    func requestInputMonitoringAccess() {
+        refresh()
+        guard !actualInputMonitoringGranted else { return }
+        guard !isInputMonitoringRequestInFlight else { return }
+
+        beginAwaitingInputMonitoringGrant()
+
+        guard !Self.isRunningInDiagnosticMode else { return }
+
+        if hasPromptedInputMonitoringThisSession {
+            openInputMonitoringSettings()
+            return
+        }
+
+        hasPromptedInputMonitoringThisSession = true
+        isInputMonitoringRequestInFlight = true
+        if Self.hasSystemPermissionPromptWindow() {
+            monitorInputMonitoringPromptUntilDismissed()
+            return
+        }
+
+        waitForInputMonitoringPromptOrOpenSettings()
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let granted = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    if granted {
+                        self.liveProbedInputMonitoringValue = true
+                        self.inputMonitoringPromptTimer?.invalidate()
+                        self.inputMonitoringPromptTimer = nil
+                        self.isInputMonitoringRequestInFlight = false
+                        self.applyInputMonitoringCheck(true)
+                    } else {
+                        self.probeInputMonitoringUncachedAsync()
+                    }
+                }
+            }
+        }
+    }
+
+    private func waitForInputMonitoringPromptOrOpenSettings() {
+        inputMonitoringPromptTimer?.invalidate()
+        let appearDeadline = Date().addingTimeInterval(1.1)
+        let monitor = Timer(timeInterval: 0.12, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.refresh()
+                if self.actualInputMonitoringGranted {
+                    self.inputMonitoringPromptTimer?.invalidate()
+                    self.inputMonitoringPromptTimer = nil
+                    self.isInputMonitoringRequestInFlight = false
+                    return
+                }
+                if Self.hasSystemPermissionPromptWindow() {
+                    self.monitorInputMonitoringPromptUntilDismissed()
+                    return
+                }
+                if Date() >= appearDeadline {
+                    self.inputMonitoringPromptTimer?.invalidate()
+                    self.inputMonitoringPromptTimer = nil
+                    self.isInputMonitoringRequestInFlight = false
+                    self.openInputMonitoringSettings()
+                }
+            }
+        }
+        RunLoop.main.add(monitor, forMode: .common)
+        inputMonitoringPromptTimer = monitor
+    }
+
+    private func monitorInputMonitoringPromptUntilDismissed() {
+        inputMonitoringPromptTimer?.invalidate()
+        let deadline = Date().addingTimeInterval(30)
+        let monitor = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.refresh()
+                if self.actualInputMonitoringGranted || !Self.hasSystemPermissionPromptWindow() || Date() > deadline {
+                    self.inputMonitoringPromptTimer?.invalidate()
+                    self.inputMonitoringPromptTimer = nil
+                    self.isInputMonitoringRequestInFlight = false
+                    guard !self.actualInputMonitoringGranted else { return }
+
+                    for delay in [0.55, 1.10] {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                            MainActor.assumeIsolated {
+                                self?.bringSystemSettingsToFrontIfOpenBehindToolbox()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        RunLoop.main.add(monitor, forMode: .common)
+        inputMonitoringPromptTimer = monitor
+    }
+
+    func resetAndRegrantInputMonitoring() {
+        guard !isResettingInputMonitoring else { return }
+
+        inputMonitoringPromptTimer?.invalidate()
+        inputMonitoringPromptTimer = nil
+        isInputMonitoringRequestInFlight = false
+        hasAttemptedInputMonitoringGrantWithoutSuccess = false
+        hasPromptedInputMonitoringThisSession = false
+        liveProbedInputMonitoringValue = nil
+
+        guard let bundleID = Bundle.main.bundleIdentifier, !Self.isRunningInDiagnosticMode else {
+            requestInputMonitoringAccess()
+            return
+        }
+
+        isResettingInputMonitoring = true
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+            process.arguments = ["reset", "ListenEvent", bundleID]
+            try? process.run()
+            process.waitUntilExit()
+
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.isResettingInputMonitoring = false
+                    self.liveProbedInputMonitoringValue = false
+                    self.refresh()
+                    self.requestInputMonitoringAccess()
+                }
+            }
+        }
+    }
+
+    func openInputMonitoringSettings() {
+        beginAwaitingInputMonitoringGrant()
+        Self.openSystemSettings(
+            primaryURL: Self.inputMonitoringSettingsURL,
+            fallbackURL: Self.legacyInputMonitoringSettingsURL
+        )
     }
 
     func presentOnboardingModal() {
@@ -457,7 +814,7 @@ final class PermissionsManager: ObservableObject {
 
     private func bringSystemSettingsToFrontIfOpenBehindToolbox() {
         refresh()
-        guard !actualAccessibilityGranted, NSApp.isActive else { return }
+        guard NSApp.isActive else { return }
         guard let settingsApp = NSWorkspace.shared.runningApplications.first(where: {
             $0.bundleIdentifier == "com.apple.systempreferences" && !$0.isTerminated
         }) else {
@@ -638,5 +995,11 @@ final class PermissionsManager: ObservableObject {
 
     internal func markAttemptedGrantWithoutSuccessForTesting(_ attempted: Bool) {
         hasAttemptedGrantWithoutSuccess = attempted
+    }
+
+    internal func stopAwaitingInputMonitoringGrantForTesting() {
+        stopAwaitingInputMonitoringGrant()
+        hasPromptedInputMonitoringThisSession = false
+        liveProbedInputMonitoringValue = nil
     }
 }

@@ -143,6 +143,7 @@ struct ScrollDirectionSettingsView: View {
                     }
                 }
             }
+            .id(ModuleFocusAnchor.shortcuts.rawValue)
         }
     }
 

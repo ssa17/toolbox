@@ -430,6 +430,7 @@ struct CallControlsSettingsView: View {
                 }
             }
         }
+        .id(ModuleFocusAnchor.shortcuts.rawValue)
     }
 
     @ViewBuilder

@@ -821,6 +821,18 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
         }
     }
 
+    static func combinedLiveModifierFlags(
+        systemFlags: CGEventFlags = CGEventSource.flagsState(.combinedSessionState),
+        hyperKeyFlags: CGEventFlags = HyperKeyEventTap.currentHeldModifierFlags()
+    ) -> CGEventFlags {
+        systemFlags.union(hyperKeyFlags)
+    }
+
+    func handleHyperKeyModifiersChanged() {
+        guard hasActiveOrPendingKeyboardSnap else { return }
+        pollKeyboardPreviewModifiers()
+    }
+
     private func triggerKeyboardZoneShortcut(
         target: KeyboardPreviewZoneTarget,
         requiredModifiers: [KeyModifier]
@@ -842,7 +854,7 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
             active.zone = nextZone
             pendingKeyboardSnap = active
 
-            let liveFlags = CGEventSource.flagsState(.combinedSessionState)
+            let liveFlags = Self.combinedLiveModifierFlags()
             if !KeyboardPreviewState.modifiersStillHeld(active.state.requiredModifiers, liveFlags: liveFlags) {
                 commitPendingKeyboardSnap()
             } else {
@@ -905,7 +917,7 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
                 return
             }
 
-            let liveFlags = CGEventSource.flagsState(.combinedSessionState)
+            let liveFlags = Self.combinedLiveModifierFlags()
             if !KeyboardPreviewState.modifiersStillHeld(state.requiredModifiers, liveFlags: liveFlags) {
                 self.removeKeyboardPreviewMonitors()
                 self.commitKeyboardPreview(window: win, display: display, zone: zone, state: state, hadVisiblePreview: false)
@@ -1038,7 +1050,7 @@ final class WindowSnapperModule: ToolboxModule, ObservableObject {
             return
         }
         guard let session = pendingKeyboardSnap else { return }
-        let liveFlags = CGEventSource.flagsState(.combinedSessionState)
+        let liveFlags = Self.combinedLiveModifierFlags()
         if !KeyboardPreviewState.modifiersStillHeld(session.state.requiredModifiers, liveFlags: liveFlags) {
             commitPendingKeyboardSnap()
         }

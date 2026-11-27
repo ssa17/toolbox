@@ -67,9 +67,13 @@ enum SelfTestRunner {
         testWindowEnumeratorFilteringAndMRUOrdering()
         testWindowSwitcherSelectionStateMachineAndTapDecisions()
         testWindowSwitcherModuleLifecycleAndRegistry()
+        testShortcutCatalogZeroDefaultCollisionsAndConflicts()
+        testHyperKeyConfigAndCapsLockRemapperLogic()
+        testHyperKeyStateMachineDirectDispatchAndRollover()
+        testHyperKeyModuleLifecycleAndShortcutsNavigation()
 
         if failures.isEmpty {
-            print("All 51 self-test suites passed.")
+            print("All 55 self-test suites passed.")
             return 0
         } else {
             for f in failures {
@@ -1650,7 +1654,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(cfg),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.scrollDirection == cfg.scrollDirection, "ScrollDirectionConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 16, "ToolboxConfig schemaVersion should be 16")
+            expect(decoded.schemaVersion == 17, "ToolboxConfig schemaVersion should be 17")
         } else {
             failures.append("ToolboxConfig Codable encode/decode failed")
         }
@@ -1950,7 +1954,7 @@ enum SelfTestRunner {
     private static func testMenuBarCustomizationOrderAndVisibility() {
         var cfg = ToolboxConfig()
         let registry = ModuleRegistry.shared
-        let expectedDefaultOrder = ["dock_minimize", "clipboard", "port_killer", "screen_ocr", "keep_awake", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer", "window_switcher"]
+        let expectedDefaultOrder = ["dock_minimize", "clipboard", "port_killer", "screen_ocr", "keep_awake", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer", "window_switcher", "hyper_key"]
 
         expect(!cfg.general.hasCustomMenuBarLayout, "Default config should not report custom menu bar layout")
         expect(cfg.general.showQuickActionsInMenuBar, "Quick actions should be shown in menu bar by default")
@@ -1961,32 +1965,32 @@ enum SelfTestRunner {
         )
         expect(
             registry.visibleMenuBarModules(for: cfg).map(\.id) == expectedDefaultOrder,
-            "All 11 menu-bar-eligible modules should be visible in menu bar by default"
+            "All 12 menu-bar-eligible modules should be visible in menu bar by default"
         )
 
         cfg.general.moveModuleInMenuBar(id: "keep_awake", direction: -1)
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["dock_minimize", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer", "window_switcher"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["dock_minimize", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer", "window_switcher", "hyper_key"],
             "Moving keep_awake up by 1 should place it before screen_ocr"
         )
         expect(cfg.general.hasCustomMenuBarLayout, "Reordering should mark hasCustomMenuBarLayout = true")
 
         cfg.general.moveModuleInMenuBar(fromId: "scroll_direction", toId: "dock_minimize")
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "dock_minimize", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "call_controls", "window_snapper", "finder_enhancer", "window_switcher"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "dock_minimize", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "call_controls", "window_snapper", "finder_enhancer", "window_switcher", "hyper_key"],
             "Dragging scroll_direction to dock_minimize should place it first"
         )
 
         cfg.general.setModuleVisibleInMenuBar("dock_minimize", visible: false)
         expect(
-            registry.visibleMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "call_controls", "window_snapper", "finder_enhancer", "window_switcher"],
+            registry.visibleMenuBarModules(for: cfg).map(\.id) == ["scroll_direction", "clipboard", "port_killer", "keep_awake", "screen_ocr", "custom_commands", "call_controls", "window_snapper", "finder_enhancer", "window_switcher", "hyper_key"],
             "Hiding dock_minimize from menu bar should omit it from visibleMenuBarModules"
         )
         expect(cfg.dockMinimize.enabled, "Hiding dock_minimize from status bar menu must not disable the module itself")
 
         cfg.general.menuBarModuleOrder = ["keep_awake", "clean_lock", "keep_awake", "unknown_id"]
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["keep_awake", "dock_minimize", "clipboard", "port_killer", "screen_ocr", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer", "window_switcher"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["keep_awake", "dock_minimize", "clipboard", "port_killer", "screen_ocr", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer", "window_switcher", "hyper_key"],
             "Partial, non-menu-bar, or unknown menuBarModuleOrder must normalize with remaining eligible modules and no duplicates"
         )
 
@@ -2014,7 +2018,7 @@ enum SelfTestRunner {
             return
         }
         expect(settingsLayout.distanceAboveDraggedCenter == 266, "distanceAboveDraggedCenter for index 4 should be 266 (got \(settingsLayout.distanceAboveDraggedCenter))")
-        expect(settingsLayout.distanceBelowDraggedCenter == 386, "distanceBelowDraggedCenter for index 4 of 11 should be 386 (got \(settingsLayout.distanceBelowDraggedCenter))")
+        expect(settingsLayout.distanceBelowDraggedCenter == 446, "distanceBelowDraggedCenter for index 4 of 12 should be 446 (got \(settingsLayout.distanceBelowDraggedCenter))")
         expect(settingsLayout.restingShift(forRowAt: 2, targetIndex: 1) == 60, "Row shifting down past 52pt card + 8pt spacing should shift +60")
 
         let dragState = VerticalDragReorderState<String>()
@@ -2030,7 +2034,7 @@ enum SelfTestRunner {
         }
         expect(!dragState.isDragging, "finishDrag should end active drag")
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["clipboard", "port_killer", "screen_ocr", "keep_awake", "dock_minimize", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer", "window_switcher"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["clipboard", "port_killer", "screen_ocr", "keep_awake", "dock_minimize", "custom_commands", "scroll_direction", "call_controls", "window_snapper", "finder_enhancer", "window_switcher", "hyper_key"],
             "Downward Settings drag should place dock_minimize after keep_awake (got \(registry.orderedMenuBarModules(for: cfg).map(\.id)))"
         )
         expect(!cfg.general.menuBarModuleOrder.contains("clean_lock"), "menuBarModuleOrder must never include non-menu-bar clean_lock")
@@ -2044,7 +2048,7 @@ enum SelfTestRunner {
             cfg.general.moveModuleInMenuBar(fromId: draggedID, toId: targetID, allModuleIDs: eligibleIDs)
         }
         expect(
-            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["call_controls", "clipboard", "port_killer", "screen_ocr", "keep_awake", "dock_minimize", "custom_commands", "scroll_direction", "window_snapper", "finder_enhancer", "window_switcher"],
+            registry.orderedMenuBarModules(for: cfg).map(\.id) == ["call_controls", "clipboard", "port_killer", "screen_ocr", "keep_awake", "dock_minimize", "custom_commands", "scroll_direction", "window_snapper", "finder_enhancer", "window_switcher", "hyper_key"],
             "Upward Settings drag should place call_controls at top (got \(registry.orderedMenuBarModules(for: cfg).map(\.id)))"
         )
 
@@ -2637,7 +2641,7 @@ enum SelfTestRunner {
 
     private static func testCallControlsConfigAndCoreAudioEnumeration() {
         let cfg = ToolboxConfig()
-        expect(cfg.schemaVersion == 16, "ToolboxConfig schemaVersion should be 16")
+        expect(cfg.schemaVersion == 17, "ToolboxConfig schemaVersion should be 17")
         expect(!cfg.callControls.enabled, "Call Controls should default to disabled")
         expect(cfg.callControls.overrideScope == .everywhere, "Default overrideScope should be everywhere")
         expect(cfg.callControls.typingUnmuteDelayMs == 450, "Default typingUnmuteDelayMs should be 450")
@@ -2672,7 +2676,7 @@ enum SelfTestRunner {
         let legacyJSON = "{\"schemaVersion\": 5, \"general\": {\"appEnabled\": true}}"
         if let data = legacyJSON.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 16, "Legacy config should upgrade to schemaVersion 16")
+            expect(migrated.schemaVersion == 17, "Legacy config should upgrade to schemaVersion 17")
             expect(!migrated.callControls.enabled, "Legacy config must migrate callControls.enabled = false")
             expect(migrated.callControls.overrideScope == .everywhere, "Migrated default overrideScope should be everywhere")
             expect(migrated.callControls.showFloatingPillOnlyDuringCalls, "Legacy config must migrate showFloatingPillOnlyDuringCalls = true")
@@ -2683,11 +2687,11 @@ enum SelfTestRunner {
 
         // Legacy v6 config with active_call_app_only upgrades to everywhere
         let v6JSON = """
-        {"schemaVersion": 6, "general": {"appEnabled": true}, "audioGuard": {"enabled": true, "overrideScope": "active_call_app_only"}}
+        {"schemaVersion\": 6, "general": {"appEnabled": true}, "audioGuard": {"enabled": true, "overrideScope": "active_call_app_only"}}
         """
         if let data = v6JSON.data(using: .utf8),
            let upgraded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgraded.schemaVersion == 16, "v6 config should migrate to schemaVersion 16")
+            expect(upgraded.schemaVersion == 17, "v6 config should migrate to schemaVersion 17")
             expect(upgraded.callControls.overrideScope == .everywhere, "v6 active_call_app_only should upgrade to everywhere")
             expect(upgraded.callControls.showFloatingPillOnlyDuringCalls, "v6 config should upgrade showFloatingPillOnlyDuringCalls to true")
         } else {
@@ -2700,7 +2704,7 @@ enum SelfTestRunner {
         """
         if let data = v7JSON.data(using: .utf8),
            let upgradedV7 = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgradedV7.schemaVersion == 16, "v7 config should migrate to schemaVersion 16")
+            expect(upgradedV7.schemaVersion == 17, "v7 config should migrate to schemaVersion 17")
             expect(upgradedV7.callControls.showFloatingPillOnlyDuringCalls, "v7 showFloatingPillOnlyDuringCalls should upgrade to true")
         } else {
             failures.append("Failed to migrate v7 audioGuard config")
@@ -2712,7 +2716,7 @@ enum SelfTestRunner {
         """
         if let data = v8JSON.data(using: .utf8),
            let upgradedV8 = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(upgradedV8.schemaVersion == 16, "v8 config should migrate to schemaVersion 16")
+            expect(upgradedV8.schemaVersion == 17, "v8 config should migrate to schemaVersion 17")
             expect(upgradedV8.callControls.enabled, "v8 audioGuard.enabled must migrate to callControls.enabled")
             expect(upgradedV8.callControls.typingUnmuteDelayMs == 725, "v8 audioGuard fields must be preserved in callControls")
             expect(
@@ -3984,7 +3988,7 @@ enum SelfTestRunner {
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.callControls == micLockCfg.callControls, "CallControlsConfig mic-lock round-trip mismatch")
             expect(decoded.callControls.bluetoothMicLockFallbackUID == "usb-yeti", "Mic-lock fallback UID must survive a config round-trip")
-            expect(decoded.schemaVersion == 16, "Mic-lock config must serialize at schemaVersion 16")
+            expect(decoded.schemaVersion == 17, "Mic-lock config must serialize at schemaVersion 17")
         } else {
             failures.append("CallControlsConfig mic-lock encode/decode failed")
         }
@@ -4012,7 +4016,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(customCfg),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.screenOCR == customCfg.screenOCR, "ScreenOCRConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 16, "ToolboxConfig schemaVersion should be 16")
+            expect(decoded.schemaVersion == 17, "ToolboxConfig schemaVersion should be 17")
         } else {
             failures.append("ToolboxConfig with screenOCR failed Codable encode/decode")
         }
@@ -4022,7 +4026,7 @@ enum SelfTestRunner {
         let legacyJSON = "{\"schemaVersion\": 9, \"general\": {\"appEnabled\": true}}"
         if let data = legacyJSON.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 16, "Legacy v9 config should upgrade to schemaVersion 16")
+            expect(migrated.schemaVersion == 17, "Legacy v9 config should upgrade to schemaVersion 17")
             expect(!migrated.screenOCR.enabled, "Legacy config must migrate screenOCR.enabled = false")
         } else {
             failures.append("Failed to decode pre-ScreenOCR JSON config")
@@ -6219,7 +6223,7 @@ enum SelfTestRunner {
     private static func testWindowSnapperConfigHotKeysProfilesAndLifecycle() {
         // 1. Config defaults, migration from schema 10 -> 11, and lenient partial decode
         let defaultCfg = ToolboxConfig()
-        expect(defaultCfg.schemaVersion == 16, "ToolboxConfig schemaVersion must be 16")
+        expect(defaultCfg.schemaVersion == 17, "ToolboxConfig schemaVersion must be 17")
         expect(!defaultCfg.windowSnapper.enabled, "WindowSnapper should default to disabled")
         expect(
             defaultCfg.windowSnapper.gaps.outerMarginPoints == 0 && defaultCfg.windowSnapper.gaps.innerGapPoints == 0,
@@ -6230,7 +6234,7 @@ enum SelfTestRunner {
         let legacyV10 = "{\"schemaVersion\": 10, \"general\": {\"appEnabled\": true}}"
         if let data = legacyV10.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 16, "v10 config must upgrade to schemaVersion 16")
+            expect(migrated.schemaVersion == 17, "v10 config must upgrade to schemaVersion 17")
             expect(!migrated.windowSnapper.enabled, "Migrated windowSnapper.enabled must default to false")
             expect(
                 migrated.windowSnapper.gaps.outerMarginPoints == 0 && migrated.windowSnapper.gaps.innerGapPoints == 0,
@@ -7953,7 +7957,7 @@ enum SelfTestRunner {
 
     private static func testFinderEnhancerConfigAndMigration() {
         let defaults = ToolboxConfig()
-        expect(defaults.schemaVersion == 16, "ToolboxConfig schemaVersion should be 16")
+        expect(defaults.schemaVersion == 17, "ToolboxConfig schemaVersion should be 17")
         expect(!defaults.finderEnhancer.enabled, "FinderEnhancer should default to disabled")
         expect(defaults.finderEnhancer.enableCutAndPaste, "enableCutAndPaste should default to true")
         expect(defaults.finderEnhancer.showCutToast, "showCutToast should default to true")
@@ -7984,7 +7988,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(custom),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.finderEnhancer == custom.finderEnhancer, "FinderEnhancerConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 16, "Encoded FinderEnhancer config must preserve schemaVersion 16")
+            expect(decoded.schemaVersion == 17, "Encoded FinderEnhancer config must preserve schemaVersion 17")
         } else {
             failures.append("FinderEnhancerConfig Codable encode/decode failed")
         }
@@ -7993,7 +7997,7 @@ enum SelfTestRunner {
         let legacyV14 = "{\"schemaVersion\": 14, \"general\": {\"appEnabled\": true}}"
         if let data = legacyV14.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 16, "v14 config should upgrade to schemaVersion 16")
+            expect(migrated.schemaVersion == 17, "v14 config should upgrade to schemaVersion 17")
             expect(migrated.finderEnhancer == FinderEnhancerConfig(), "Migrated finderEnhancer should equal defaults")
         } else {
             failures.append("Failed to decode legacy v14 config")
@@ -8510,7 +8514,7 @@ enum SelfTestRunner {
 
     private static func testWindowSwitcherConfigAndMigration() {
         let defaults = ToolboxConfig()
-        expect(defaults.schemaVersion == 16, "ToolboxConfig schemaVersion should be 16")
+        expect(defaults.schemaVersion == 17, "ToolboxConfig schemaVersion should be 17")
         expect(!defaults.windowSwitcher.enabled, "WindowSwitcher should default to disabled")
         expect(defaults.windowSwitcher.triggerModifier == .option, "Default triggerModifier should be .option")
         expect(defaults.windowSwitcher.triggerKey == "tab", "Default triggerKey should be 'tab'")
@@ -8541,7 +8545,7 @@ enum SelfTestRunner {
         if let data = try? JSONEncoder().encode(custom),
            let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decoded.windowSwitcher == custom.windowSwitcher, "WindowSwitcherConfig Codable round-trip mismatch")
-            expect(decoded.schemaVersion == 16, "Encoded WindowSwitcher config must preserve schemaVersion 16")
+            expect(decoded.schemaVersion == 17, "Encoded WindowSwitcher config must preserve schemaVersion 17")
         } else {
             failures.append("WindowSwitcherConfig Codable encode/decode failed")
         }
@@ -8550,7 +8554,7 @@ enum SelfTestRunner {
         let legacyV15 = "{\"schemaVersion\": 15, \"general\": {\"appEnabled\": true}}"
         if let data = legacyV15.data(using: .utf8),
            let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
-            expect(migrated.schemaVersion == 16, "v15 config should upgrade to schemaVersion 16")
+            expect(migrated.schemaVersion == 17, "v15 config should upgrade to schemaVersion 17")
             expect(migrated.windowSwitcher == WindowSwitcherConfig(), "Migrated windowSwitcher should equal defaults")
         } else {
             failures.append("Failed to decode legacy v15 config")
@@ -9050,5 +9054,377 @@ enum SelfTestRunner {
             DeveloperEventCategory.allCases.contains(.windowSwitcher),
             "DeveloperEventCategory must include .windowSwitcher"
         )
+    }
+
+    // MARK: - Keyboard Shortcuts Hub & Hyper Key Tests
+
+    private static func testShortcutCatalogZeroDefaultCollisionsAndConflicts() {
+        let defaults = ToolboxConfig()
+        let descriptors = ShortcutCatalog.descriptors(in: defaults)
+        expect(!descriptors.isEmpty, "ShortcutCatalog must expose descriptors")
+
+        var seenBySpec: [ShortcutSpec: [String]] = [:]
+        for descriptor in descriptors {
+            let spec = descriptor.read(defaults)
+            guard !spec.isEmpty else { continue }
+            seenBySpec[spec, default: []].append(descriptor.id)
+        }
+        let collisions = seenBySpec.filter { $0.value.count > 1 }
+        expect(
+            collisions.isEmpty,
+            "Default Toolbox shortcuts must have zero collisions (found: \(collisions))"
+        )
+
+        var cfg = ToolboxConfig()
+        cfg.portKiller.enabled = true
+        cfg.clipboard.enabled = true
+        cfg.clipboard.shortcut = cfg.portKiller.shortcut
+        let conflictIDs = ShortcutCatalog.activeConflictDescriptorIDs(in: cfg, hotKeyManager: HotKeyManager.shared)
+        expect(
+            conflictIDs.contains("clipboard") && conflictIDs.contains("port_killer"),
+            "activeConflictDescriptorIDs must flag both colliding active modules (got: \(conflictIDs))"
+        )
+
+        ShortcutCatalog.clearConflictingShortcuts(
+            matching: cfg.portKiller.shortcut,
+            excludingSourceID: "port_killer",
+            in: &cfg
+        )
+        expect(cfg.clipboard.shortcut.isEmpty, "ShortcutCatalog.clearConflictingShortcuts must unbind colliding Clipboard shortcut")
+        expect(!cfg.portKiller.shortcut.isEmpty, "ShortcutCatalog.clearConflictingShortcuts must preserve excluded Port Killer shortcut")
+
+        cfg.portKiller.shortcut = ShortcutSpec(key: "j", modifiers: [.control, .option, .command])
+        cfg.windowSnapper.hotKeys.leftHalf = ShortcutSpec(key: "h", modifiers: [.control, .option, .command])
+        ShortcutCatalog.resetAllShortcutsToDefaults(in: &cfg)
+        expect(cfg.portKiller.shortcut == PortKillerConfig().shortcut, "resetAllShortcutsToDefaults must restore Port Killer shortcut")
+        expect(cfg.windowSnapper.hotKeys.leftHalf == WindowSnapperHotKeys.toolboxSafe.leftHalf, "resetAllShortcutsToDefaults must restore Window Snapper leftHalf")
+        expect(cfg.portKiller.enabled && cfg.clipboard.enabled, "resetAllShortcutsToDefaults must preserve non-shortcut flags")
+    }
+
+    private static func testHyperKeyConfigAndCapsLockRemapperLogic() {
+        let defaults = ToolboxConfig()
+        expect(defaults.schemaVersion == 17, "ToolboxConfig schemaVersion must be 17")
+        expect(!defaults.hyperKey.enabled, "HyperKey must default to disabled")
+        expect(defaults.hyperKey.holdMode == .toolboxChord, "HyperKey holdMode must default to .toolboxChord")
+        expect(defaults.hyperKey.tapAction == .capsLock, "HyperKey tapAction must default to .capsLock")
+        expect(defaults.hyperKey.tapThresholdMs == 250, "HyperKey tapThresholdMs must default to 250")
+
+        var custom = ToolboxConfig()
+        custom.hyperKey.enabled = true
+        custom.hyperKey.holdMode = .classicHyper
+        custom.hyperKey.tapAction = .escape
+        custom.hyperKey.tapThresholdMs = 310
+        if let data = try? JSONEncoder().encode(custom),
+           let decoded = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
+            expect(decoded.hyperKey == custom.hyperKey, "HyperKeyConfig Codable round-trip mismatch")
+            expect(decoded.schemaVersion == 17, "Encoded HyperKey config must preserve schemaVersion 17")
+        } else {
+            failures.append("HyperKeyConfig Codable encode/decode failed")
+        }
+
+        let legacyV16 = "{\"schemaVersion\": 16, \"general\": {\"appEnabled\": true}}"
+        if let data = legacyV16.data(using: .utf8),
+           let migrated = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
+            expect(migrated.schemaVersion == 17, "v16 config must upgrade to schemaVersion 17")
+            expect(migrated.hyperKey == HyperKeyConfig(), "Migrated hyperKey should equal defaults")
+        } else {
+            failures.append("Failed to decode legacy v16 config")
+        }
+
+        let partialJSON = """
+        {"schemaVersion": 17, "hyperKey": {"enabled": true, "tapThresholdMs": 900}}
+        """
+        if let data = partialJSON.data(using: .utf8),
+           let decodedPartial = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
+            expect(decodedPartial.hyperKey.enabled, "Partial hyperKey.enabled should decode")
+            expect(decodedPartial.hyperKey.holdMode == .toolboxChord, "Partial hyperKey should fill holdMode default")
+            expect(
+                decodedPartial.hyperKey.tapThresholdMs == HyperKeyConfig.maxTapThresholdMs,
+                "Out-of-range tapThresholdMs must clamp to \(HyperKeyConfig.maxTapThresholdMs)"
+            )
+        } else {
+            failures.append("Failed to decode partial HyperKeyConfig JSON")
+        }
+
+        // CapsLockRemapper pure merge/remove/conflict detection
+        let existingUserMap = [
+            HIDKeyMappingEntry(src: 0x700000035, dst: 0x700000029), // Grave -> Escape
+            HIDKeyMappingEntry(src: CapsLockRemapper.hidCapsLockUsage, dst: 0x7000000E0) // CapsLock -> Control
+        ]
+        let detected = CapsLockRemapper.detectExternalCapsLockMapping(in: existingUserMap)
+        expect(detected?.destinationUsage == 0x7000000E0, "detectExternalCapsLockMapping must detect CapsLock -> Control")
+
+        let merged = CapsLockRemapper.mergingHyperKeyMapping(into: existingUserMap)
+        expect(
+            merged.contains(HIDKeyMappingEntry(src: 0x700000035, dst: 0x700000029)),
+            "mergingHyperKeyMapping must preserve unrelated user key mappings"
+        )
+        expect(
+            merged.contains(HIDKeyMappingEntry(src: CapsLockRemapper.hidCapsLockUsage, dst: CapsLockRemapper.hidF18Usage)),
+            "mergingHyperKeyMapping must add CapsLock -> F18"
+        )
+        expect(
+            merged.filter { CapsLockRemapper.isCapsLockUsage($0.src) }.count == 1,
+            "mergingHyperKeyMapping must replace prior CapsLock entry without duplicates"
+        )
+
+        let restored = CapsLockRemapper.removingHyperKeyMapping(from: merged)
+        expect(
+            restored == [HIDKeyMappingEntry(src: 0x700000035, dst: 0x700000029)],
+            "removingHyperKeyMapping must strip only CapsLock -> F18 and preserve unrelated mappings"
+        )
+
+        expect(ToolboxConfigSection.allCases.contains(.hyperKey), "ToolboxConfigSection must include .hyperKey")
+        expect(DeveloperEventCategory.allCases.contains(.hyperKey), "DeveloperEventCategory must include .hyperKey")
+    }
+
+    private static func testHyperKeyStateMachineDirectDispatchAndRollover() {
+        let portBinding = ActiveHotKeyBinding(
+            name: "port_killer.toggle",
+            shortcut: ShortcutSpec(key: "p", modifiers: [.control, .option, .command]),
+            keyCode: UInt32(kVK_ANSI_P),
+            modifiers: [.control, .option, .command],
+            isArmed: true
+        )
+        let callBindings = HyperKeyCallControlsBindings(
+            enabled: true,
+            micShortcut: CallControlsConfig.defaultMicShortcut,
+            videoShortcut: CallControlsConfig.defaultVideoShortcut
+        )
+
+        var machine = HyperKeyStateMachine(holdMode: .toolboxChord, tapAction: .capsLock, tapThresholdMs: 250)
+
+        // 1. Quick tap (< 250 ms) triggers tap action
+        let d1 = machine.handleKeyDown(
+            keyCode: HyperKeyStateMachine.f18KeyCode,
+            flags: [],
+            isAutoRepeat: false,
+            userData: 0,
+            timestampNs: 1_000_000_000,
+            registeredHotKeys: [portBinding],
+            callControls: callBindings
+        )
+        expect(d1 == .swallowOnly && machine.isHeld, "F18 down must swallow and mark isHeld")
+        let u1 = machine.handleKeyUp(
+            keyCode: HyperKeyStateMachine.f18KeyCode,
+            flags: [],
+            userData: 0,
+            timestampNs: 1_120_000_000
+        )
+        expect(u1 == .triggerTapAction(.capsLock) && !machine.isHeld, "Quick F18 release must trigger .capsLock tap action")
+
+        // Escape & Disabled tap actions
+        machine.tapAction = .escape
+        _ = machine.handleKeyDown(keyCode: HyperKeyStateMachine.f18KeyCode, flags: [], isAutoRepeat: false, userData: 0, timestampNs: 2_000_000_000, registeredHotKeys: [], callControls: callBindings)
+        expect(
+            machine.handleKeyUp(keyCode: HyperKeyStateMachine.f18KeyCode, flags: [], userData: 0, timestampNs: 2_100_000_000) == .triggerTapAction(.escape),
+            "Quick tap with .escape configured must emit .triggerTapAction(.escape)"
+        )
+        machine.tapAction = .none
+        _ = machine.handleKeyDown(keyCode: HyperKeyStateMachine.f18KeyCode, flags: [], isAutoRepeat: false, userData: 0, timestampNs: 3_000_000_000, registeredHotKeys: [], callControls: callBindings)
+        expect(
+            machine.handleKeyUp(keyCode: HyperKeyStateMachine.f18KeyCode, flags: [], userData: 0, timestampNs: 3_100_000_000) == .triggerTapAction(.none),
+            "Quick tap with .none configured must emit .triggerTapAction(.none)"
+        )
+
+        // 2. Slow hold (> tapThresholdMs) without chord must NOT toggle Caps Lock
+        machine.tapAction = .capsLock
+        _ = machine.handleKeyDown(keyCode: HyperKeyStateMachine.f18KeyCode, flags: [], isAutoRepeat: false, userData: 0, timestampNs: 4_000_000_000, registeredHotKeys: [], callControls: callBindings)
+        let slowUp = machine.handleKeyUp(keyCode: HyperKeyStateMachine.f18KeyCode, flags: [], userData: 0, timestampNs: 4_400_000_000)
+        expect(slowUp == .heldReleasedWithoutChord, "Slow hold release must not trigger tap action")
+
+        // 3. Hold + registered Toolbox key ('P') -> direct dispatch, swallow keyUp, no tap action on F18 release
+        _ = machine.handleKeyDown(keyCode: HyperKeyStateMachine.f18KeyCode, flags: [], isAutoRepeat: false, userData: 0, timestampNs: 5_000_000_000, registeredHotKeys: [portBinding], callControls: callBindings)
+        let pDown = machine.handleKeyDown(
+            keyCode: UInt16(kVK_ANSI_P),
+            flags: [],
+            isAutoRepeat: false,
+            userData: 0,
+            timestampNs: 5_050_000_000,
+            registeredHotKeys: [portBinding],
+            callControls: callBindings
+        )
+        expect(
+            pDown == .dispatchToolboxHotKey(name: "port_killer.toggle", shortcut: portBinding.shortcut),
+            "F18 + P must directly dispatch port_killer.toggle"
+        )
+        expect(
+            machine.handleKeyUp(keyCode: UInt16(kVK_ANSI_P), flags: [], userData: 0, timestampNs: 5_080_000_000) == .swallowOnly,
+            "Swallowed Toolbox hotkey keyUp must return .swallowOnly"
+        )
+        expect(
+            machine.handleKeyUp(keyCode: HyperKeyStateMachine.f18KeyCode, flags: [], userData: 0, timestampNs: 5_110_000_000) == .swallowOnly,
+            "Releasing F18 after chord must NOT toggle Caps Lock even within tapThresholdMs"
+        )
+
+        // 4. Hold + Call Controls key ('M') -> direct dispatch to Call Controls
+        _ = machine.handleKeyDown(keyCode: HyperKeyStateMachine.f18KeyCode, flags: [], isAutoRepeat: false, userData: 0, timestampNs: 6_000_000_000, registeredHotKeys: [portBinding], callControls: callBindings)
+        let mDown = machine.handleKeyDown(
+            keyCode: UInt16(kVK_ANSI_M),
+            flags: [],
+            isAutoRepeat: false,
+            userData: 0,
+            timestampNs: 6_040_000_000,
+            registeredHotKeys: [portBinding],
+            callControls: callBindings
+        )
+        expect(
+            mDown == .dispatchCallControls(action: .mic, shortcut: CallControlsConfig.defaultMicShortcut),
+            "F18 + M must directly dispatch Call Controls Mic"
+        )
+        _ = machine.handleKeyUp(keyCode: UInt16(kVK_ANSI_M), flags: [], userData: 0, timestampNs: 6_070_000_000)
+        _ = machine.handleKeyUp(keyCode: HyperKeyStateMachine.f18KeyCode, flags: [], userData: 0, timestampNs: 6_100_000_000)
+
+        // 5. Unmatched key ('L') + rollover (F18 released BEFORE L keyUp)
+        _ = machine.handleKeyDown(keyCode: HyperKeyStateMachine.f18KeyCode, flags: [], isAutoRepeat: false, userData: 0, timestampNs: 7_000_000_000, registeredHotKeys: [portBinding], callControls: callBindings)
+        let lDown = machine.handleKeyDown(
+            keyCode: UInt16(kVK_ANSI_L),
+            flags: [],
+            isAutoRepeat: false,
+            userData: 0,
+            timestampNs: 7_040_000_000,
+            registeredHotKeys: [portBinding],
+            callControls: callBindings
+        )
+        if case .synthesizeThirdPartyKeyDown(let kc, let mods, _) = lDown {
+            expect(kc == UInt16(kVK_ANSI_L) && mods == [.control, .option, .command], "Unmatched F18+L must synthesize ⌃⌥⌘L")
+        } else {
+            failures.append("Expected .synthesizeThirdPartyKeyDown for unmatched F18+L")
+        }
+        // Release F18 first (rollover)
+        let f18EarlyUp = machine.handleKeyUp(keyCode: HyperKeyStateMachine.f18KeyCode, flags: [], userData: 0, timestampNs: 7_080_000_000)
+        expect(f18EarlyUp == .swallowOnly && !machine.isHeld, "Early F18 release during rollover must swallow without tapping")
+        let lUp = machine.handleKeyUp(keyCode: UInt16(kVK_ANSI_L), flags: [], userData: 0, timestampNs: 7_110_000_000)
+        if case .synthesizeThirdPartyKeyUp(let kc, _, _) = lUp {
+            expect(kc == UInt16(kVK_ANSI_L), "Rollover L keyUp must still emit .synthesizeThirdPartyKeyUp")
+        } else {
+            failures.append("Expected .synthesizeThirdPartyKeyUp on rollover")
+        }
+
+        // 6. Synthetic 0x544C4258 events pass through & resetTransientState clears stuck hold
+        let synthDown = machine.handleKeyDown(
+            keyCode: HyperKeyStateMachine.f18KeyCode,
+            flags: [],
+            isAutoRepeat: false,
+            userData: HyperKeyStateMachine.syntheticEventTag,
+            timestampNs: 8_000_000_000,
+            registeredHotKeys: [],
+            callControls: callBindings
+        )
+        expect(synthDown == .passThrough, "Synthetic 0x544C4258 events must passThrough")
+        _ = machine.handleKeyDown(keyCode: HyperKeyStateMachine.f18KeyCode, flags: [], isAutoRepeat: false, userData: 0, timestampNs: 9_000_000_000, registeredHotKeys: [], callControls: callBindings)
+        let syntheticPasteWhileHeld = machine.handleKeyDown(
+            keyCode: UInt16(kVK_ANSI_V),
+            flags: .maskCommand,
+            isAutoRepeat: false,
+            userData: HyperKeyStateMachine.syntheticEventTag,
+            timestampNs: 9_020_000_000,
+            registeredHotKeys: [],
+            callControls: callBindings
+        )
+        expect(syntheticPasteWhileHeld == .passThrough, "Synthetic ⌘V paste carrying syntheticEventTag must pass through while Caps Lock is held")
+        machine.resetTransientState()
+        expect(!machine.isHeld, "resetTransientState must clear isHeld (Secure Input safety)")
+
+        // 7. Window Snapper hold-to-preview honors held Hyper Key virtual modifiers
+        let hyperHeldFlags = WindowSnapperModule.combinedLiveModifierFlags(
+            systemFlags: [],
+            hyperKeyFlags: HyperKeyHoldMode.toolboxChord.cgEventFlags
+        )
+        expect(
+            KeyboardPreviewState.modifiersStillHeld([.control, .option, .command], liveFlags: hyperHeldFlags),
+            "Holding Caps Lock (Toolbox Chord) must keep Window Snapper preview held open"
+        )
+        let hyperReleasedFlags = WindowSnapperModule.combinedLiveModifierFlags(systemFlags: [], hyperKeyFlags: [])
+        expect(
+            !KeyboardPreviewState.modifiersStillHeld([.control, .option, .command], liveFlags: hyperReleasedFlags),
+            "Releasing Caps Lock must end Window Snapper modifier hold so it commits"
+        )
+        let hyperPlusShiftFlags = WindowSnapperModule.combinedLiveModifierFlags(
+            systemFlags: .maskShift,
+            hyperKeyFlags: HyperKeyHoldMode.toolboxChord.cgEventFlags
+        )
+        expect(
+            KeyboardPreviewState.modifiersStillHeld([.control, .option, .shift, .command], liveFlags: hyperPlusShiftFlags),
+            "Holding Caps Lock + Shift must satisfy Classic Hyper modifier hold checks"
+        )
+    }
+
+    private static func testHyperKeyModuleLifecycleAndShortcutsNavigation() {
+        let registry = ModuleRegistry.shared
+        guard let registered = registry.module(withID: "hyper_key") as? HyperKeyModule else {
+            failures.append("ModuleRegistry must expose HyperKeyModule under id 'hyper_key'")
+            return
+        }
+        expect(registered.category == .automation, "HyperKey category must be .automation")
+        expect(!registered.requiresAccessibility, "HyperKeyModule.requiresAccessibility must be false so Shortcuts Hub stays accessible")
+        expect(registered.supportsMenuBar && registered.supportsEnableToggle, "HyperKeyModule must support menu bar and toggle")
+
+        let prevSimInput = PermissionsManager.shared.simulatedInputMonitoringGranted
+        defer { PermissionsManager.shared.setSimulatedInputMonitoringGranted(prevSimInput) }
+
+        var cfg = ToolboxConfig()
+        expect(!registered.isEnabled(in: cfg), "HyperKey must start disabled")
+        expect(registered.statusText(in: cfg, accessibilityGranted: true) == "Disabled", "Disabled status text mismatch")
+        expect(registered.shortcutText(in: cfg) == nil, "Disabled HyperKey shortcutText must be nil")
+
+        registered.setEnabled(true, in: &cfg)
+        expect(cfg.hyperKey.enabled, "setEnabled(true) must mutate config.hyperKey.enabled")
+        expect(registered.shortcutText(in: cfg) == "⇪ → ⌃ ⌥ ⌘", "Enabled HyperKey shortcutText mismatch: \(registered.shortcutText(in: cfg) ?? "nil")")
+
+        PermissionsManager.shared.setSimulatedInputMonitoringGranted(false)
+        expect(registered.statusText(in: cfg, accessibilityGranted: true) == "Needs Permissions", "Missing Input Monitoring must report 'Needs Permissions'")
+        PermissionsManager.shared.setSimulatedInputMonitoringGranted(true)
+        expect(registered.statusText(in: cfg, accessibilityGranted: false) == "Needs Permissions", "Missing Accessibility must report 'Needs Permissions'")
+
+        cfg.general.appEnabled = false
+        expect(registered.statusText(in: cfg, accessibilityGranted: true) == "Paused", "Paused status text mismatch")
+
+        // Lifecycle reload / pause / stop
+        let testModule = HyperKeyModule()
+        let prevSimAX = PermissionsManager.shared.simulatedAccessibilityGranted
+        PermissionsManager.shared.setSimulatedAccessibilityGranted(true)
+        PermissionsManager.shared.setSimulatedInputMonitoringGranted(true)
+        defer { PermissionsManager.shared.setSimulatedAccessibilityGranted(prevSimAX) }
+
+        var activeCfg = ToolboxConfig()
+        activeCfg.general.appEnabled = true
+        activeCfg.hyperKey.enabled = true
+        testModule.reload(with: activeCfg)
+        expect(testModule.isRunning, "HyperKeyModule must report isRunning = true when enabled with simulated permissions")
+
+        activeCfg.general.appEnabled = false
+        testModule.reload(with: activeCfg)
+        expect(!testModule.isRunning && !testModule.isTapInstalled && !testModule.isHIDRemapActive, "Master pause must stop HyperKeyModule cleanly")
+
+        testModule.stop()
+        expect(!testModule.isRunning, "stop() must leave HyperKeyModule inactive")
+
+        // NavigationState round-trip with SidebarDestination.shortcuts
+        let nav = NavigationState()
+        nav.navigate(to: .shortcuts)
+        expect(nav.selection == .shortcuts && nav.selection.title == "Keyboard Shortcuts", "SidebarDestination.shortcuts navigation mismatch")
+        nav.navigate(to: .module("clipboard"))
+        expect(nav.goBack() && nav.selection == .shortcuts, "goBack() must return to .shortcuts")
+        expect(nav.goForward() && nav.selection == .module("clipboard"), "goForward() must return to .module(\"clipboard\")")
+
+        // Targeted navigation to module keybind anchor
+        nav.navigate(toModule: "window_snapper", focusing: .shortcuts)
+        expect(nav.selection == .module("window_snapper"), "navigate(toModule:focusing:) must select target module")
+        expect(
+            nav.pendingModuleFocus?.moduleID == "window_snapper" && nav.pendingModuleFocus?.anchor == .shortcuts,
+            "navigate(toModule:focusing:) must set pendingModuleFocus for shortcuts anchor"
+        )
+
+        // Input Monitoring awaiting / quit-and-reopen guard under diagnostic mode
+        let pm = PermissionsManager.shared
+        expect(PermissionsManager.isRunningInDiagnosticMode, "--self-test must run under isRunningInDiagnosticMode")
+        if !pm.actualInputMonitoringGranted {
+            pm.requestInputMonitoringAccess()
+            expect(pm.isAwaitingInputMonitoringGrant, "requestInputMonitoringAccess must mark isAwaitingInputMonitoringGrant")
+            expect(pm.shouldAllowSystemQuitAndReopenForInputMonitoring, "Awaiting Input Monitoring must allow Quit & Reopen")
+            pm.stopAwaitingInputMonitoringGrantForTesting()
+            expect(!pm.isAwaitingInputMonitoringGrant, "stopAwaitingInputMonitoringGrantForTesting must clear awaiting flag")
+        }
     }
 }

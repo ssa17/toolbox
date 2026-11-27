@@ -200,6 +200,7 @@ struct KeepAwakeSettingsView: View {
                 }
             }
         }
+        .id(ModuleFocusAnchor.shortcuts.rawValue)
     }
 
     private func strategyCard(

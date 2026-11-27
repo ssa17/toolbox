@@ -3,6 +3,7 @@ import SwiftUI
 
 enum SidebarDestination: Hashable {
     case dashboard
+    case shortcuts
     case module(String)
     case jsonConfig
     case settings
@@ -18,6 +19,7 @@ enum SidebarDestination: Hashable {
     var title: String {
         switch self {
         case .dashboard: return "Dashboard"
+        case .shortcuts: return "Keyboard Shortcuts"
         case .module(let id):
             return ModuleRegistry.shared.module(withID: id)?.name ?? "Module"
         case .jsonConfig: return "JSON Config"
@@ -33,11 +35,28 @@ enum WindowNavigationDirection: Equatable {
     case forward
 }
 
+enum ModuleFocusAnchor: String, Hashable, Sendable {
+    case shortcuts = "toolbox.anchor.shortcuts"
+}
+
+struct PendingModuleFocus: Equatable, Sendable {
+    let id: UUID
+    let moduleID: String
+    let anchor: ModuleFocusAnchor
+
+    init(id: UUID = UUID(), moduleID: String, anchor: ModuleFocusAnchor) {
+        self.id = id
+        self.moduleID = moduleID
+        self.anchor = anchor
+    }
+}
+
 @MainActor
 final class NavigationState: ObservableObject {
     private static let maxHistoryCount = 50
 
     @Published var selection: SidebarDestination = .dashboard
+    @Published var pendingModuleFocus: PendingModuleFocus? = nil
     @Published var isSidebarVisible: Bool = true
     @Published var isCompactDrawerOpen: Bool = false
     @Published var isCompactLayout: Bool = false
@@ -76,6 +95,11 @@ final class NavigationState: ObservableObject {
         pushHistory(selection)
         forwardHistory.removeAll()
         selection = destination
+    }
+
+    func navigate(toModule moduleID: String, focusing anchor: ModuleFocusAnchor) {
+        pendingModuleFocus = PendingModuleFocus(moduleID: moduleID, anchor: anchor)
+        navigate(to: .module(moduleID))
     }
 
     @discardableResult
@@ -153,6 +177,7 @@ final class NavigationState: ObservableObject {
 @MainActor
 internal final class ToolboxWindow: NSWindow {
     weak var navigationState: NavigationState?
+    private var scrollCursorSyncWorkItem: DispatchWorkItem?
 
     static func navigationDirection(forOtherMouseButton buttonNumber: Int) -> WindowNavigationDirection? {
         switch buttonNumber {
@@ -253,7 +278,9 @@ internal final class ToolboxWindow: NSWindow {
         }
         super.sendEvent(event)
         switch event.type {
-        case .mouseMoved, .mouseEntered, .mouseExited, .cursorUpdate, .leftMouseDown, .leftMouseUp, .scrollWheel:
+        case .mouseMoved, .mouseEntered, .mouseExited, .cursorUpdate, .leftMouseDown, .leftMouseUp:
+            scrollCursorSyncWorkItem?.cancel()
+            scrollCursorSyncWorkItem = nil
             PointerCursorNSView.syncCursor(in: self)
             if event.type == .leftMouseDown || event.type == .leftMouseUp {
                 RunLoop.main.perform(inModes: [.common]) { [weak self] in
@@ -262,6 +289,21 @@ internal final class ToolboxWindow: NSWindow {
                         PointerCursorNSView.syncCursor(in: self)
                     }
                 }
+            }
+        case .scrollWheel:
+            scrollCursorSyncWorkItem?.cancel()
+            if event.phase == .ended || event.momentumPhase == .ended {
+                scrollCursorSyncWorkItem = nil
+                PointerCursorNSView.syncCursor(in: self)
+            } else {
+                let workItem = DispatchWorkItem { [weak self] in
+                    MainActor.assumeIsolated {
+                        guard let self, self.isVisible else { return }
+                        PointerCursorNSView.syncCursor(in: self)
+                    }
+                }
+                scrollCursorSyncWorkItem = workItem
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.075, execute: workItem)
             }
         default:
             break
@@ -662,8 +704,16 @@ struct MainSplitView: View {
                 switch navState.selection {
                 case .dashboard:
                     DashboardView(
-                        onSelectModule: { id in navState.navigate(to: .module(id)) }
+                        onSelectModule: { id in
+                            if id == "hyper_key" {
+                                navState.navigate(to: .shortcuts)
+                            } else {
+                                navState.navigate(to: .module(id))
+                            }
+                        }
                     )
+                case .shortcuts:
+                    ShortcutsHubView(navState: navState)
                 case .module(let id):
                     if let module = registry.module(withID: id) {
                         ModuleDetailContainerView(module: module)
@@ -742,6 +792,64 @@ struct MainSplitView: View {
                         .focusEffectDisabled()
                         .pointerCursor()
                         .id(SidebarDestination.dashboard)
+
+                        Button {
+                            navState.navigate(to: .shortcuts)
+                        } label: {
+                            let isShortcutsSelected = navState.selection == .shortcuts
+                            let hasShortcutConflicts = !ShortcutCatalog.activeConflictDescriptorIDs(
+                                in: configManager.config,
+                                hotKeyManager: hotKeys
+                            ).isEmpty
+                            HStack(spacing: 8) {
+                                Image(systemName: "keyboard")
+                                    .foregroundStyle(isShortcutsSelected ? Color.white : ToolboxTheme.readableAccentText(for: .indigo))
+                                Text("Keyboard Shortcuts")
+                                    .toolboxFont(.callout.weight(.medium))
+                                    .lineLimit(1)
+                                Spacer()
+                                if hasShortcutConflicts {
+                                    Circle()
+                                        .fill(Color.orange)
+                                        .overlay {
+                                            if isShortcutsSelected {
+                                                Circle()
+                                                    .strokeBorder(Color.white.opacity(0.90), lineWidth: 1.25)
+                                            }
+                                        }
+                                        .frame(width: 7, height: 7)
+                                }
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                            .background {
+                                if isShortcutsSelected {
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(ToolboxTheme.accentBlue)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .fill(
+                                                    LinearGradient(
+                                                        colors: [Color.white.opacity(0.12), .clear],
+                                                        startPoint: .top,
+                                                        endPoint: .bottom
+                                                    )
+                                                )
+                                        )
+                                }
+                            }
+                            .foregroundStyle(isShortcutsSelected ? .white : .primary)
+                            .menuRowHover(
+                                cornerRadius: 8,
+                                fillOpacity: isShortcutsSelected ? 0 : 0.055,
+                                borderOpacity: isShortcutsSelected ? 0 : 0.08
+                            )
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .focusEffectDisabled()
+                        .pointerCursor()
+                        .id(SidebarDestination.shortcuts)
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
@@ -751,7 +859,7 @@ struct MainSplitView: View {
                             .tracking(0.6)
                             .padding(.horizontal, 8)
 
-                        ForEach(registry.modules, id: \.id) { module in
+                        ForEach(registry.modules.filter { $0.id != "hyper_key" }, id: \.id) { module in
                             let dest = SidebarDestination.module(module.id)
                             let isSelected = navState.selection == dest
                             let moduleStatus = module.statusText(

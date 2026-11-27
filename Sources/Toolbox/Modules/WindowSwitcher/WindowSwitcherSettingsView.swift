@@ -122,6 +122,7 @@ struct WindowSwitcherSettingsView: View {
                 .pointerCursor(configManager.config.general.appEnabled)
             }
         }
+        .id(ModuleFocusAnchor.shortcuts.rawValue)
     }
 
     // MARK: - Appearance & Actions

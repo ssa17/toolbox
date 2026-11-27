@@ -25,6 +25,7 @@ struct ModuleDetailContainerView: View {
     @ObservedObject private var permissions = PermissionsManager.shared
     @ObservedObject private var registry = ModuleRegistry.shared
     @ObservedObject private var aboutState = ModuleAboutState.shared
+    @ObservedObject private var navState = MainWindowController.shared.navState
 
     private var isEnabled: Bool {
         module.isEnabled(in: configManager.config)
@@ -47,8 +48,9 @@ struct ModuleDetailContainerView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+        ScrollViewReader { scrollProxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 14) {
                         ZStack {
@@ -291,5 +293,31 @@ struct ModuleDetailContainerView: View {
             .padding(22)
         }
         .id(module.id)
+        .onAppear {
+            handlePendingFocusIfNeeded(scrollProxy: scrollProxy)
+        }
+        .onChange(of: navState.pendingModuleFocus) { _, _ in
+            handlePendingFocusIfNeeded(scrollProxy: scrollProxy)
+        }
+        }
+    }
+
+    private func handlePendingFocusIfNeeded(scrollProxy: ScrollViewProxy) {
+        guard let pending = navState.pendingModuleFocus,
+              pending.moduleID == module.id else {
+            return
+        }
+        let targetID = pending.anchor.rawValue
+        let requestID = pending.id
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+            MainActor.assumeIsolated {
+                withAnimation(.easeInOut(duration: 0.24)) {
+                    scrollProxy.scrollTo(targetID, anchor: .top)
+                }
+                if navState.pendingModuleFocus?.id == requestID {
+                    navState.pendingModuleFocus = nil
+                }
+            }
+        }
     }
 }

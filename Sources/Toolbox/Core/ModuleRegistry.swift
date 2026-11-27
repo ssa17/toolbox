@@ -19,6 +19,7 @@ final class ModuleRegistry: ObservableObject {
     let windowSnapper = WindowSnapperModule()
     let finderEnhancer = FinderEnhancerModule()
     let windowSwitcher = WindowSwitcherModule()
+    let hyperKey = HyperKeyModule()
 
     lazy var modules: [any ToolboxModule] = [
         dockMinimize,
@@ -32,7 +33,8 @@ final class ModuleRegistry: ObservableObject {
         callControls,
         windowSnapper,
         finderEnhancer,
-        windowSwitcher
+        windowSwitcher,
+        hyperKey
     ]
 
     @Published private(set) var revision: Int = 0

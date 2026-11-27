@@ -1,4 +1,5 @@
 import AppKit
+import IOKit.hidsystem
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -45,6 +46,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         permissions.onAccessibilityChanged = { _ in
             registry.reloadAll(with: configManager.config)
         }
+        permissions.onInputMonitoringChanged = { _ in
+            registry.hyperKey.reload(with: configManager.config)
+        }
 
         // Start all enabled modules immediately (Accessibility-gated modules wait gracefully without blocking launch).
         registry.reloadAll(with: configManager.config)
@@ -62,17 +66,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if pendingReopenAt > 0 {
             UserDefaults.standard.removeObject(forKey: ScreenOCRModule.pendingReopenToastKey)
         }
+
+        let pendingInputReopenAt = UserDefaults.standard.double(forKey: PermissionsManager.pendingInputMonitoringReadyToastKey)
+        let didReopenAfterInputGrant = pendingInputReopenAt > 0
+            && (Date().timeIntervalSince1970 - pendingInputReopenAt) <= 30
+            && permissions.actualInputMonitoringGranted
+        if pendingInputReopenAt > 0 {
+            UserDefaults.standard.removeObject(forKey: PermissionsManager.pendingInputMonitoringReadyToastKey)
+        }
         SupportState.shared.syncDockIconBadge()
 
-        if configManager.config.general.openDashboardOnLaunch || didReopenAfterScreenGrant {
-            MainWindowController.shared.show(destination: .dashboard)
+        if configManager.config.general.openDashboardOnLaunch || didReopenAfterScreenGrant || didReopenAfterInputGrant {
+            MainWindowController.shared.show(destination: didReopenAfterInputGrant ? .shortcuts : .dashboard)
             if !PermissionsManager.isRunningInDiagnosticMode,
                !configManager.config.general.hasSeenAccessibilityOnboarding,
-               !permissions.actualAccessibilityGranted {
+               !permissions.actualAccessibilityGranted,
+               !didReopenAfterInputGrant {
                 permissions.presentOnboardingModal()
             } else if didReopenAfterScreenGrant && !PermissionsManager.isRunningInDiagnosticMode {
                 HUDToast.shared.show(
                     title: "Screen Recording granted — Screen OCR is ready",
+                    symbol: "checkmark.shield.fill",
+                    tint: .green
+                )
+            } else if didReopenAfterInputGrant && !PermissionsManager.isRunningInDiagnosticMode {
+                HUDToast.shared.show(
+                    title: "Input Monitoring granted — Caps Lock Hyper Key is ready",
                     symbol: "checkmark.shield.fill",
                     tint: .green
                 )
@@ -92,6 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             || ModuleRegistry.shared.screenOCR.shouldAllowSystemQuitAndReopen
             || ModuleRegistry.shared.windowSwitcher.shouldAllowSystemQuitAndReopen
             || PermissionsManager.shared.isAwaitingAccessibilityGrant
+            || PermissionsManager.shared.shouldAllowSystemQuitAndReopenForInputMonitoring
             || Self.isExternalSystemQuitRequest() {
             return .terminateNow
         }
@@ -128,6 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ModuleRegistry.shared.windowSnapper.stop()
         ModuleRegistry.shared.finderEnhancer.stop()
         ModuleRegistry.shared.windowSwitcher.stop()
+        ModuleRegistry.shared.hyperKey.stop()
     }
 
     private func applyGeneralPreferences(_ general: GeneralConfig) {
@@ -173,6 +194,10 @@ enum ToolboxMain {
                 exit(CGPreflightScreenCaptureAccess() ? 0 : 1)
             }
             exit(0)
+        }
+
+        if CommandLine.arguments.contains("--check-input-monitoring") {
+            exit(IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted ? 0 : 1)
         }
 
         if CommandLine.arguments.contains("--version") || CommandLine.arguments.contains("-v") {

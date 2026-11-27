@@ -313,6 +313,7 @@ struct DeveloperEventsAndTapsView: View {
         case .windowSnapper: return .indigo
         case .finderEnhancer: return .blue
         case .windowSwitcher: return .indigo
+        case .hyperKey: return .indigo
         case .ocr: return .cyan
         case .config: return .teal
         case .updates: return .green

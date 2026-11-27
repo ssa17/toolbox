@@ -141,7 +141,8 @@ struct GeneralConfig: Codable, Equatable, Sendable {
         "call_controls",
         "window_snapper",
         "finder_enhancer",
-        "window_switcher"
+        "window_switcher",
+        "hyper_key"
     ]
 
     var appEnabled: Bool = true
@@ -2768,13 +2769,100 @@ struct WindowSwitcherConfig: Codable, Equatable, Sendable {
     }
 }
 
+enum HyperKeyHoldMode: String, Codable, CaseIterable, Identifiable, Sendable {
+    case toolboxChord = "toolbox_chord"
+    case classicHyper = "classic_hyper"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .toolboxChord: return "⌃ ⌥ ⌘ (Toolbox Chord)"
+        case .classicHyper: return "⌃ ⌥ ⇧ ⌘ (Classic Hyper)"
+        }
+    }
+
+    var shortLabel: String {
+        switch self {
+        case .toolboxChord: return "⌃ ⌥ ⌘"
+        case .classicHyper: return "⌃ ⌥ ⇧ ⌘"
+        }
+    }
+
+    var modifiers: [KeyModifier] {
+        switch self {
+        case .toolboxChord: return [.control, .option, .command]
+        case .classicHyper: return [.control, .option, .shift, .command]
+        }
+    }
+
+    var cgEventFlags: CGEventFlags {
+        switch self {
+        case .toolboxChord: return [.maskControl, .maskAlternate, .maskCommand]
+        case .classicHyper: return [.maskControl, .maskAlternate, .maskShift, .maskCommand]
+        }
+    }
+}
+
+enum HyperKeyTapAction: String, Codable, CaseIterable, Identifiable, Sendable {
+    case capsLock = "caps_lock"
+    case escape = "escape"
+    case none = "none"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .capsLock: return "Toggle Caps Lock"
+        case .escape: return "Escape"
+        case .none: return "Disabled"
+        }
+    }
+}
+
+struct HyperKeyConfig: Codable, Equatable, Sendable {
+    static let minTapThresholdMs = 120
+    static let maxTapThresholdMs = 400
+    static let defaultTapThresholdMs = 250
+
+    var enabled: Bool = false
+    var holdMode: HyperKeyHoldMode = .toolboxChord
+    var tapAction: HyperKeyTapAction = .capsLock
+    var tapThresholdMs: Int = HyperKeyConfig.defaultTapThresholdMs
+
+    init(
+        enabled: Bool = false,
+        holdMode: HyperKeyHoldMode = .toolboxChord,
+        tapAction: HyperKeyTapAction = .capsLock,
+        tapThresholdMs: Int = HyperKeyConfig.defaultTapThresholdMs
+    ) {
+        self.enabled = enabled
+        self.holdMode = holdMode
+        self.tapAction = tapAction
+        self.tapThresholdMs = Self.clampedTapThresholdMs(tapThresholdMs)
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        holdMode = try c.decodeIfPresent(HyperKeyHoldMode.self, forKey: .holdMode) ?? .toolboxChord
+        tapAction = try c.decodeIfPresent(HyperKeyTapAction.self, forKey: .tapAction) ?? .capsLock
+        let decodedThreshold = try c.decodeIfPresent(Int.self, forKey: .tapThresholdMs) ?? Self.defaultTapThresholdMs
+        tapThresholdMs = Self.clampedTapThresholdMs(decodedThreshold)
+    }
+
+    static func clampedTapThresholdMs(_ ms: Int) -> Int {
+        min(max(ms, minTapThresholdMs), maxTapThresholdMs)
+    }
+}
+
 struct ToolboxConfig: Codable, Equatable, Sendable {
     private enum LegacyCodingKeys: String, CodingKey {
         case audioGuard
         case windowSnapping
     }
 
-    var schemaVersion: Int = 16
+    var schemaVersion: Int = 17
     var general: GeneralConfig = GeneralConfig()
     var dockMinimize: DockMinimizeConfig = DockMinimizeConfig()
     var clipboard: ClipboardConfig = ClipboardConfig()
@@ -2788,6 +2876,7 @@ struct ToolboxConfig: Codable, Equatable, Sendable {
     var windowSnapper: WindowSnapperConfig = WindowSnapperConfig()
     var finderEnhancer: FinderEnhancerConfig = FinderEnhancerConfig()
     var windowSwitcher: WindowSwitcherConfig = WindowSwitcherConfig()
+    var hyperKey: HyperKeyConfig = HyperKeyConfig()
     var extensions: [String: JSONValue] = [:]
 
     init() {}
@@ -2820,13 +2909,14 @@ struct ToolboxConfig: Codable, Equatable, Sendable {
         if decodedSchema < 8 {
             decodedCallControls.showFloatingPillOnlyDuringCalls = true
         }
-        schemaVersion = max(decodedSchema, 16)
+        schemaVersion = max(decodedSchema, 17)
         callControls = decodedCallControls
         windowSnapper = try c.decodeIfPresent(WindowSnapperConfig.self, forKey: .windowSnapper)
             ?? legacyContainer.decodeIfPresent(WindowSnapperConfig.self, forKey: .windowSnapping)
             ?? WindowSnapperConfig()
         finderEnhancer = try c.decodeIfPresent(FinderEnhancerConfig.self, forKey: .finderEnhancer) ?? FinderEnhancerConfig()
         windowSwitcher = try c.decodeIfPresent(WindowSwitcherConfig.self, forKey: .windowSwitcher) ?? WindowSwitcherConfig()
+        hyperKey = try c.decodeIfPresent(HyperKeyConfig.self, forKey: .hyperKey) ?? HyperKeyConfig()
         extensions = try c.decodeIfPresent([String: JSONValue].self, forKey: .extensions) ?? [:]
     }
 

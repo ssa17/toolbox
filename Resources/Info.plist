@@ -30,6 +30,8 @@
     <true/>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <key>NSInputMonitoringUsageDescription</key>
+    <string>Toolbox uses Input Monitoring to remap Caps Lock into a Hyper Key in-process without external drivers.</string>
     <key>SUPublicEDKey</key>
     <string>yn96rY7JX7sA3H00KKstvHR4DEekZVjZqifBAJy+V5k=</string>
     <key>SUFeedURL</key>

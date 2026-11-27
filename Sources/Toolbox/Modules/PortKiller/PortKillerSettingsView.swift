@@ -167,6 +167,7 @@ struct PortKillerSettingsView: View {
 
             popoverSizeRow
         }
+        .id(ModuleFocusAnchor.shortcuts.rawValue)
     }
 
     private var popoverSizeRow: some View {

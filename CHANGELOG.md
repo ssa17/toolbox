@@ -10,6 +10,7 @@ Add a bullet under **Unreleased** whenever you ship something user-visible.
 ## [Unreleased]
 
 ### Added
+- **Keyboard Shortcuts Hub & Caps Lock Hyper Key** — browse, search, test, and resolve conflicts across every Toolbox shortcut in one dedicated sidebar view (with a Visual Key Map and Press-Key-to-Find), and optionally turn Caps Lock into a dual-role Hyper Key (hold for `⌃ ⌥ ⌘` or `⌃ ⌥ ⇧ ⌘`, quick tap to toggle Caps Lock or send Escape)
 - **Window Switcher (`⌥ Tab`)** — cycle through individual open, minimized, and hidden-app windows in a `⌘ Tab`-style horizontal thumbnail strip (or compact list) with `/` type-to-filter and instant Close (`W`), Minimize (`M`), Hide (`H`), and Quit (`Q`) actions
 
 ## [1.6.4] - 2026-11-26

@@ -470,6 +470,33 @@ enum SnapshotRunner {
         configManager.config.windowSwitcher = prevWindowSwitcher
         PermissionsManager.shared.setSimulatedAccessibilityGranted(prevSimAXSwitcher)
 
+        let navShortcuts = NavigationState()
+        navShortcuts.selection = .shortcuts
+        navShortcuts.isSidebarVisible = true
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navShortcuts),
+            size: NSSize(width: 940, height: 1200),
+            to: outURL.appendingPathComponent("shortcuts_hub.png")
+        )
+
+        let prevHyperKey = configManager.config.hyperKey
+        let prevSimAXHyper = PermissionsManager.shared.simulatedAccessibilityGranted
+        let prevSimInputHyper = PermissionsManager.shared.simulatedInputMonitoringGranted
+        PermissionsManager.shared.setSimulatedAccessibilityGranted(true)
+        PermissionsManager.shared.setSimulatedInputMonitoringGranted(true)
+        configManager.config.hyperKey.enabled = true
+        configManager.config.hyperKey.holdMode = .toolboxChord
+        configManager.config.hyperKey.tapAction = .capsLock
+        configManager.config.hyperKey.tapThresholdMs = 250
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navShortcuts),
+            size: NSSize(width: 940, height: 1400),
+            to: outURL.appendingPathComponent("shortcuts_hub_hyperkey_expanded.png")
+        )
+        configManager.config.hyperKey = prevHyperKey
+        PermissionsManager.shared.setSimulatedAccessibilityGranted(prevSimAXHyper)
+        PermissionsManager.shared.setSimulatedInputMonitoringGranted(prevSimInputHyper)
+
         let switcherPreviewWindows: [SwitcherWindowItem] = [
             SwitcherWindowItem(
                 id: "snap-term",

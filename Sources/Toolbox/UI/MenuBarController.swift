@@ -1694,7 +1694,7 @@ struct MenuBarPopoverView: View {
 
         return HStack(spacing: 9) {
             Button {
-                onOpenDashboard(.module(module.id))
+                onOpenDashboard(module.id == "hyper_key" ? .shortcuts : .module(module.id))
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: module.symbolName)

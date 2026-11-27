@@ -182,7 +182,7 @@ private final class RecorderInstanceBox: ObservableObject {
 }
 
 @MainActor
-private enum ShortcutConflictResolver {
+internal enum ShortcutConflictResolver {
     enum Issue {
         case inApp(String)
         case registrationError(String)
@@ -230,19 +230,28 @@ struct ShortcutConflictStatusView: View {
     let shortcut: ShortcutSpec
     var sourceID: String? = nil
     var registrationKey: String? = nil
+    var preResolvedIssue: ShortcutConflictResolver.Issue? = nil
+    var usesPreResolvedIssue: Bool = false
     var onAssignHere: (() -> Void)? = nil
 
     @ObservedObject private var configManager = ConfigManager.shared
     @ObservedObject private var hotKeyManager = HotKeyManager.shared
 
-    var body: some View {
-        if let issue = ShortcutConflictResolver.resolve(
+    private var resolvedIssue: ShortcutConflictResolver.Issue? {
+        if usesPreResolvedIssue {
+            return preResolvedIssue
+        }
+        return ShortcutConflictResolver.resolve(
             shortcut: shortcut,
             sourceID: sourceID,
             registrationKey: registrationKey,
             config: configManager.config,
             hotKeyManager: hotKeyManager
-        ) {
+        )
+    }
+
+    var body: some View {
+        if let issue = resolvedIssue {
             HStack(alignment: .center, spacing: 8) {
                 Label(issue.message, systemImage: "exclamationmark.triangle.fill")
                     .toolboxFont(.caption)
@@ -430,6 +439,8 @@ struct ShortcutRecorderView: View {
                     shortcut: shortcut,
                     sourceID: sourceID,
                     registrationKey: registrationKey,
+                    preResolvedIssue: activeIssue,
+                    usesPreResolvedIssue: true,
                     onAssignHere: { onChange(shortcut) }
                 )
             }

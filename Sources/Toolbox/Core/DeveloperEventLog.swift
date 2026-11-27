@@ -11,6 +11,7 @@ enum DeveloperEventCategory: String, CaseIterable, Identifiable, Sendable {
     case windowSnapper = "Window Snapper"
     case finderEnhancer = "Finder Enhancer"
     case windowSwitcher = "Window Switcher"
+    case hyperKey = "Hyper Key"
     case ocr = "Screen OCR"
     case config = "Config"
     case updates = "Updates"

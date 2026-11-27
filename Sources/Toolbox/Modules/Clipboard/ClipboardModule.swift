@@ -1095,6 +1095,8 @@ final class ClipboardModule: NSObject, ToolboxModule, ObservableObject {
             let vUp = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: false)
             vDown?.flags = .maskCommand
             vUp?.flags = .maskCommand
+            vDown?.setIntegerValueField(.eventSourceUserData, value: HyperKeyStateMachine.syntheticEventTag)
+            vUp?.setIntegerValueField(.eventSourceUserData, value: HyperKeyStateMachine.syntheticEventTag)
             vDown?.post(tap: .cghidEventTap)
             vUp?.post(tap: .cghidEventTap)
         }
