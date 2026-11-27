@@ -9,10 +9,10 @@ final class QuickScreenshotModule: NSObject, ToolboxModule, ObservableObject {
     let id = "quick_screenshot"
     let name = "Quick Screenshot"
     let tagline = "Capture any area or window into a fast floating editor to annotate, redact secrets, copy to clipboard, or share."
-    let aboutSummary = "Invokes macOS's interactive area/window capture, opens a native-resolution Quick Editor with arrows, shapes, step badges, crop, and irreversible solid or pixelated redactions, plus on-device Vision Auto-Redact for API keys and PII. Flattened copies write directly to the clipboard (and Toolbox's Clipboard Image History) or save cleanly to PNG/JPEG."
+    let aboutSummary = "Invokes macOS's interactive area/window capture, opens a native-resolution Quick Editor with per-tool remembered styles, arrows, shapes, spotlights, step badges, Beautify backdrops, Pin on Screen, and irreversible Pixelate, Blur, Solid, or Smart Erase redactions, plus on-device Vision Auto-Redact for API keys and PII."
     let featureTips = [
         "Press your shortcut (default ⌃ ⌥ ⌘ 5) and drag an area, or press Space to snap a window; Esc cancels cleanly.",
-        "Use Auto-Redact to locally scan for emails, API keys, GitHub/AWS tokens, JWTs, and cards, then review each match before copying.",
+        "Each tool keeps its own color, size, and style defaults across captures. Use Pixelate, Blur, Solid, or Smart Erase to redact, or toggle Beautify (B) and Pin on Screen (⌘P).",
         "Single-key tools inside the editor: S Select, A Arrow, R Rect, E Ellipse, H Highlight, T Text, N Number, X Redact, C Crop."
     ]
     let symbolName = "camera.viewfinder"
@@ -21,6 +21,7 @@ final class QuickScreenshotModule: NSObject, ToolboxModule, ObservableObject {
     let requiresAccessibility = false
 
     static let maxOpenEditors = 5
+    static let maxPinnedWindows = 8
     nonisolated static let privateTempFolderName = "toolbox-shot-private"
 
     @Published private(set) var config: QuickScreenshotConfig = QuickScreenshotConfig()
@@ -29,6 +30,7 @@ final class QuickScreenshotModule: NSObject, ToolboxModule, ObservableObject {
     @Published private(set) var screenRecordingGranted: Bool = false
     @Published private(set) var isAwaitingScreenPermission: Bool = false
     @Published private(set) var openEditorCount: Int = 0
+    @Published private(set) var pinnedWindowCount: Int = 0
 
     let hotKeyName = "quick_screenshot.capture"
 
@@ -44,6 +46,7 @@ final class QuickScreenshotModule: NSObject, ToolboxModule, ObservableObject {
     private var captureGeneration: UInt64 = 0
     private var captureOriginApp: NSRunningApplication?
     private var editorControllers: [QuickScreenshotEditorWindowController] = []
+    private var pinnedControllers: [PinnedScreenshotWindowController] = []
     private var previewPanel: NSPanel?
     private var previewDismissTask: Task<Void, Never>?
 
@@ -380,6 +383,34 @@ final class QuickScreenshotModule: NSObject, ToolboxModule, ObservableObject {
     private func removeEditorController(_ controller: QuickScreenshotEditorWindowController) {
         editorControllers.removeAll { $0 === controller }
         openEditorCount = editorControllers.count
+    }
+
+    // MARK: - Pin on Screen
+
+    @discardableResult
+    func pinScreenshot(_ image: CGImage) -> PinnedScreenshotWindowController {
+        while pinnedControllers.count >= Self.maxPinnedWindows, let oldest = pinnedControllers.first {
+            oldest.forceClose()
+        }
+        let controller = PinnedScreenshotWindowController(image: image) { [weak self] closed in
+            self?.removePinnedController(closed)
+        }
+        pinnedControllers.append(controller)
+        pinnedWindowCount = pinnedControllers.count
+        controller.present()
+        return controller
+    }
+
+    func closeAllPinnedScreenshots() {
+        let copy = pinnedControllers
+        for c in copy {
+            c.forceClose()
+        }
+    }
+
+    private func removePinnedController(_ controller: PinnedScreenshotWindowController) {
+        pinnedControllers.removeAll { $0 === controller }
+        pinnedWindowCount = pinnedControllers.count
     }
 
     // MARK: - No-Editor Quick Preview Card

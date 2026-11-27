@@ -3,7 +3,7 @@ import CoreGraphics
 import Foundation
 import SwiftUI
 
-enum ScreenshotTool: String, CaseIterable, Identifiable, Sendable {
+enum ScreenshotTool: String, Codable, CaseIterable, Identifiable, Sendable {
     case select
     case arrow
     case rectangle
@@ -121,12 +121,37 @@ enum AnnotationColor: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 }
 
+extension RedactSolidColor {
+    var swiftUIColor: Color {
+        switch self {
+        case .black: return .black
+        case .white: return .white
+        case .slate: return Color(red: 0.14, green: 0.16, blue: 0.20)
+        }
+    }
+}
+
+extension BeautifyBackdrop {
+    var swiftUIGradient: LinearGradient {
+        let stops = gradientRGBStops
+        return LinearGradient(
+            colors: [
+                Color(red: stops.start.0, green: stops.start.1, blue: stops.start.2),
+                Color(red: stops.end.0, green: stops.end.1, blue: stops.end.2)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+}
+
 enum AutoRedactCategory: String, Codable, CaseIterable, Identifiable, Sendable {
     case apiKey = "api_key"
     case githubToken = "github_token"
     case awsKey = "aws_key"
     case bearerToken = "bearer_token"
     case jwt = "jwt"
+    case secretCode = "secret_code"
     case creditCard = "credit_card"
     case email = "email"
     case phone = "phone"
@@ -140,6 +165,7 @@ enum AutoRedactCategory: String, Codable, CaseIterable, Identifiable, Sendable {
         case .awsKey: return "AWS Key"
         case .bearerToken: return "Bearer Token"
         case .jwt: return "JWT"
+        case .secretCode: return "Secret / Code"
         case .creditCard: return "Card Number"
         case .email: return "Email"
         case .phone: return "Phone"
@@ -150,6 +176,8 @@ enum AutoRedactCategory: String, Codable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .apiKey, .githubToken, .awsKey, .bearerToken, .jwt:
             return "key.fill"
+        case .secretCode:
+            return "lock.shield.fill"
         case .creditCard:
             return "creditcard.fill"
         case .email:
@@ -195,6 +223,16 @@ enum AnnotationKind: String, Codable, Equatable, Sendable {
     case redact
 }
 
+/// Unified text callout metrics shared across hit-testing, canvas preview, and CoreGraphics export.
+struct TextCalloutLayout: Equatable {
+    let content: String
+    let font: NSFont
+    let textSize: CGSize
+    let padX: CGFloat
+    let padY: CGFloat
+    let pillRect: CGRect
+}
+
 /// Vector/redaction annotation stored in **native `CGImage` pixel coordinates** (top-left origin).
 struct AnnotationItem: Identifiable, Equatable, Sendable {
     let id: UUID
@@ -208,6 +246,22 @@ struct AnnotationItem: Identifiable, Equatable, Sendable {
     var text: String
     var stepNumber: Int
     var redactStyle: RedactStyle
+    var arrowStyle: ArrowStyle
+    var dashStyle: StrokeDashStyle
+    var fillStyle: ShapeFillStyle
+    var cornerRadius: CornerRadiusPreset
+    var highlighterMode: HighlighterMode
+    var highlighterOpacity: HighlighterOpacity
+    var textFontSize: CGFloat?
+    var textBackgroundStyle: TextBackgroundStyle
+    var textWeightStyle: TextWeightStyle
+    var textCornerRadius: CornerRadiusPreset
+    var textPaddingXRatio: CGFloat?
+    var textPaddingYRatio: CGFloat?
+    var stepSize: CGFloat?
+    var stepStyle: StepBadgeStyle
+    var redactStrength: RedactStrength
+    var redactSolidColor: RedactSolidColor
     var autoRedactCategory: AutoRedactCategory?
     var maskedSnippet: String?
     var confidence: Float?
@@ -223,7 +277,23 @@ struct AnnotationItem: Identifiable, Equatable, Sendable {
         strokeWidth: CGFloat = 4,
         text: String = "",
         stepNumber: Int = 1,
-        redactStyle: RedactStyle = .solidBlack,
+        redactStyle: RedactStyle = .pixelate,
+        arrowStyle: ArrowStyle = .standard,
+        dashStyle: StrokeDashStyle = .solid,
+        fillStyle: ShapeFillStyle = .outline,
+        cornerRadius: CornerRadiusPreset = .rounded,
+        highlighterMode: HighlighterMode = .freehand,
+        highlighterOpacity: HighlighterOpacity = .normal,
+        textFontSize: CGFloat? = nil,
+        textBackgroundStyle: TextBackgroundStyle = .filled,
+        textWeightStyle: TextWeightStyle = .semibold,
+        textCornerRadius: CornerRadiusPreset = .rounded,
+        textPaddingXRatio: CGFloat? = nil,
+        textPaddingYRatio: CGFloat? = nil,
+        stepSize: CGFloat? = nil,
+        stepStyle: StepBadgeStyle = .filled,
+        redactStrength: RedactStrength = .medium,
+        redactSolidColor: RedactSolidColor = .black,
         autoRedactCategory: AutoRedactCategory? = nil,
         maskedSnippet: String? = nil,
         confidence: Float? = nil
@@ -239,9 +309,37 @@ struct AnnotationItem: Identifiable, Equatable, Sendable {
         self.text = text
         self.stepNumber = stepNumber
         self.redactStyle = redactStyle
+        self.arrowStyle = arrowStyle
+        self.dashStyle = dashStyle
+        self.fillStyle = fillStyle
+        self.cornerRadius = cornerRadius
+        self.highlighterMode = highlighterMode
+        self.highlighterOpacity = highlighterOpacity
+        self.textFontSize = textFontSize
+        self.textBackgroundStyle = textBackgroundStyle
+        self.textWeightStyle = textWeightStyle
+        self.textCornerRadius = textCornerRadius
+        self.textPaddingXRatio = textPaddingXRatio
+        self.textPaddingYRatio = textPaddingYRatio
+        self.stepSize = stepSize
+        self.stepStyle = stepStyle
+        self.redactStrength = redactStrength
+        self.redactSolidColor = redactSolidColor
         self.autoRedactCategory = autoRedactCategory
         self.maskedSnippet = maskedSnippet
         self.confidence = confidence
+    }
+
+    var isAutoRedacted: Bool {
+        kind == .redact && autoRedactCategory != nil
+    }
+
+    var effectiveTextFontSize: CGFloat {
+        textFontSize ?? Self.textFontSize(for: strokeWidth)
+    }
+
+    var effectiveStepRadius: CGFloat {
+        stepSize ?? Self.stepRadius(for: strokeWidth)
     }
 
     var boundingRect: CGRect {
@@ -256,6 +354,9 @@ struct AnnotationItem: Identifiable, Equatable, Sendable {
         case .rectangle, .ellipse, .redact:
             return rect.standardized
         case .highlighter:
+            if highlighterMode == .box {
+                return rect.standardized
+            }
             guard let first = points.first else { return rect.standardized }
             var minX = first.x
             var maxX = first.x
@@ -270,7 +371,7 @@ struct AnnotationItem: Identifiable, Equatable, Sendable {
             let pad = max(12, strokeWidth * 2.5)
             return CGRect(x: minX - pad, y: minY - pad, width: (maxX - minX) + pad * 2, height: (maxY - minY) + pad * 2)
         case .step:
-            let radius = Self.stepRadius(for: strokeWidth)
+            let radius = effectiveStepRadius
             return CGRect(
                 x: startPoint.x - radius,
                 y: startPoint.y - radius,
@@ -278,7 +379,7 @@ struct AnnotationItem: Identifiable, Equatable, Sendable {
                 height: radius * 2
             )
         case .text:
-            return Self.textBounds(text: text, origin: startPoint, strokeWidth: strokeWidth)
+            return textLayout().pillRect
         }
     }
 
@@ -290,13 +391,114 @@ struct AnnotationItem: Identifiable, Equatable, Sendable {
         max(16, 15 + strokeWidth * 2.2)
     }
 
+    static func makeTextFont(size: CGFloat, weightStyle: TextWeightStyle) -> NSFont {
+        switch weightStyle {
+        case .regular: return NSFont.systemFont(ofSize: size, weight: .regular)
+        case .semibold: return NSFont.systemFont(ofSize: size, weight: .bold)
+        case .mono: return NSFont.monospacedSystemFont(ofSize: size, weight: .semibold)
+        }
+    }
+
+    static func defaultTextPaddingXRatio(backgroundStyle: TextBackgroundStyle, cornerRadius: CornerRadiusPreset) -> CGFloat {
+        guard backgroundStyle != .plain else { return 0.15 }
+        return cornerRadius == .large ? 0.52 : 0.42
+    }
+
+    static func minTextPaddingXRatio(backgroundStyle: TextBackgroundStyle, cornerRadius: CornerRadiusPreset) -> CGFloat {
+        guard backgroundStyle != .plain else { return 0.08 }
+        return cornerRadius == .large ? 0.34 : 0.18
+    }
+
+    static let maxTextPaddingXRatio: CGFloat = 3.0
+
+    static func defaultTextPaddingYRatio(backgroundStyle: TextBackgroundStyle) -> CGFloat {
+        backgroundStyle == .plain ? 0.04 : 0.12
+    }
+
+    static let minTextPaddingYRatio: CGFloat = 0.0
+    static let maxTextPaddingYRatio: CGFloat = 1.4
+
+    func textLayout() -> TextCalloutLayout {
+        Self.textLayout(
+            text: text,
+            origin: startPoint,
+            fontSize: effectiveTextFontSize,
+            weightStyle: textWeightStyle,
+            backgroundStyle: textBackgroundStyle,
+            cornerRadius: textCornerRadius,
+            paddingXRatio: textPaddingXRatio,
+            paddingYRatio: textPaddingYRatio
+        )
+    }
+
+    static func textLayout(
+        text: String,
+        origin: CGPoint,
+        fontSize: CGFloat,
+        weightStyle: TextWeightStyle = .semibold,
+        backgroundStyle: TextBackgroundStyle = .filled,
+        cornerRadius: CornerRadiusPreset = .rounded,
+        paddingXRatio: CGFloat? = nil,
+        paddingYRatio: CGFloat? = nil
+    ) -> TextCalloutLayout {
+        let trimmed = text.trimmingCharacters(in: .newlines)
+        let measureSample = trimmed.isEmpty ? "Text" : trimmed
+        let font = makeTextFont(size: fontSize, weightStyle: weightStyle)
+        let measured = (measureSample as NSString).boundingRect(
+            with: NSSize(width: 1_000_000, height: 1_000_000),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font]
+        )
+        let textWidth = ceil(measured.width) + 2
+        let textHeight = ceil(measured.height)
+
+        let minXRatio = minTextPaddingXRatio(backgroundStyle: backgroundStyle, cornerRadius: cornerRadius)
+        let rawXRatio = paddingXRatio ?? defaultTextPaddingXRatio(backgroundStyle: backgroundStyle, cornerRadius: cornerRadius)
+        let clampedXRatio = min(max(rawXRatio, minXRatio), maxTextPaddingXRatio)
+        let padX = max(backgroundStyle == .plain ? 2 : 4, fontSize * clampedXRatio)
+
+        let rawYRatio = paddingYRatio ?? defaultTextPaddingYRatio(backgroundStyle: backgroundStyle)
+        let clampedYRatio = min(max(rawYRatio, minTextPaddingYRatio), maxTextPaddingYRatio)
+        let padY = fontSize * clampedYRatio
+
+        let minW: CGFloat = trimmed.isEmpty ? max(84, fontSize * 3.8) : 24
+        let pillWidth = max(minW, textWidth + padX * 2)
+        let pillHeight = max(textHeight + padY * 2, fontSize * 1.1)
+
+        return TextCalloutLayout(
+            content: trimmed,
+            font: font,
+            textSize: CGSize(width: textWidth, height: textHeight),
+            padX: padX,
+            padY: padY,
+            pillRect: CGRect(x: origin.x, y: origin.y, width: pillWidth, height: pillHeight)
+        )
+    }
+
+    static func textBounds(
+        text: String,
+        origin: CGPoint,
+        fontSize: CGFloat,
+        weightStyle: TextWeightStyle = .semibold,
+        backgroundStyle: TextBackgroundStyle = .filled,
+        cornerRadius: CornerRadiusPreset = .rounded,
+        paddingXRatio: CGFloat? = nil,
+        paddingYRatio: CGFloat? = nil
+    ) -> CGRect {
+        textLayout(
+            text: text,
+            origin: origin,
+            fontSize: fontSize,
+            weightStyle: weightStyle,
+            backgroundStyle: backgroundStyle,
+            cornerRadius: cornerRadius,
+            paddingXRatio: paddingXRatio,
+            paddingYRatio: paddingYRatio
+        ).pillRect
+    }
+
     static func textBounds(text: String, origin: CGPoint, strokeWidth: CGFloat) -> CGRect {
-        let fontSize = textFontSize(for: strokeWidth)
-        let lines = (text.isEmpty ? "Label" : text).components(separatedBy: "\n")
-        let maxChars = max(4, lines.map(\.count).max() ?? 4)
-        let estWidth = max(72, CGFloat(maxChars) * fontSize * 0.62 + 24)
-        let estHeight = max(fontSize * 1.45, CGFloat(lines.count) * fontSize * 1.28 + 14)
-        return CGRect(x: origin.x, y: origin.y, width: estWidth, height: estHeight)
+        textBounds(text: text, origin: origin, fontSize: textFontSize(for: strokeWidth))
     }
 
     func contains(pixelPoint: CGPoint, tolerance: CGFloat = 10, directEditMode: Bool = false) -> Bool {
@@ -304,6 +506,10 @@ struct AnnotationItem: Identifiable, Equatable, Sendable {
         case .arrow:
             return Self.distanceFromPoint(pixelPoint, toSegmentStart: startPoint, end: endPoint) <= max(tolerance, strokeWidth * 2.5)
         case .highlighter:
+            if highlighterMode == .box {
+                let pad = min(tolerance, 5)
+                return rect.standardized.insetBy(dx: -pad, dy: -pad).contains(pixelPoint)
+            }
             guard !points.isEmpty else { return false }
             if points.count == 1 {
                 return hypot(pixelPoint.x - points[0].x, pixelPoint.y - points[0].y) <= max(tolerance, strokeWidth * 2.5)
@@ -318,6 +524,9 @@ struct AnnotationItem: Identifiable, Equatable, Sendable {
             let edgeTol = max(tolerance, strokeWidth * 1.6)
             let outer = rect.insetBy(dx: -edgeTol, dy: -edgeTol)
             guard outer.contains(pixelPoint) else { return false }
+            if fillStyle == .solid || fillStyle == .tinted || (fillStyle == .spotlight && !directEditMode) {
+                return true
+            }
             let inner = rect.insetBy(dx: edgeTol, dy: edgeTol)
             if inner.isNull || inner.width <= 0 || inner.height <= 0 {
                 return true
@@ -331,6 +540,9 @@ struct AnnotationItem: Identifiable, Equatable, Sendable {
             let dy = pixelPoint.y - rect.midY
             let outerNorm = hypot(dx / max(1, rx + edgeTol), dy / max(1, ry + edgeTol))
             guard outerNorm <= 1.0 else { return false }
+            if fillStyle == .solid || fillStyle == .tinted || (fillStyle == .spotlight && !directEditMode) {
+                return true
+            }
             if rx <= edgeTol || ry <= edgeTol {
                 return true
             }
@@ -340,7 +552,7 @@ struct AnnotationItem: Identifiable, Equatable, Sendable {
             let pad: CGFloat = directEditMode ? 1.5 : min(tolerance, 5)
             return rect.insetBy(dx: -pad, dy: -pad).contains(pixelPoint)
         case .step:
-            return hypot(pixelPoint.x - startPoint.x, pixelPoint.y - startPoint.y) <= Self.stepRadius(for: strokeWidth) + min(tolerance, 6)
+            return hypot(pixelPoint.x - startPoint.x, pixelPoint.y - startPoint.y) <= effectiveStepRadius + min(tolerance, 6)
         case .text:
             let pad = min(tolerance, 6)
             return boundingRect.insetBy(dx: -pad, dy: -pad).contains(pixelPoint)
@@ -390,7 +602,7 @@ enum CanvasZoomMode: Equatable, Sendable {
         case .fit: return fitScale
         case .percent100: return 1.0
         case .percent200: return 2.0
-        case .custom(let factor): return min(max(factor, 0.15), 4.0)
+        case .custom(let factor): return min(max(factor, 0.15), 6.0)
         }
     }
 }
@@ -479,6 +691,7 @@ struct CanvasCoordinateMapper: Equatable, Sendable {
 private struct EditorSnapshot: Equatable {
     let annotations: [AnnotationItem]
     let cropRect: CGRect?
+    let beautify: BeautifyConfig
     let nextStepNumber: Int
     let reviewItems: [AutoRedactReviewItem]
     let activeTool: ScreenshotTool
@@ -493,9 +706,8 @@ final class ScreenshotEditorSession: ObservableObject {
     @Published private(set) var annotations: [AnnotationItem] = []
     @Published private(set) var cropRect: CGRect? = nil
     @Published var activeTool: ScreenshotTool = .arrow
-    @Published var selectedColor: AnnotationColor = .red
-    @Published var strokeWidth: CGFloat = 4
-    @Published var redactStyle: RedactStyle
+    @Published var toolPresets: ScreenshotToolPresets
+    @Published var beautify: BeautifyConfig
     @Published var selectedAnnotationID: UUID? = nil
     @Published var zoomMode: CanvasZoomMode = .fit
     @Published var panOffset: CGSize = .zero
@@ -506,33 +718,113 @@ final class ScreenshotEditorSession: ObservableObject {
     @Published private(set) var nextStepNumber: Int = 1
     @Published var editingTextAnnotationID: UUID? = nil
 
+    var onPresetsChanged: ((ScreenshotToolPresets, ScreenshotTool) -> Void)?
+
+    var selectedColor: AnnotationColor {
+        get {
+            switch activeTool {
+            case .arrow: return toolPresets.arrow.color
+            case .rectangle: return toolPresets.rectangle.color
+            case .ellipse: return toolPresets.ellipse.color
+            case .highlighter: return toolPresets.highlighter.color
+            case .text: return toolPresets.text.color
+            case .step: return toolPresets.step.color
+            case .select, .redact, .crop: return toolPresets.arrow.color
+            }
+        }
+        set {
+            switch activeTool {
+            case .arrow: toolPresets.arrow.color = newValue
+            case .rectangle: toolPresets.rectangle.color = newValue
+            case .ellipse: toolPresets.ellipse.color = newValue
+            case .highlighter: toolPresets.highlighter.color = newValue
+            case .text: toolPresets.text.color = newValue
+            case .step: toolPresets.step.color = newValue
+            case .select, .redact, .crop: toolPresets.arrow.color = newValue
+            }
+        }
+    }
+
+    var strokeWidth: CGFloat {
+        get {
+            switch activeTool {
+            case .arrow: return toolPresets.arrow.strokeWidth
+            case .rectangle: return toolPresets.rectangle.strokeWidth
+            case .ellipse: return toolPresets.ellipse.strokeWidth
+            case .highlighter: return toolPresets.highlighter.strokeWidth
+            case .select, .text, .step, .redact, .crop: return toolPresets.arrow.strokeWidth
+            }
+        }
+        set {
+            let normalized = max(1, newValue)
+            switch activeTool {
+            case .arrow: toolPresets.arrow.strokeWidth = normalized
+            case .rectangle: toolPresets.rectangle.strokeWidth = normalized
+            case .ellipse: toolPresets.ellipse.strokeWidth = normalized
+            case .highlighter: toolPresets.highlighter.strokeWidth = normalized
+            case .select, .text, .step, .redact, .crop: toolPresets.arrow.strokeWidth = normalized
+            }
+        }
+    }
+
+    var redactStyle: RedactStyle {
+        get { toolPresets.redact.style }
+        set { toolPresets.redact.style = newValue }
+    }
+
     private struct EditorExportState: Equatable {
         let annotations: [AnnotationItem]
         let cropRect: CGRect?
+        let beautify: BeautifyConfig
     }
 
     private var undoStack: [EditorSnapshot] = []
     private var redoStack: [EditorSnapshot] = []
-    private var lastExportedState = EditorExportState(annotations: [], cropRect: nil)
+    private var lastExportedState: EditorExportState
     private var textEditBaselineAnnotations: [AnnotationItem]? = nil
+    private var newlyCreatedTextAnnotationID: UUID? = nil
 
     var canUndo: Bool { !undoStack.isEmpty }
     var canRedo: Bool { !redoStack.isEmpty }
 
-    init(image: CGImage, defaultRedactStyle: RedactStyle = .solidBlack) {
+    init(image: CGImage, defaultRedactStyle: RedactStyle = .pixelate) {
         self.baseImage = image
         self.imagePixelSize = CGSize(width: image.width, height: image.height)
-        self.redactStyle = defaultRedactStyle
+        var presets = ScreenshotToolPresets()
+        presets.redact.style = defaultRedactStyle
+        self.toolPresets = presets
+        self.beautify = presets.beautify
+        self.lastExportedState = EditorExportState(annotations: [], cropRect: nil, beautify: presets.beautify)
+    }
+
+    init(image: CGImage, config: QuickScreenshotConfig) {
+        self.baseImage = image
+        self.imagePixelSize = CGSize(width: image.width, height: image.height)
+        var presets = config.toolPresets
+        presets.redact.style = config.defaultRedactMode
+        self.toolPresets = presets
+        self.beautify = presets.beautify
+        self.activeTool = config.resolvedStartingTool()
+        self.lastExportedState = EditorExportState(annotations: [], cropRect: nil, beautify: presets.beautify)
     }
 
     private func syncUnexportedChanges() {
-        hasUnexportedChanges = EditorExportState(annotations: annotations, cropRect: cropRect) != lastExportedState
+        hasUnexportedChanges = EditorExportState(
+            annotations: annotations,
+            cropRect: cropRect,
+            beautify: beautify
+        ) != lastExportedState
+    }
+
+    private func notifyPresetsChanged() {
+        onPresetsChanged?(toolPresets, activeTool)
     }
 
     private func currentSnapshot() -> EditorSnapshot {
         EditorSnapshot(
             annotations: annotations,
             cropRect: cropRect,
+            beautify: beautify,
             nextStepNumber: nextStepNumber,
             reviewItems: reviewItems,
             activeTool: activeTool
@@ -564,6 +856,8 @@ final class ScreenshotEditorSession: ObservableObject {
     private func applySnapshot(_ snapshot: EditorSnapshot) {
         annotations = snapshot.annotations
         cropRect = snapshot.cropRect
+        beautify = snapshot.beautify
+        toolPresets.beautify = snapshot.beautify
         nextStepNumber = snapshot.nextStepNumber
         reviewItems = snapshot.reviewItems
         activeTool = snapshot.activeTool
@@ -590,12 +884,15 @@ final class ScreenshotEditorSession: ObservableObject {
     @discardableResult
     func addStepBadge(at pixelPoint: CGPoint) -> AnnotationItem {
         recordUndoCheckpoint()
+        let preset = toolPresets.step
         let item = AnnotationItem(
             kind: .step,
             startPoint: pixelPoint,
-            color: selectedColor,
-            strokeWidth: strokeWidth,
-            stepNumber: nextStepNumber
+            color: preset.color,
+            strokeWidth: 4,
+            stepNumber: nextStepNumber,
+            stepSize: preset.size,
+            stepStyle: preset.style
         )
         nextStepNumber += 1
         annotations.append(item)
@@ -609,24 +906,31 @@ final class ScreenshotEditorSession: ObservableObject {
         if editingTextAnnotationID != id {
             finishTextEditing()
         }
+        newlyCreatedTextAnnotationID = nil
         textEditBaselineAnnotations = annotations
         selectedAnnotationID = id
         editingTextAnnotationID = id
     }
 
     @discardableResult
-    func beginTextCallout(at pixelPoint: CGPoint, initialText: String = "Note") -> AnnotationItem {
+    func beginTextCallout(at pixelPoint: CGPoint, initialText: String = "") -> AnnotationItem {
         finishTextEditing()
         recordUndoCheckpoint()
+        let preset = toolPresets.text
         let item = AnnotationItem(
             kind: .text,
             startPoint: pixelPoint,
-            color: selectedColor,
-            strokeWidth: strokeWidth,
-            text: initialText
+            color: preset.color,
+            strokeWidth: 4,
+            text: initialText,
+            textFontSize: preset.fontSize,
+            textBackgroundStyle: preset.backgroundStyle,
+            textWeightStyle: preset.weightStyle,
+            textCornerRadius: preset.cornerRadius
         )
         annotations.append(item)
         textEditBaselineAnnotations = nil
+        newlyCreatedTextAnnotationID = item.id
         selectedAnnotationID = item.id
         editingTextAnnotationID = item.id
         syncUnexportedChanges()
@@ -641,6 +945,42 @@ final class ScreenshotEditorSession: ObservableObject {
     }
 
     func finishTextEditing() {
+        let activeEditID = editingTextAnnotationID
+        let createdID = newlyCreatedTextAnnotationID
+        newlyCreatedTextAnnotationID = nil
+
+        if let activeEditID,
+           let idx = annotations.firstIndex(where: { $0.id == activeEditID && $0.kind == .text }),
+           annotations[idx].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            editingTextAnnotationID = nil
+            if createdID == activeEditID {
+                textEditBaselineAnnotations = nil
+                annotations.remove(at: idx)
+                if selectedAnnotationID == activeEditID {
+                    selectedAnnotationID = nil
+                }
+                if let lastSnap = undoStack.last,
+                   !lastSnap.annotations.contains(where: { $0.id == activeEditID }) {
+                    _ = undoStack.popLast()
+                }
+                syncUnexportedChanges()
+                return
+            } else {
+                if let baseline = textEditBaselineAnnotations {
+                    textEditBaselineAnnotations = nil
+                    var cleaned = annotations
+                    cleaned.remove(at: idx)
+                    if selectedAnnotationID == activeEditID {
+                        selectedAnnotationID = nil
+                    }
+                    commitMutationSnapshot(before: baseline, after: cleaned)
+                } else {
+                    deleteAnnotation(id: activeEditID)
+                }
+                return
+            }
+        }
+
         if let baseline = textEditBaselineAnnotations {
             textEditBaselineAnnotations = nil
             if baseline != annotations {
@@ -658,6 +998,7 @@ final class ScreenshotEditorSession: ObservableObject {
         let previous = EditorSnapshot(
             annotations: snapshotAnnotations,
             cropRect: cropRect,
+            beautify: beautify,
             nextStepNumber: nextStepNumber,
             reviewItems: reviewItems,
             activeTool: activeTool
@@ -680,7 +1021,8 @@ final class ScreenshotEditorSession: ObservableObject {
     }
 
     func moveAnnotation(id: UUID, by delta: CGSize) {
-        guard let idx = annotations.firstIndex(where: { $0.id == id }) else { return }
+        guard let idx = annotations.firstIndex(where: { $0.id == id }),
+              !annotations[idx].isAutoRedacted else { return }
         let snapshot = annotations
         var updated = annotations
         updated[idx] = updated[idx].translated(by: delta)
@@ -711,6 +1053,106 @@ final class ScreenshotEditorSession: ObservableObject {
         deleteAnnotation(id: selectedAnnotationID)
     }
 
+    @discardableResult
+    func duplicateSelected() -> AnnotationItem? {
+        guard let id = selectedAnnotationID,
+              let source = annotations.first(where: { $0.id == id }) else {
+            return nil
+        }
+        recordUndoCheckpoint()
+        let maxX = max(1, imagePixelSize.width)
+        let maxY = max(1, imagePixelSize.height)
+        let bounds = source.boundingRect
+        let dx: CGFloat = (bounds.maxX + 20 <= maxX) ? 18 : -18
+        let dy: CGFloat = (bounds.maxY + 20 <= maxY) ? 18 : -18
+        var copy = source.translated(by: CGSize(width: dx, height: dy))
+        copy = AnnotationItem(
+            id: UUID(),
+            kind: copy.kind,
+            startPoint: copy.startPoint,
+            endPoint: copy.endPoint,
+            rect: copy.rect,
+            points: copy.points,
+            color: copy.color,
+            strokeWidth: copy.strokeWidth,
+            text: copy.text,
+            stepNumber: copy.kind == .step ? nextStepNumber : copy.stepNumber,
+            redactStyle: copy.redactStyle,
+            arrowStyle: copy.arrowStyle,
+            dashStyle: copy.dashStyle,
+            fillStyle: copy.fillStyle,
+            cornerRadius: copy.cornerRadius,
+            highlighterMode: copy.highlighterMode,
+            highlighterOpacity: copy.highlighterOpacity,
+            textFontSize: copy.textFontSize,
+            textBackgroundStyle: copy.textBackgroundStyle,
+            textWeightStyle: copy.textWeightStyle,
+            textCornerRadius: copy.textCornerRadius,
+            textPaddingXRatio: copy.textPaddingXRatio,
+            textPaddingYRatio: copy.textPaddingYRatio,
+            stepSize: copy.stepSize,
+            stepStyle: copy.stepStyle,
+            redactStrength: copy.redactStrength,
+            redactSolidColor: copy.redactSolidColor
+        )
+        if copy.kind == .step {
+            nextStepNumber += 1
+        }
+        annotations.append(copy)
+        selectedAnnotationID = copy.id
+        syncUnexportedChanges()
+        return copy
+    }
+
+    func nudgeSelected(dx: CGFloat, dy: CGFloat) {
+        guard let id = selectedAnnotationID else { return }
+        moveAnnotation(id: id, by: CGSize(width: dx, height: dy))
+    }
+
+    func bringSelectedToFront() {
+        guard let id = selectedAnnotationID,
+              let idx = annotations.firstIndex(where: { $0.id == id }),
+              idx < annotations.count - 1 else {
+            return
+        }
+        recordUndoCheckpoint()
+        let item = annotations.remove(at: idx)
+        annotations.append(item)
+        syncUnexportedChanges()
+    }
+
+    func sendSelectedToBack() {
+        guard let id = selectedAnnotationID,
+              let idx = annotations.firstIndex(where: { $0.id == id }),
+              idx > 0 else {
+            return
+        }
+        recordUndoCheckpoint()
+        let item = annotations.remove(at: idx)
+        annotations.insert(item, at: 0)
+        syncUnexportedChanges()
+    }
+
+    func setNextStepNumber(_ value: Int) {
+        nextStepNumber = min(max(value, 1), 99)
+    }
+
+    func resetStepNumber() {
+        nextStepNumber = 1
+    }
+
+    func clearAllAnnotations() {
+        guard !annotations.isEmpty else { return }
+        finishTextEditing()
+        recordUndoCheckpoint()
+        annotations.removeAll()
+        reviewItems.removeAll()
+        selectedAnnotationID = nil
+        editingTextAnnotationID = nil
+        nextStepNumber = 1
+        syncUnexportedChanges()
+    }
+
     func setCropRect(_ rect: CGRect?) {
         let normalized: CGRect?
         if let rect {
@@ -729,17 +1171,30 @@ final class ScreenshotEditorSession: ObservableObject {
         setCropRect(nil)
     }
 
-    func applyAutoRedactSuggestions(_ candidates: [AutoRedactCandidate]) {
-        guard !candidates.isEmpty else { return }
+    @discardableResult
+    func applyAutoRedactSuggestions(_ candidates: [AutoRedactCandidate]) -> Int {
+        let existingRedacts = annotations.filter { $0.kind == .redact }
+        let freshCandidates = candidates.filter { candidate in
+            let candidateArea = max(1, candidate.rect.width * candidate.rect.height)
+            return !existingRedacts.contains { existing in
+                let overlap = existing.rect.intersection(candidate.rect)
+                guard !overlap.isNull else { return false }
+                return (overlap.width * overlap.height) / candidateArea >= 0.50
+            }
+        }
+        guard !freshCandidates.isEmpty else { return 0 }
         recordUndoCheckpoint()
+        let preset = toolPresets.redact
         var newReviewItems: [AutoRedactReviewItem] = []
-        for candidate in candidates {
+        for candidate in freshCandidates {
             let item = AnnotationItem(
                 kind: .redact,
                 rect: candidate.rect,
                 color: .black,
-                strokeWidth: strokeWidth,
-                redactStyle: redactStyle,
+                strokeWidth: 4,
+                redactStyle: preset.style,
+                redactStrength: preset.strength,
+                redactSolidColor: preset.solidColor,
                 autoRedactCategory: candidate.category,
                 maskedSnippet: candidate.maskedSnippet,
                 confidence: candidate.confidence
@@ -757,6 +1212,7 @@ final class ScreenshotEditorSession: ObservableObject {
         }
         reviewItems.append(contentsOf: newReviewItems)
         syncUnexportedChanges()
+        return freshCandidates.count
     }
 
     func keepReviewItem(_ item: AutoRedactReviewItem) {
@@ -783,42 +1239,279 @@ final class ScreenshotEditorSession: ObservableObject {
         syncUnexportedChanges()
     }
 
+    // MARK: - Contextual & Per-Tool Mutators
+
+    private func selectedAnnotationIndex() -> Int? {
+        guard let id = selectedAnnotationID else { return nil }
+        return annotations.firstIndex(where: { $0.id == id })
+    }
+
+    private func updateColorPreset(for kind: AnnotationKind, color: AnnotationColor) {
+        switch kind {
+        case .arrow: toolPresets.arrow.color = color
+        case .rectangle: toolPresets.rectangle.color = color
+        case .ellipse: toolPresets.ellipse.color = color
+        case .highlighter: toolPresets.highlighter.color = color
+        case .text: toolPresets.text.color = color
+        case .step: toolPresets.step.color = color
+        case .redact: break
+        }
+    }
+
+    private func updateStrokePreset(for kind: AnnotationKind, width: CGFloat) {
+        switch kind {
+        case .arrow: toolPresets.arrow.strokeWidth = width
+        case .rectangle: toolPresets.rectangle.strokeWidth = width
+        case .ellipse: toolPresets.ellipse.strokeWidth = width
+        case .highlighter: toolPresets.highlighter.strokeWidth = width
+        case .text, .step, .redact: break
+        }
+    }
+
     func updateRedactStyleForExistingSelectionOrTool(_ style: RedactStyle) {
-        redactStyle = style
-        if let id = selectedAnnotationID,
-           let idx = annotations.firstIndex(where: { $0.id == id && $0.kind == .redact }),
+        toolPresets.redact.style = style
+        if let idx = selectedAnnotationIndex(),
+           annotations[idx].kind == .redact,
            annotations[idx].redactStyle != style {
             recordUndoCheckpoint()
             annotations[idx].redactStyle = style
             syncUnexportedChanges()
         }
+        notifyPresetsChanged()
+    }
+
+    func updateRedactStrength(_ strength: RedactStrength) {
+        toolPresets.redact.strength = strength
+        if let idx = selectedAnnotationIndex(),
+           annotations[idx].kind == .redact,
+           annotations[idx].redactStrength != strength {
+            recordUndoCheckpoint()
+            annotations[idx].redactStrength = strength
+            syncUnexportedChanges()
+        }
+        notifyPresetsChanged()
+    }
+
+    func updateRedactSolidColor(_ solidColor: RedactSolidColor) {
+        toolPresets.redact.solidColor = solidColor
+        if let idx = selectedAnnotationIndex(),
+           annotations[idx].kind == .redact,
+           annotations[idx].redactSolidColor != solidColor {
+            recordUndoCheckpoint()
+            annotations[idx].redactSolidColor = solidColor
+            syncUnexportedChanges()
+        }
+        notifyPresetsChanged()
     }
 
     func updateColorForExistingSelectionOrTool(_ color: AnnotationColor) {
-        selectedColor = color
-        if let id = selectedAnnotationID,
-           let idx = annotations.firstIndex(where: { $0.id == id && $0.kind != .redact }),
-           annotations[idx].color != color {
-            recordUndoCheckpoint()
-            annotations[idx].color = color
-            syncUnexportedChanges()
+        if let idx = selectedAnnotationIndex(), annotations[idx].kind != .redact {
+            let kind = annotations[idx].kind
+            updateColorPreset(for: kind, color: color)
+            if annotations[idx].color != color {
+                recordUndoCheckpoint()
+                annotations[idx].color = color
+                syncUnexportedChanges()
+            }
+        } else {
+            selectedColor = color
         }
+        notifyPresetsChanged()
     }
 
     func updateStrokeWidthForExistingSelectionOrTool(_ width: CGFloat) {
         let normalized = max(1, width)
-        strokeWidth = normalized
-        if let id = selectedAnnotationID,
-           let idx = annotations.firstIndex(where: { $0.id == id && $0.kind != .redact }),
-           abs(annotations[idx].strokeWidth - normalized) > 0.1 {
+        if let idx = selectedAnnotationIndex(), annotations[idx].kind != .redact {
+            let kind = annotations[idx].kind
+            updateStrokePreset(for: kind, width: normalized)
+            if abs(annotations[idx].strokeWidth - normalized) > 0.1 {
+                recordUndoCheckpoint()
+                annotations[idx].strokeWidth = normalized
+                syncUnexportedChanges()
+            }
+        } else {
+            strokeWidth = normalized
+        }
+        notifyPresetsChanged()
+    }
+
+    func updateArrowStyle(_ style: ArrowStyle) {
+        toolPresets.arrow.style = style
+        if let idx = selectedAnnotationIndex(),
+           annotations[idx].kind == .arrow,
+           annotations[idx].arrowStyle != style {
             recordUndoCheckpoint()
-            annotations[idx].strokeWidth = normalized
+            annotations[idx].arrowStyle = style
             syncUnexportedChanges()
         }
+        notifyPresetsChanged()
+    }
+
+    func updateDashStyle(_ dash: StrokeDashStyle) {
+        let targetKind = selectedAnnotationIndex().map { annotations[$0].kind }
+        switch targetKind {
+        case .arrow: toolPresets.arrow.dashStyle = dash
+        case .rectangle: toolPresets.rectangle.dashStyle = dash
+        case .ellipse: toolPresets.ellipse.dashStyle = dash
+        case nil:
+            if activeTool == .arrow { toolPresets.arrow.dashStyle = dash }
+            else if activeTool == .rectangle { toolPresets.rectangle.dashStyle = dash }
+            else if activeTool == .ellipse { toolPresets.ellipse.dashStyle = dash }
+        default: break
+        }
+        if let idx = selectedAnnotationIndex(),
+           [.arrow, .rectangle, .ellipse].contains(annotations[idx].kind),
+           annotations[idx].dashStyle != dash {
+            recordUndoCheckpoint()
+            annotations[idx].dashStyle = dash
+            syncUnexportedChanges()
+        }
+        notifyPresetsChanged()
+    }
+
+    func updateFillStyle(_ fill: ShapeFillStyle) {
+        let targetKind = selectedAnnotationIndex().map { annotations[$0].kind }
+        switch targetKind {
+        case .rectangle: toolPresets.rectangle.fillStyle = fill
+        case .ellipse: toolPresets.ellipse.fillStyle = fill
+        case nil:
+            if activeTool == .rectangle { toolPresets.rectangle.fillStyle = fill }
+            else if activeTool == .ellipse { toolPresets.ellipse.fillStyle = fill }
+        default: break
+        }
+        if let idx = selectedAnnotationIndex(),
+           annotations[idx].kind == .rectangle || annotations[idx].kind == .ellipse,
+           annotations[idx].fillStyle != fill {
+            recordUndoCheckpoint()
+            annotations[idx].fillStyle = fill
+            syncUnexportedChanges()
+        }
+        notifyPresetsChanged()
+    }
+
+    func updateCornerRadius(_ preset: CornerRadiusPreset) {
+        toolPresets.rectangle.cornerRadius = preset
+        if let idx = selectedAnnotationIndex(),
+           annotations[idx].kind == .rectangle,
+           annotations[idx].cornerRadius != preset {
+            recordUndoCheckpoint()
+            annotations[idx].cornerRadius = preset
+            syncUnexportedChanges()
+        }
+        notifyPresetsChanged()
+    }
+
+    func updateHighlighterMode(_ mode: HighlighterMode) {
+        toolPresets.highlighter.mode = mode
+        notifyPresetsChanged()
+    }
+
+    func updateHighlighterOpacity(_ opacity: HighlighterOpacity) {
+        toolPresets.highlighter.opacity = opacity
+        if let idx = selectedAnnotationIndex(),
+           annotations[idx].kind == .highlighter,
+           annotations[idx].highlighterOpacity != opacity {
+            recordUndoCheckpoint()
+            annotations[idx].highlighterOpacity = opacity
+            syncUnexportedChanges()
+        }
+        notifyPresetsChanged()
+    }
+
+    func updateTextFontSize(_ size: CGFloat) {
+        let clamped = min(max(size, 10), 120)
+        toolPresets.text.fontSize = clamped
+        if let idx = selectedAnnotationIndex(),
+           annotations[idx].kind == .text,
+           abs(annotations[idx].effectiveTextFontSize - clamped) > 0.1 {
+            recordUndoCheckpoint()
+            annotations[idx].textFontSize = clamped
+            syncUnexportedChanges()
+        }
+        notifyPresetsChanged()
+    }
+
+    func updateTextBackgroundStyle(_ style: TextBackgroundStyle) {
+        toolPresets.text.backgroundStyle = style
+        if let idx = selectedAnnotationIndex(),
+           annotations[idx].kind == .text,
+           annotations[idx].textBackgroundStyle != style {
+            recordUndoCheckpoint()
+            annotations[idx].textBackgroundStyle = style
+            syncUnexportedChanges()
+        }
+        notifyPresetsChanged()
+    }
+
+    func updateTextWeightStyle(_ weight: TextWeightStyle) {
+        toolPresets.text.weightStyle = weight
+        if let idx = selectedAnnotationIndex(),
+           annotations[idx].kind == .text,
+           annotations[idx].textWeightStyle != weight {
+            recordUndoCheckpoint()
+            annotations[idx].textWeightStyle = weight
+            syncUnexportedChanges()
+        }
+        notifyPresetsChanged()
+    }
+
+    func updateTextCornerRadius(_ preset: CornerRadiusPreset) {
+        toolPresets.text.cornerRadius = preset
+        if let idx = selectedAnnotationIndex(),
+           annotations[idx].kind == .text,
+           annotations[idx].textCornerRadius != preset {
+            recordUndoCheckpoint()
+            annotations[idx].textCornerRadius = preset
+            syncUnexportedChanges()
+        }
+        notifyPresetsChanged()
+    }
+
+    func updateStepSize(_ size: CGFloat) {
+        let clamped = min(max(size, 14), 48)
+        toolPresets.step.size = clamped
+        if let idx = selectedAnnotationIndex(),
+           annotations[idx].kind == .step,
+           abs(annotations[idx].effectiveStepRadius - clamped) > 0.1 {
+            recordUndoCheckpoint()
+            annotations[idx].stepSize = clamped
+            syncUnexportedChanges()
+        }
+        notifyPresetsChanged()
+    }
+
+    func updateStepStyle(_ style: StepBadgeStyle) {
+        toolPresets.step.style = style
+        if let idx = selectedAnnotationIndex(),
+           annotations[idx].kind == .step,
+           annotations[idx].stepStyle != style {
+            recordUndoCheckpoint()
+            annotations[idx].stepStyle = style
+            syncUnexportedChanges()
+        }
+        notifyPresetsChanged()
+    }
+
+    func updateCropAspectRatio(_ ratio: CropAspectRatio) {
+        toolPresets.crop.aspectRatio = ratio
+        notifyPresetsChanged()
+    }
+
+    func updateBeautify(_ transform: (inout BeautifyConfig) -> Void) {
+        var next = beautify
+        transform(&next)
+        next.padding = BeautifyConfig.clampedPadding(next.padding)
+        next.cornerRadius = BeautifyConfig.clampedCornerRadius(next.cornerRadius)
+        guard next != beautify else { return }
+        recordUndoCheckpoint()
+        beautify = next
+        toolPresets.beautify = next
+        syncUnexportedChanges()
+        notifyPresetsChanged()
     }
 
     func markExported() {
-        lastExportedState = EditorExportState(annotations: annotations, cropRect: cropRect)
+        lastExportedState = EditorExportState(annotations: annotations, cropRect: cropRect, beautify: beautify)
         hasUnexportedChanges = false
     }
 
@@ -826,12 +1519,39 @@ final class ScreenshotEditorSession: ObservableObject {
         finishTextEditing()
         selectedAnnotationID = nil
         activeTool = tool
+        notifyPresetsChanged()
     }
 
     func adjustZoom(by delta: CGFloat, fitScale: CGFloat) {
         let current = zoomMode.scaleFactor(fitScale: fitScale)
-        let target = min(max(current + delta, 0.2), 4.0)
+        let target = min(max(current + delta, 0.2), 6.0)
         zoomMode = .custom(target)
+    }
+
+    func setZoomAnchored(
+        to targetScale: CGFloat,
+        anchorViewPoint: CGPoint,
+        viewportSize: CGSize,
+        fitScale: CGFloat
+    ) {
+        let clamped = min(max(targetScale, 0.2), 6.0)
+        let oldScale = zoomMode.scaleFactor(fitScale: fitScale)
+        let oldRect = CanvasCoordinateMapper.computeRenderedImageRect(
+            imageSize: imagePixelSize,
+            viewportSize: viewportSize,
+            zoomScale: oldScale,
+            panOffset: panOffset
+        )
+        let fx = oldRect.width > 0 ? (anchorViewPoint.x - oldRect.minX) / oldRect.width : 0.5
+        let fy = oldRect.height > 0 ? (anchorViewPoint.y - oldRect.minY) / oldRect.height : 0.5
+
+        let newW = max(1, imagePixelSize.width * clamped)
+        let newH = max(1, imagePixelSize.height * clamped)
+        let newPanW = anchorViewPoint.x - fx * newW - (viewportSize.width - newW) / 2
+        let newPanH = anchorViewPoint.y - fy * newH - (viewportSize.height - newH) / 2
+
+        zoomMode = .custom(clamped)
+        panOffset = CGSize(width: newPanW, height: newPanH)
     }
 
     func resetZoom() {
@@ -839,8 +1559,16 @@ final class ScreenshotEditorSession: ObservableObject {
         panOffset = .zero
     }
 
-    func hitTestAnnotation(at pixelPoint: CGPoint, tolerance: CGFloat = 10, directEditMode: Bool = false) -> AnnotationItem? {
+    func hitTestAnnotation(
+        at pixelPoint: CGPoint,
+        tolerance: CGFloat = 10,
+        directEditMode: Bool = false,
+        includeRedactions: Bool = true
+    ) -> AnnotationItem? {
         for item in annotations.reversed() {
+            if !includeRedactions && item.kind == .redact {
+                continue
+            }
             if item.contains(pixelPoint: pixelPoint, tolerance: tolerance, directEditMode: directEditMode) {
                 return item
             }
@@ -856,7 +1584,7 @@ final class ScreenshotEditorSession: ObservableObject {
         reviewItems.removeAll()
         textEditBaselineAnnotations = nil
         editingTextAnnotationID = nil
-        lastExportedState = EditorExportState(annotations: [], cropRect: nil)
+        lastExportedState = EditorExportState(annotations: [], cropRect: nil, beautify: beautify)
         hasUnexportedChanges = false
     }
 }

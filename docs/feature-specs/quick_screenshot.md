@@ -10,28 +10,40 @@ macOS's built-in screenshot tool drops files onto the Desktop and offers slow, b
   - Launches `/usr/sbin/screencapture -i -x [-o] <tempPath>` (pressing `Space` toggles window capture; `Esc` cancels cleanly with no toast).
   - If `openEditorAfterCapture == true` (default), opens a crisp floating **Quick Editor** window containing the captured image; if `false`, copies straight to `NSPasteboard.general` with a `HUDToast` and optional compact corner preview card to open the editor on click.
 - **Quick Editor Canvas:**
-  - **Tools:** Select/Move (`S`), Arrow (`A`), Rect (`R`), Ellipse (`E`), Highlight (`H`), Text (`T`), Number (`N`: `1`, `2`, `3`…), **Redact (`X` — Solid Opaque Box default, or Pixelate)**, and Crop (`C`).
-  - **Style & History Bar:** Contextual color swatches & stroke thickness (or Solid/Pixelate style when Redact is active/selected), `Undo (⌘ Z)` / `Redo (⇧ ⌘ Z)`.
+  - **Grouped Icon Toolbar:** Select (`S`) | Arrow (`A`), Rect (`R`), Ellipse (`E`), Highlight (`H`) | Text (`T`), Number (`N`) | Redact (`X`), Crop (`C`) | Beautify (`B`), plus `Undo (⌘ Z)` / `Redo (⇧ ⌘ Z)`, zoom strip, and `?` Keyboard Shortcuts popover.
+  - **Per-Tool Contextual Inspector & Sticky Defaults:** Each tool remembers its own color, size, and style independently across captures (`rememberLastToolSettings`, or manual `Set Default` when disabled):
+    - **Arrow (`A`):** Color, line-weight bars, style (`Arrow`, `Tapered`, `Line`, `Double`), `Solid` / `Dashed`. `⇧`-drag snaps to 45°.
+    - **Rect (`R`) & Ellipse (`E`):** Color, fill (`Outline`, `Tinted`, `Solid`, `Spotlight` exterior dim), line-weight bars, corners (`Sharp`, `Rounded`, `Pill` for Rect), `Solid` / `Dashed`. `⇧`-drag constrains square/circle.
+    - **Highlight (`H`):** Color (defaults Yellow), mode (`Freehand` vs straight `Box`), width, opacity (`Subtle`, `Normal`, `Bold`).
+    - **Text (`T`):** Empty initial callout (auto-discarded if left blank), continuous corner-drag font scaling (`10`–`120 pt`), edge-handle custom pill width/height adjustment, color (black default), backdrop (`Pill` filled default, `Dark`, `Plain`), corner rounding (`Sharp`, `Rounded`, `Pill`), weight (`Reg`, `Bold`, `Mono`).
+    - **Number (`N`):** Circular selection/hover ring, color (white filled default), badge size (`S`/`M`/`L`), style (`Filled`/`Outlined`), `Next #` stepper & `Reset`.
+    - **Redact (`X`):** Style (`Pixelate` default, `Blur`, `Solid`, `Smart Erase` background sampler), strength (`Light`/`Med`/`Strong`) or solid fill (`Black`/`White`/`Slate`).
+    - **Crop (`C`):** Aspect presets (`Free`, `16:9`, `4:3`, `1:1`), live pixel size, `Apply` & `Reset`.
+    - **Beautify (`B`):** Optional gradient frame, padding, corner radius, and drop shadow.
+    - **Zoom & Pan:** Trackpad pinch-to-zoom, modifier+scroll zoom (`Shift`/`⌘`/`⌥` + wheel) up to `600%`, toolbar zoom strip (`−`, live `%` / `Fit`, `+`), and two-finger pan when zoomed in.
+    - **Selection Actions & Tooltips:** `Duplicate (⌘D)`, `Send Backward (⌘[)` / `Bring Forward (⌘])`, `Delete (⌫)`, `Arrow` / `⇧+Arrow` 1px/10px nudging, and non-activating hover tooltips on icon buttons.
   - **Smart Actions:**
-    - **Auto-Redact Secrets/PII:** Runs local `Vision` text recognition + pattern matching (emails, `sk-...`, `ghp_...`, `AKIA...`, `Bearer ...`, JWTs, phone/card numbers) and places editable solid-black redaction boxes over matches so users can review or undo before exporting.
+    - **Auto-Redact Secrets/PII:** Runs local `Vision` text recognition (upscaling small banners before recognition) + pattern matching (emails, cloud API keys, `.p8`/`.pem`/`.key`/certificate files, key-prefixed tokens, URL credentials, env secrets, recovery/verification/OTP codes, phone/card numbers) and places editable redactions using the configured Redact preset so users can review or undo before exporting.
     - **Copy Text (OCR):** Reuses `ScreenOCREngine` to copy extracted text from the screenshot.
   - **Output Bar:**
-    - **Copy (`⌘ C` / `Return`):** Flattens annotations + redactions at full native Retina resolution, writes PNG + TIFF to `NSPasteboard.general` (automatically picked up by `Clipboard` Image History), shows `HUDToast`, and closes if `closeEditorAfterCopy == true`.
+    - **Copy (`⌘ C` / `Return`):** Flattens annotations + redactions + Beautify at full native resolution, writes PNG + TIFF to `NSPasteboard.general` (automatically picked up by `Clipboard` Image History), shows `HUDToast`, and closes if `closeEditorAfterCopy == true`.
+    - **Pin (`⌘ P`):** Floats the flattened screenshot in an always-on-top resizable reference window (`PinnedScreenshotWindow.swift`).
     - **Save (`⌘ S`):** Saves flattened PNG/JPEG to `defaultSaveDirectory` (or `NSSavePanel`).
     - **Share:** Opens native `NSSharingServicePicker` (AirDrop, Mail, Messages).
 - **Settings View (`QuickScreenshotSettingsView.swift`):**
   - Built with `FeatureSection`, `SettingRow`, `Divider()`, `ShortcutRecorderView`, and `.pointerCursor()` on all controls.
-  - **Capture & Shortcut** section: global shortcut (`ShortcutRecorderView`), "Capture Now" button, Screen Recording permission status / helper link, `Open editor after capture` toggle, `Close editor after copy` toggle, `Omit window drop shadow` toggle (`-o`).
-  - **Editor & Export** section: `Default redaction style` picker (`Solid Opaque Box`, `Pixelate`), `Save format` (`PNG`, `JPEG`), `JPEG quality` slider, `Default save folder` picker, `Show toast` toggle.
+  - **Capture & Shortcut** section: global shortcut (`ShortcutRecorderView`), "Capture Now" button, Screen Recording permission status / helper link, `Open editor after capture`, `Close editor after copy`, `Exclude window shadow` (`-o`).
+  - **Tool Defaults & Behavior** section: `Remember Last Tool Styles` toggle, `Default Starting Tool` picker, `Default Redaction Style` (`Pixelate` default, `Blur`, `Solid`, `Smart Erase`) + strength/solid color, `Default Annotation Color`, `Default Highlighter`, `Default Text Callout`, `Default Beautify Backdrop`, and `Reset to Defaults`.
+  - **Export & Notifications** section: `Save format` (`PNG`, `JPEG`), `JPEG quality` slider, `Default save folder` picker, `Show toast` toggle.
 
-### Files to Create
+### Files
 - `Sources/Toolbox/Modules/QuickScreenshot/QuickScreenshotModule.swift`
 - `Sources/Toolbox/Modules/QuickScreenshot/ScreenshotAnnotationModel.swift`
 - `Sources/Toolbox/Modules/QuickScreenshot/ScreenshotRenderer.swift`
 - `Sources/Toolbox/Modules/QuickScreenshot/ScreenshotAutoRedactor.swift`
 - `Sources/Toolbox/Modules/QuickScreenshot/QuickScreenshotEditorView.swift`
 - `Sources/Toolbox/Modules/QuickScreenshot/QuickScreenshotSettingsView.swift`
-- **Build link check:** Verify `.linkedFramework("CoreImage")` in `Package.swift` if not already transitively linked.
+- `Sources/Toolbox/Modules/QuickScreenshot/PinnedScreenshotWindow.swift`
 
 ### Module Metadata
 - `id`: `"quick_screenshot"`

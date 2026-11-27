@@ -2858,26 +2858,675 @@ struct HyperKeyConfig: Codable, Equatable, Sendable {
 }
 
 enum RedactStyle: String, Codable, CaseIterable, Identifiable, Sendable {
-    case solidBlack = "solid_black"
-    case blur = "blur"
     case pixelate = "pixelate"
+    case blur = "blur"
+    case solidBlack = "solid_black"
+    case smartErase = "smart_erase"
 
     var id: String { rawValue }
 
     var label: String {
         switch self {
-        case .solidBlack: return "Solid Opaque Box"
-        case .blur: return "Smooth Blur"
         case .pixelate: return "Pixelate"
+        case .blur: return "Smooth Blur"
+        case .solidBlack: return "Solid Box"
+        case .smartErase: return "Smart Erase"
         }
     }
 
     var shortLabel: String {
         switch self {
-        case .solidBlack: return "Solid"
-        case .blur: return "Blur"
         case .pixelate: return "Pixelate"
+        case .blur: return "Blur"
+        case .solidBlack: return "Solid"
+        case .smartErase: return "Erase"
         }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .pixelate: return "square.grid.3x3.fill"
+        case .blur: return "drop.fill"
+        case .solidBlack: return "rectangle.fill"
+        case .smartErase: return "eraser.fill"
+        }
+    }
+}
+
+enum RedactStrength: String, Codable, CaseIterable, Identifiable, Sendable {
+    case light
+    case medium
+    case strong
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .light: return "Light"
+        case .medium: return "Med"
+        case .strong: return "Strong"
+        }
+    }
+
+    var fullLabel: String {
+        switch self {
+        case .light: return "Light"
+        case .medium: return "Medium"
+        case .strong: return "Strong"
+        }
+    }
+}
+
+enum RedactSolidColor: String, Codable, CaseIterable, Identifiable, Sendable {
+    case black
+    case white
+    case slate
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .black: return "Black"
+        case .white: return "White"
+        case .slate: return "Slate"
+        }
+    }
+
+    var cgColor: CGColor {
+        switch self {
+        case .black: return CGColor(srgbRed: 0.0, green: 0.0, blue: 0.0, alpha: 1.0)
+        case .white: return CGColor(srgbRed: 1.0, green: 1.0, blue: 1.0, alpha: 1.0)
+        case .slate: return CGColor(srgbRed: 0.14, green: 0.16, blue: 0.20, alpha: 1.0)
+        }
+    }
+}
+
+enum ArrowStyle: String, Codable, CaseIterable, Identifiable, Sendable {
+    case standard
+    case tapered
+    case line
+    case doubleHeaded = "double_headed"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .standard: return "Arrow"
+        case .tapered: return "Tapered"
+        case .line: return "Line"
+        case .doubleHeaded: return "Double"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .standard: return "arrow.up.right"
+        case .tapered: return "location.north.fill"
+        case .line: return "line.diagonal"
+        case .doubleHeaded: return "arrow.up.left.and.arrow.down.right"
+        }
+    }
+}
+
+enum StrokeDashStyle: String, Codable, CaseIterable, Identifiable, Sendable {
+    case solid
+    case dashed
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .solid: return "Solid"
+        case .dashed: return "Dashed"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .solid: return "minus"
+        case .dashed: return "line.3.horizontal"
+        }
+    }
+}
+
+enum ShapeFillStyle: String, Codable, CaseIterable, Identifiable, Sendable {
+    case outline
+    case tinted
+    case solid
+    case spotlight
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .outline: return "Outline"
+        case .tinted: return "Tinted"
+        case .solid: return "Solid"
+        case .spotlight: return "Spotlight"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .outline: return "square"
+        case .tinted: return "square.lefthalf.filled"
+        case .solid: return "square.fill"
+        case .spotlight: return "light.beacon.max.fill"
+        }
+    }
+}
+
+enum CornerRadiusPreset: String, Codable, CaseIterable, Identifiable, Sendable {
+    case sharp
+    case rounded
+    case large
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .sharp: return "Sharp"
+        case .rounded: return "Rounded"
+        case .large: return "Pill"
+        }
+    }
+
+    var radiusValue: CGFloat {
+        switch self {
+        case .sharp: return 0
+        case .rounded: return 8
+        case .large: return 18
+        }
+    }
+
+    func resolvedRadius(forHeight height: CGFloat) -> CGFloat {
+        switch self {
+        case .sharp: return 0
+        case .rounded: return min(8, height / 2)
+        case .large: return height / 2
+        }
+    }
+}
+
+enum HighlighterMode: String, Codable, CaseIterable, Identifiable, Sendable {
+    case freehand
+    case box
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .freehand: return "Freehand"
+        case .box: return "Box"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .freehand: return "scribble.variable"
+        case .box: return "rectangle.inset.filled"
+        }
+    }
+}
+
+enum HighlighterOpacity: String, Codable, CaseIterable, Identifiable, Sendable {
+    case subtle
+    case normal
+    case bold
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .subtle: return "Subtle"
+        case .normal: return "Normal"
+        case .bold: return "Bold"
+        }
+    }
+
+    var alpha: CGFloat {
+        switch self {
+        case .subtle: return 0.28
+        case .normal: return 0.42
+        case .bold: return 0.58
+        }
+    }
+}
+
+enum TextBackgroundStyle: String, Codable, CaseIterable, Identifiable, Sendable {
+    case filled
+    case pill
+    case plain
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .filled: return "Pill"
+        case .pill: return "Dark"
+        case .plain: return "Plain"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .filled: return "capsule.portrait.fill"
+        case .pill: return "capsule.portrait"
+        case .plain: return "textformat"
+        }
+    }
+}
+
+enum TextWeightStyle: String, Codable, CaseIterable, Identifiable, Sendable {
+    case regular
+    case semibold
+    case mono
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .regular: return "Regular"
+        case .semibold: return "Bold"
+        case .mono: return "Monospace"
+        }
+    }
+
+    var shortLabel: String {
+        switch self {
+        case .regular: return "Reg"
+        case .semibold: return "Bold"
+        case .mono: return "Mono"
+        }
+    }
+}
+
+enum StepBadgeStyle: String, Codable, CaseIterable, Identifiable, Sendable {
+    case filled
+    case outlined
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .filled: return "Filled"
+        case .outlined: return "Outlined"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .filled: return "circle.fill"
+        case .outlined: return "circle"
+        }
+    }
+}
+
+enum CropAspectRatio: String, Codable, CaseIterable, Identifiable, Sendable {
+    case free
+    case ratio16x9 = "16_9"
+    case ratio4x3 = "4_3"
+    case ratio1x1 = "1_1"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .free: return "Free"
+        case .ratio16x9: return "16:9"
+        case .ratio4x3: return "4:3"
+        case .ratio1x1: return "1:1"
+        }
+    }
+
+    var ratio: CGFloat? {
+        switch self {
+        case .free: return nil
+        case .ratio16x9: return 16.0 / 9.0
+        case .ratio4x3: return 4.0 / 3.0
+        case .ratio1x1: return 1.0
+        }
+    }
+}
+
+enum BeautifyBackdrop: String, Codable, CaseIterable, Identifiable, Sendable {
+    case none
+    case midnight
+    case sunset
+    case emerald
+    case graphite
+    case macOS = "macos"
+    case light
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .none: return "None"
+        case .midnight: return "Midnight"
+        case .sunset: return "Sunset"
+        case .emerald: return "Emerald"
+        case .graphite: return "Graphite"
+        case .macOS: return "macOS"
+        case .light: return "Paper"
+        }
+    }
+
+    var gradientRGBStops: (start: (Double, Double, Double), end: (Double, Double, Double)) {
+        switch self {
+        case .none:
+            return ((0.08, 0.09, 0.11), (0.08, 0.09, 0.11))
+        case .midnight:
+            return ((0.14, 0.18, 0.44), (0.38, 0.14, 0.48))
+        case .sunset:
+            return ((0.88, 0.30, 0.28), (0.94, 0.56, 0.18))
+        case .emerald:
+            return ((0.06, 0.42, 0.44), (0.14, 0.68, 0.46))
+        case .graphite:
+            return ((0.14, 0.16, 0.20), (0.28, 0.31, 0.37))
+        case .macOS:
+            return ((0.16, 0.45, 0.92), (0.56, 0.28, 0.88))
+        case .light:
+            return ((0.92, 0.93, 0.96), (0.83, 0.86, 0.91))
+        }
+    }
+}
+
+struct BeautifyConfig: Codable, Equatable, Sendable {
+    var enabled: Bool = false
+    var backdrop: BeautifyBackdrop = .midnight
+    var padding: CGFloat = 48
+    var cornerRadius: CGFloat = 14
+    var shadowEnabled: Bool = true
+
+    init(
+        enabled: Bool = false,
+        backdrop: BeautifyBackdrop = .midnight,
+        padding: CGFloat = 48,
+        cornerRadius: CGFloat = 14,
+        shadowEnabled: Bool = true
+    ) {
+        self.enabled = enabled
+        self.backdrop = backdrop
+        self.padding = Self.clampedPadding(padding)
+        self.cornerRadius = Self.clampedCornerRadius(cornerRadius)
+        self.shadowEnabled = shadowEnabled
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        backdrop = try c.decodeIfPresent(BeautifyBackdrop.self, forKey: .backdrop) ?? .midnight
+        padding = Self.clampedPadding(try c.decodeIfPresent(CGFloat.self, forKey: .padding) ?? 48)
+        cornerRadius = Self.clampedCornerRadius(try c.decodeIfPresent(CGFloat.self, forKey: .cornerRadius) ?? 14)
+        shadowEnabled = try c.decodeIfPresent(Bool.self, forKey: .shadowEnabled) ?? true
+    }
+
+    static func clampedPadding(_ value: CGFloat) -> CGFloat {
+        min(max(value, 0), 140)
+    }
+
+    static func clampedCornerRadius(_ value: CGFloat) -> CGFloat {
+        min(max(value, 0), 36)
+    }
+}
+
+enum ScreenshotStartingTool: String, Codable, CaseIterable, Identifiable, Sendable {
+    case lastUsed = "last_used"
+    case select
+    case arrow
+    case rectangle
+    case ellipse
+    case highlighter
+    case text
+    case step
+    case redact
+    case crop
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .lastUsed: return "Last Used Tool"
+        case .select: return "Select"
+        case .arrow: return "Arrow"
+        case .rectangle: return "Rectangle"
+        case .ellipse: return "Ellipse"
+        case .highlighter: return "Highlight"
+        case .text: return "Text"
+        case .step: return "Number"
+        case .redact: return "Redact"
+        case .crop: return "Crop"
+        }
+    }
+}
+
+struct ArrowToolStyle: Codable, Equatable, Sendable {
+    var color: AnnotationColor = .red
+    var strokeWidth: CGFloat = 4
+    var style: ArrowStyle = .standard
+    var dashStyle: StrokeDashStyle = .solid
+
+    init(
+        color: AnnotationColor = .red,
+        strokeWidth: CGFloat = 4,
+        style: ArrowStyle = .standard,
+        dashStyle: StrokeDashStyle = .solid
+    ) {
+        self.color = color
+        self.strokeWidth = max(1, strokeWidth)
+        self.style = style
+        self.dashStyle = dashStyle
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        color = try c.decodeIfPresent(AnnotationColor.self, forKey: .color) ?? .red
+        strokeWidth = max(1, try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 4)
+        style = try c.decodeIfPresent(ArrowStyle.self, forKey: .style) ?? .standard
+        dashStyle = try c.decodeIfPresent(StrokeDashStyle.self, forKey: .dashStyle) ?? .solid
+    }
+}
+
+struct RectangleToolStyle: Codable, Equatable, Sendable {
+    var color: AnnotationColor = .red
+    var strokeWidth: CGFloat = 4
+    var fillStyle: ShapeFillStyle = .outline
+    var cornerRadius: CornerRadiusPreset = .rounded
+    var dashStyle: StrokeDashStyle = .solid
+
+    init(
+        color: AnnotationColor = .red,
+        strokeWidth: CGFloat = 4,
+        fillStyle: ShapeFillStyle = .outline,
+        cornerRadius: CornerRadiusPreset = .rounded,
+        dashStyle: StrokeDashStyle = .solid
+    ) {
+        self.color = color
+        self.strokeWidth = max(1, strokeWidth)
+        self.fillStyle = fillStyle
+        self.cornerRadius = cornerRadius
+        self.dashStyle = dashStyle
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        color = try c.decodeIfPresent(AnnotationColor.self, forKey: .color) ?? .red
+        strokeWidth = max(1, try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 4)
+        fillStyle = try c.decodeIfPresent(ShapeFillStyle.self, forKey: .fillStyle) ?? .outline
+        cornerRadius = try c.decodeIfPresent(CornerRadiusPreset.self, forKey: .cornerRadius) ?? .rounded
+        dashStyle = try c.decodeIfPresent(StrokeDashStyle.self, forKey: .dashStyle) ?? .solid
+    }
+}
+
+struct EllipseToolStyle: Codable, Equatable, Sendable {
+    var color: AnnotationColor = .red
+    var strokeWidth: CGFloat = 4
+    var fillStyle: ShapeFillStyle = .outline
+    var dashStyle: StrokeDashStyle = .solid
+
+    init(
+        color: AnnotationColor = .red,
+        strokeWidth: CGFloat = 4,
+        fillStyle: ShapeFillStyle = .outline,
+        dashStyle: StrokeDashStyle = .solid
+    ) {
+        self.color = color
+        self.strokeWidth = max(1, strokeWidth)
+        self.fillStyle = fillStyle
+        self.dashStyle = dashStyle
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        color = try c.decodeIfPresent(AnnotationColor.self, forKey: .color) ?? .red
+        strokeWidth = max(1, try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 4)
+        fillStyle = try c.decodeIfPresent(ShapeFillStyle.self, forKey: .fillStyle) ?? .outline
+        dashStyle = try c.decodeIfPresent(StrokeDashStyle.self, forKey: .dashStyle) ?? .solid
+    }
+}
+
+struct HighlighterToolStyle: Codable, Equatable, Sendable {
+    var color: AnnotationColor = .yellow
+    var strokeWidth: CGFloat = 5
+    var mode: HighlighterMode = .freehand
+    var opacity: HighlighterOpacity = .normal
+
+    init(
+        color: AnnotationColor = .yellow,
+        strokeWidth: CGFloat = 5,
+        mode: HighlighterMode = .freehand,
+        opacity: HighlighterOpacity = .normal
+    ) {
+        self.color = color
+        self.strokeWidth = max(1, strokeWidth)
+        self.mode = mode
+        self.opacity = opacity
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        color = try c.decodeIfPresent(AnnotationColor.self, forKey: .color) ?? .yellow
+        strokeWidth = max(1, try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 5)
+        mode = try c.decodeIfPresent(HighlighterMode.self, forKey: .mode) ?? .freehand
+        opacity = try c.decodeIfPresent(HighlighterOpacity.self, forKey: .opacity) ?? .normal
+    }
+}
+
+struct TextToolStyle: Codable, Equatable, Sendable {
+    var color: AnnotationColor = .black
+    var fontSize: CGFloat = 22
+    var backgroundStyle: TextBackgroundStyle = .filled
+    var weightStyle: TextWeightStyle = .semibold
+    var cornerRadius: CornerRadiusPreset = .rounded
+
+    init(
+        color: AnnotationColor = .black,
+        fontSize: CGFloat = 22,
+        backgroundStyle: TextBackgroundStyle = .filled,
+        weightStyle: TextWeightStyle = .semibold,
+        cornerRadius: CornerRadiusPreset = .rounded
+    ) {
+        self.color = color
+        self.fontSize = min(max(fontSize, 10), 120)
+        self.backgroundStyle = backgroundStyle
+        self.weightStyle = weightStyle
+        self.cornerRadius = cornerRadius
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        color = try c.decodeIfPresent(AnnotationColor.self, forKey: .color) ?? .black
+        fontSize = min(max(try c.decodeIfPresent(CGFloat.self, forKey: .fontSize) ?? 22, 10), 120)
+        backgroundStyle = try c.decodeIfPresent(TextBackgroundStyle.self, forKey: .backgroundStyle) ?? .filled
+        weightStyle = try c.decodeIfPresent(TextWeightStyle.self, forKey: .weightStyle) ?? .semibold
+        cornerRadius = try c.decodeIfPresent(CornerRadiusPreset.self, forKey: .cornerRadius) ?? .rounded
+    }
+}
+
+struct StepToolStyle: Codable, Equatable, Sendable {
+    var color: AnnotationColor = .white
+    var size: CGFloat = 22
+    var style: StepBadgeStyle = .filled
+
+    init(
+        color: AnnotationColor = .white,
+        size: CGFloat = 22,
+        style: StepBadgeStyle = .filled
+    ) {
+        self.color = color
+        self.size = min(max(size, 14), 48)
+        self.style = style
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        color = try c.decodeIfPresent(AnnotationColor.self, forKey: .color) ?? .white
+        size = min(max(try c.decodeIfPresent(CGFloat.self, forKey: .size) ?? 22, 14), 48)
+        style = try c.decodeIfPresent(StepBadgeStyle.self, forKey: .style) ?? .filled
+    }
+}
+
+struct RedactToolStyle: Codable, Equatable, Sendable {
+    var style: RedactStyle = .pixelate
+    var strength: RedactStrength = .medium
+    var solidColor: RedactSolidColor = .black
+
+    init(
+        style: RedactStyle = .pixelate,
+        strength: RedactStrength = .medium,
+        solidColor: RedactSolidColor = .black
+    ) {
+        self.style = style
+        self.strength = strength
+        self.solidColor = solidColor
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        style = try c.decodeIfPresent(RedactStyle.self, forKey: .style) ?? .pixelate
+        strength = try c.decodeIfPresent(RedactStrength.self, forKey: .strength) ?? .medium
+        solidColor = try c.decodeIfPresent(RedactSolidColor.self, forKey: .solidColor) ?? .black
+    }
+}
+
+struct CropToolStyle: Codable, Equatable, Sendable {
+    var aspectRatio: CropAspectRatio = .free
+
+    init(aspectRatio: CropAspectRatio = .free) {
+        self.aspectRatio = aspectRatio
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        aspectRatio = try c.decodeIfPresent(CropAspectRatio.self, forKey: .aspectRatio) ?? .free
+    }
+}
+
+struct ScreenshotToolPresets: Codable, Equatable, Sendable {
+    var arrow: ArrowToolStyle = ArrowToolStyle()
+    var rectangle: RectangleToolStyle = RectangleToolStyle()
+    var ellipse: EllipseToolStyle = EllipseToolStyle()
+    var highlighter: HighlighterToolStyle = HighlighterToolStyle()
+    var text: TextToolStyle = TextToolStyle()
+    var step: StepToolStyle = StepToolStyle()
+    var redact: RedactToolStyle = RedactToolStyle()
+    var crop: CropToolStyle = CropToolStyle()
+    var beautify: BeautifyConfig = BeautifyConfig()
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        arrow = try c.decodeIfPresent(ArrowToolStyle.self, forKey: .arrow) ?? ArrowToolStyle()
+        rectangle = try c.decodeIfPresent(RectangleToolStyle.self, forKey: .rectangle) ?? RectangleToolStyle()
+        ellipse = try c.decodeIfPresent(EllipseToolStyle.self, forKey: .ellipse) ?? EllipseToolStyle()
+        highlighter = try c.decodeIfPresent(HighlighterToolStyle.self, forKey: .highlighter) ?? HighlighterToolStyle()
+        text = try c.decodeIfPresent(TextToolStyle.self, forKey: .text) ?? TextToolStyle()
+        step = try c.decodeIfPresent(StepToolStyle.self, forKey: .step) ?? StepToolStyle()
+        redact = try c.decodeIfPresent(RedactToolStyle.self, forKey: .redact) ?? RedactToolStyle()
+        crop = try c.decodeIfPresent(CropToolStyle.self, forKey: .crop) ?? CropToolStyle()
+        beautify = try c.decodeIfPresent(BeautifyConfig.self, forKey: .beautify) ?? BeautifyConfig()
     }
 }
 
@@ -2905,7 +3554,23 @@ struct QuickScreenshotConfig: Codable, Equatable, Sendable {
     var openEditorAfterCapture: Bool = true
     var closeEditorAfterCopy: Bool = true
     var omitWindowShadow: Bool = false
-    var defaultRedactMode: RedactStyle = .solidBlack
+    var defaultRedactMode: RedactStyle = .pixelate {
+        didSet {
+            if toolPresets.redact.style != defaultRedactMode {
+                toolPresets.redact.style = defaultRedactMode
+            }
+        }
+    }
+    var defaultTool: ScreenshotStartingTool = .arrow
+    var lastUsedTool: ScreenshotTool = .arrow
+    var rememberLastToolSettings: Bool = true
+    var toolPresets: ScreenshotToolPresets = ScreenshotToolPresets() {
+        didSet {
+            if defaultRedactMode != toolPresets.redact.style {
+                defaultRedactMode = toolPresets.redact.style
+            }
+        }
+    }
     var defaultSaveDirectory: String = "~/Desktop"
     var saveFormat: ScreenshotSaveFormat = .png
     var jpegQuality: Double = 0.9
@@ -2920,7 +3585,26 @@ struct QuickScreenshotConfig: Codable, Equatable, Sendable {
         openEditorAfterCapture = try c.decodeIfPresent(Bool.self, forKey: .openEditorAfterCapture) ?? true
         closeEditorAfterCopy = try c.decodeIfPresent(Bool.self, forKey: .closeEditorAfterCopy) ?? true
         omitWindowShadow = try c.decodeIfPresent(Bool.self, forKey: .omitWindowShadow) ?? false
-        defaultRedactMode = try c.decodeIfPresent(RedactStyle.self, forKey: .defaultRedactMode) ?? .solidBlack
+
+        let decodedRedactMode = try c.decodeIfPresent(RedactStyle.self, forKey: .defaultRedactMode)
+        let decodedPresets = try c.decodeIfPresent(ScreenshotToolPresets.self, forKey: .toolPresets)
+        if let decodedPresets {
+            toolPresets = decodedPresets
+            defaultRedactMode = decodedPresets.redact.style
+        } else if let decodedRedactMode {
+            var presets = ScreenshotToolPresets()
+            presets.redact.style = decodedRedactMode
+            toolPresets = presets
+            defaultRedactMode = decodedRedactMode
+        } else {
+            toolPresets = ScreenshotToolPresets()
+            defaultRedactMode = .pixelate
+        }
+
+        defaultTool = try c.decodeIfPresent(ScreenshotStartingTool.self, forKey: .defaultTool) ?? .arrow
+        lastUsedTool = try c.decodeIfPresent(ScreenshotTool.self, forKey: .lastUsedTool) ?? .arrow
+        rememberLastToolSettings = try c.decodeIfPresent(Bool.self, forKey: .rememberLastToolSettings) ?? true
+
         let rawDir = (try c.decodeIfPresent(String.self, forKey: .defaultSaveDirectory) ?? "~/Desktop")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         defaultSaveDirectory = rawDir.isEmpty ? "~/Desktop" : rawDir
@@ -2928,6 +3612,21 @@ struct QuickScreenshotConfig: Codable, Equatable, Sendable {
         let rawQuality = try c.decodeIfPresent(Double.self, forKey: .jpegQuality) ?? 0.9
         jpegQuality = Self.clampedJPEGQuality(rawQuality)
         showToast = try c.decodeIfPresent(Bool.self, forKey: .showToast) ?? true
+    }
+
+    func resolvedStartingTool() -> ScreenshotTool {
+        switch defaultTool {
+        case .lastUsed: return lastUsedTool
+        case .select: return .select
+        case .arrow: return .arrow
+        case .rectangle: return .rectangle
+        case .ellipse: return .ellipse
+        case .highlighter: return .highlighter
+        case .text: return .text
+        case .step: return .step
+        case .redact: return .redact
+        case .crop: return .crop
+        }
     }
 
     static func clampedJPEGQuality(_ quality: Double) -> Double {

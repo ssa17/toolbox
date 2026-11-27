@@ -9468,7 +9468,19 @@ enum SelfTestRunner {
         expect(defaults.quickScreenshot.openEditorAfterCapture, "openEditorAfterCapture must default to true")
         expect(defaults.quickScreenshot.closeEditorAfterCopy, "closeEditorAfterCopy must default to true")
         expect(!defaults.quickScreenshot.omitWindowShadow, "omitWindowShadow must default to false")
-        expect(defaults.quickScreenshot.defaultRedactMode == .solidBlack, "defaultRedactMode must default to .solidBlack")
+        expect(defaults.quickScreenshot.defaultRedactMode == .pixelate, "defaultRedactMode must default to .pixelate")
+        expect(defaults.quickScreenshot.defaultTool == .arrow, "defaultTool must default to .arrow")
+        expect(defaults.quickScreenshot.lastUsedTool == .arrow, "lastUsedTool must default to .arrow")
+        expect(defaults.quickScreenshot.rememberLastToolSettings, "rememberLastToolSettings must default to true")
+        expect(defaults.quickScreenshot.toolPresets.highlighter.color == .yellow, "Highlighter preset must default to yellow")
+        expect(defaults.quickScreenshot.toolPresets.step.color == .white, "Number preset must default to white")
+        expect(defaults.quickScreenshot.toolPresets.text.color == .black, "Text preset must default to black")
+        expect(defaults.quickScreenshot.toolPresets.text.backgroundStyle == .filled, "Text preset background must default to .filled (pill)")
+        expect(defaults.quickScreenshot.toolPresets.text.cornerRadius == .rounded, "Text preset cornerRadius must default to .rounded")
+        expect(defaults.quickScreenshot.toolPresets.redact.style == .pixelate, "Redact preset must default to pixelate")
+        expect(defaults.quickScreenshot.toolPresets.redact.strength == .medium, "Redact strength must default to medium")
+        expect(defaults.quickScreenshot.toolPresets.redact.solidColor == .black, "Redact solid color must default to black")
+        expect(!defaults.quickScreenshot.toolPresets.beautify.enabled, "Beautify must default to disabled")
         expect(defaults.quickScreenshot.defaultSaveDirectory == "~/Desktop", "defaultSaveDirectory must default to ~/Desktop")
         expect(defaults.quickScreenshot.saveFormat == .png, "saveFormat must default to .png")
         expect(abs(defaults.quickScreenshot.jpegQuality - 0.9) < 0.001, "jpegQuality must default to 0.9")
@@ -9484,7 +9496,19 @@ enum SelfTestRunner {
         custom.quickScreenshot.openEditorAfterCapture = false
         custom.quickScreenshot.closeEditorAfterCopy = false
         custom.quickScreenshot.omitWindowShadow = true
-        custom.quickScreenshot.defaultRedactMode = .pixelate
+        custom.quickScreenshot.defaultRedactMode = .blur
+        expect(custom.quickScreenshot.toolPresets.redact.style == .blur, "defaultRedactMode didSet must sync toolPresets.redact.style")
+        custom.quickScreenshot.toolPresets.redact.style = .smartErase
+        expect(custom.quickScreenshot.defaultRedactMode == .smartErase, "toolPresets.redact.style didSet must sync defaultRedactMode")
+        custom.quickScreenshot.defaultTool = .lastUsed
+        custom.quickScreenshot.lastUsedTool = .redact
+        expect(custom.quickScreenshot.resolvedStartingTool() == .redact, "resolvedStartingTool must return lastUsedTool when .lastUsed")
+        custom.quickScreenshot.rememberLastToolSettings = false
+        custom.quickScreenshot.toolPresets.arrow.style = .tapered
+        custom.quickScreenshot.toolPresets.arrow.dashStyle = .dashed
+        custom.quickScreenshot.toolPresets.highlighter.mode = .box
+        custom.quickScreenshot.toolPresets.text.cornerRadius = .large
+        custom.quickScreenshot.toolPresets.beautify = BeautifyConfig(enabled: true, backdrop: .sunset, padding: 24, cornerRadius: 12, shadowEnabled: true)
         custom.quickScreenshot.defaultSaveDirectory = "~/Pictures/Screenshots"
         custom.quickScreenshot.saveFormat = .jpeg
         custom.quickScreenshot.jpegQuality = 0.75
@@ -9508,11 +9532,13 @@ enum SelfTestRunner {
         }
 
         let partialJSON = """
-        {"schemaVersion": 18, "quickScreenshot": {"enabled": true, "jpegQuality": 2.5, "defaultSaveDirectory": "   "}}
+        {"schemaVersion": 18, "quickScreenshot": {"enabled": true, "defaultRedactMode": "solid_black", "jpegQuality": 2.5, "defaultSaveDirectory": "   "}}
         """
         if let data = partialJSON.data(using: .utf8),
            let decodedPartial = try? JSONDecoder().decode(ToolboxConfig.self, from: data) {
             expect(decodedPartial.quickScreenshot.enabled, "Partial quickScreenshot.enabled must decode")
+            expect(decodedPartial.quickScreenshot.defaultRedactMode == .solidBlack, "Legacy defaultRedactMode must decode")
+            expect(decodedPartial.quickScreenshot.toolPresets.redact.style == .solidBlack, "Legacy defaultRedactMode must migrate into toolPresets.redact.style")
             expect(decodedPartial.quickScreenshot.jpegQuality == 1.0, "Out-of-range jpegQuality must clamp to 1.0")
             expect(decodedPartial.quickScreenshot.defaultSaveDirectory == "~/Desktop", "Blank defaultSaveDirectory must fall back to ~/Desktop")
             expect(decodedPartial.quickScreenshot.saveFormat == .png, "Omitted saveFormat must default to .png")
@@ -9593,6 +9619,15 @@ enum SelfTestRunner {
             session.undo()
         }
         expect(session.annotations.isEmpty && !session.hasUnexportedChanges && session.canRedo, "Undoing all edits must restore clean state")
+
+        // New text callout starts empty and auto-discards cleanly if left blank without polluting undo history
+        let emptyCallout = session.beginTextCallout(at: CGPoint(x: 90, y: 90))
+        expect(emptyCallout.text.isEmpty, "New text callout must start with empty string instead of 'Note'")
+        expect(session.editingTextAnnotationID == emptyCallout.id, "beginTextCallout must focus editingTextAnnotationID")
+        session.finishTextEditing()
+        expect(session.annotations.isEmpty && !session.hasUnexportedChanges, "Finishing blank new text callout must discard it cleanly without dirtying session")
+        session.undo()
+        expect(session.annotations.isEmpty, "Discarding blank new text callout must not leave bogus undo state")
 
         // Coalesced text callout undo: 30 keystrokes on a newly created callout must undo in 1 step
         let t1 = session.beginTextCallout(at: CGPoint(x: 120, y: 120), initialText: "")
@@ -9708,6 +9743,143 @@ enum SelfTestRunner {
         let redactHitItem = AnnotationItem(kind: .redact, rect: CGRect(x: 100, y: 100, width: 120, height: 40), redactStyle: .blur)
         expect(redactHitItem.contains(pixelPoint: CGPoint(x: 150, y: 120), directEditMode: true), "Redact filled interior must hit-test true")
         expect(!redactHitItem.contains(pixelPoint: CGPoint(x: 95, y: 120), directEditMode: true), "Point 5px outside redact in directEditMode must hit-test false")
+
+        // Filled shapes & Box highlighter hit-test interiors
+        let solidRectHit = AnnotationItem(kind: .rectangle, rect: CGRect(x: 100, y: 100, width: 200, height: 140), fillStyle: .solid)
+        expect(solidRectHit.contains(pixelPoint: CGPoint(x: 200, y: 170)), "Solid filled rectangle interior must hit-test true")
+        let boxHLHit = AnnotationItem(kind: .highlighter, rect: CGRect(x: 100, y: 100, width: 180, height: 40), highlighterMode: .box)
+        expect(boxHLHit.contains(pixelPoint: CGPoint(x: 180, y: 120)), "Box highlighter interior must hit-test true")
+
+        // Per-tool independent presets, duplicate, nudge, reorder, step reset, beautify undo/redo
+        let presetSession = ScreenshotEditorSession(image: image, config: QuickScreenshotConfig())
+        presetSession.selectTool(.highlighter)
+        expect(presetSession.selectedColor == .yellow, "Highlighter tool must default to yellow independently")
+        presetSession.updateColorForExistingSelectionOrTool(.green)
+        presetSession.selectTool(.arrow)
+        expect(presetSession.selectedColor == .red, "Changing highlighter color must not change arrow default color")
+
+        let a1 = presetSession.addAnnotation(
+            AnnotationItem(kind: .rectangle, rect: CGRect(x: 80, y: 80, width: 100, height: 60), color: .blue),
+            selectAfterAdd: true
+        )
+        let dup = presetSession.duplicateSelected()
+        expect(dup != nil && presetSession.annotations.count == 2, "duplicateSelected must clone selected annotation")
+        if let dup {
+            presetSession.nudgeSelected(dx: 10, dy: -5)
+            expect(presetSession.annotations.last?.rect.origin == CGPoint(x: dup.rect.origin.x + 10, y: dup.rect.origin.y - 5),
+                   "nudgeSelected must translate selected annotation")
+            presetSession.sendSelectedToBack()
+            expect(presetSession.annotations.first?.id == dup.id, "sendSelectedToBack must move item to index 0")
+            presetSession.bringSelectedToFront()
+            expect(presetSession.annotations.last?.id == dup.id && presetSession.annotations.first?.id == a1.id,
+                   "bringSelectedToFront must move item to top")
+        }
+        presetSession.setNextStepNumber(5)
+        let s5 = presetSession.addStepBadge(at: CGPoint(x: 300, y: 300))
+        expect(s5.stepNumber == 5 && presetSession.nextStepNumber == 6, "setNextStepNumber must control next badge")
+        presetSession.resetStepNumber()
+        expect(presetSession.nextStepNumber == 1, "resetStepNumber must reset counter to 1")
+        presetSession.updateBeautify {
+            $0.enabled = true
+            $0.backdrop = .sunset
+            $0.padding = 48
+        }
+        expect(presetSession.beautify.enabled && presetSession.hasUnexportedChanges, "Beautify update must mark session dirty")
+        presetSession.undo()
+        expect(!presetSession.beautify.enabled, "Undo must revert Beautify change")
+
+        // Text corner rounding preset + anchored zoom up to 6.0x
+        let txt = presetSession.beginTextCallout(at: CGPoint(x: 200, y: 200), initialText: "Zoom & Pill")
+        presetSession.finishTextEditing()
+        presetSession.selectedAnnotationID = txt.id
+        presetSession.updateTextCornerRadius(.large)
+        expect(presetSession.annotations.first(where: { $0.id == txt.id })?.textCornerRadius == .large,
+               "updateTextCornerRadius must update selected text callout rounding")
+        presetSession.setZoomAnchored(to: 5.5, anchorViewPoint: CGPoint(x: 320, y: 240), viewportSize: CGSize(width: 800, height: 600), fitScale: 1.0)
+        if case .custom(let zoomFactor) = presetSession.zoomMode {
+            expect(abs(zoomFactor - 5.5) < 0.01, "setZoomAnchored must support zooming past 4x up to 6x (got \(zoomFactor))")
+        } else {
+            failures.append("setZoomAnchored must switch zoomMode to .custom")
+        }
+        presetSession.setZoomAnchored(to: 12.0, anchorViewPoint: CGPoint(x: 320, y: 240), viewportSize: CGSize(width: 800, height: 600), fitScale: 1.0)
+        if case .custom(let clampedZoom) = presetSession.zoomMode {
+            expect(abs(clampedZoom - 6.0) < 0.01, "setZoomAnchored must clamp at 6.0x (got \(clampedZoom))")
+        }
+
+        // Unified text layout metrics: sleek pill height, zero single-line wrapping at 120pt, clamped custom padding
+        let sleekPill = AnnotationItem(
+            kind: .text,
+            startPoint: CGPoint(x: 100, y: 100),
+            color: .black,
+            text: "API Response",
+            textFontSize: 22,
+            textBackgroundStyle: .filled,
+            textWeightStyle: .semibold,
+            textCornerRadius: .large
+        ).textLayout()
+        expect(sleekPill.pillRect.height <= 37, "Default 22pt text pill should stay sleek without excess height (got \(sleekPill.pillRect.height))")
+
+        let giantLine = AnnotationItem(
+            kind: .text,
+            startPoint: .zero,
+            color: .black,
+            text: "Very Long Headline Text Example",
+            textFontSize: 120,
+            textBackgroundStyle: .filled,
+            textWeightStyle: .semibold,
+            textCornerRadius: .rounded
+        ).textLayout()
+        expect(giantLine.textSize.height < 180 && giantLine.textSize.width > 1200,
+               "120pt long single-line text must never wrap (got \(giantLine.textSize))")
+        expect(giantLine.pillRect.width >= giantLine.textSize.width + giantLine.padX * 2,
+               "Pill width must always accommodate giant 120pt text + horizontal padding")
+
+        let compactPill = AnnotationItem(
+            kind: .text,
+            startPoint: .zero,
+            color: .black,
+            text: "Hi",
+            textFontSize: 24,
+            textBackgroundStyle: .filled,
+            textCornerRadius: .large,
+            textPaddingXRatio: 0.01,
+            textPaddingYRatio: -1.0
+        ).textLayout()
+        expect(compactPill.padY == 0 && compactPill.padX >= 24 * AnnotationItem.minTextPaddingXRatio(backgroundStyle: .filled, cornerRadius: .large) - 0.01,
+               "Custom pill padding must shrink cleanly without going below readable minimums (got padX=\(compactPill.padX), padY=\(compactPill.padY))")
+
+        // Auto-Redact deduplication + redaction protection when non-redact tool is active
+        let dedupSession = ScreenshotEditorSession(image: image, config: QuickScreenshotConfig())
+        let secretCandidate = AutoRedactCandidate(
+            category: .secretCode,
+            rect: CGRect(x: 120, y: 140, width: 180, height: 32),
+            maskedSnippet: "K6••••",
+            confidence: 0.99
+        )
+        let firstAdded = dedupSession.applyAutoRedactSuggestions([secretCandidate])
+        let secondAdded = dedupSession.applyAutoRedactSuggestions([secretCandidate])
+        expect(firstAdded == 1 && secondAdded == 0 && dedupSession.annotations.count == 1 && dedupSession.reviewItems.count == 1,
+               "Re-running Auto-Redact must skip already-redacted secrets (added1=\(firstAdded), added2=\(secondAdded))")
+        expect(dedupSession.hitTestAnnotation(at: CGPoint(x: 180, y: 155), includeRedactions: false) == nil,
+               "Non-redact tools must ignore existing redaction boxes to prevent accidental moves")
+        expect(dedupSession.hitTestAnnotation(at: CGPoint(x: 180, y: 155), includeRedactions: true) != nil,
+               "Select and Redact tools must still hit existing redaction boxes")
+
+        // Auto-Redact boxes are locked against moving/nudging, while manual redactions remain movable
+        let autoRedactItem = dedupSession.annotations[0]
+        expect(autoRedactItem.isAutoRedacted, "Auto-Redact suggestion must report isAutoRedacted == true")
+        dedupSession.moveAnnotation(id: autoRedactItem.id, by: CGSize(width: 40, height: 40))
+        expect(dedupSession.annotations[0].rect == secretCandidate.rect,
+               "Auto-Redact box must remain locked in position on moveAnnotation/nudge")
+
+        let manualRedact = dedupSession.addAnnotation(
+            AnnotationItem(kind: .redact, rect: CGRect(x: 20, y: 20, width: 80, height: 30), redactStyle: .pixelate),
+            selectAfterAdd: true
+        )
+        expect(!manualRedact.isAutoRedacted, "Manual redaction box must report isAutoRedacted == false")
+        dedupSession.moveAnnotation(id: manualRedact.id, by: CGSize(width: 15, height: 10))
+        expect(dedupSession.annotations.last?.rect == CGRect(x: 35, y: 30, width: 80, height: 30),
+               "Manual redaction box must still move normally")
     }
 
     private static func pixelRGBA(in image: CGImage, topLeftX x: Int, topLeftY y: Int) -> (UInt8, UInt8, UInt8, UInt8)? {
@@ -9898,6 +10070,64 @@ enum SelfTestRunner {
             }
             expect(sawRedArrow, "Pasteboard \(pbType.rawValue) must also contain red arrow annotation")
         }
+
+        // 6. Smart Erase samples surrounding blue background over yellow box
+        let eraseRect = CGRect(x: 50, y: 70, width: 60, height: 40) // sits inside yellow (40,60,160,120) or blue border
+        let blueBorderEraseRect = CGRect(x: 10, y: 10, width: 24, height: 24)
+        let eraseItem = AnnotationItem(kind: .redact, rect: blueBorderEraseRect, redactStyle: .smartErase)
+        if let eraseOut = ScreenshotRenderer.render(baseImage: base, annotations: [eraseItem], cropRect: nil),
+           let erasedPx = pixelRGBA(in: eraseOut, topLeftX: 22, topLeftY: 22),
+           let expectedBlue = pixelRGBA(in: base, topLeftX: 6, topLeftY: 6) {
+            expect(abs(Int(erasedPx.0) - Int(expectedBlue.0)) <= 4
+                   && abs(Int(erasedPx.1) - Int(expectedBlue.1)) <= 4
+                   && abs(Int(erasedPx.2) - Int(expectedBlue.2)) <= 4,
+                   "Smart Erase must sample surrounding background color (expected \(expectedBlue), got \(erasedPx))")
+        } else {
+            failures.append("Smart Erase render test failed")
+        }
+        _ = eraseRect
+
+        // 7. Solid white redaction color
+        let whiteSolid = AnnotationItem(kind: .redact, rect: CGRect(x: 50, y: 40, width: 40, height: 30), redactStyle: .solidBlack, redactSolidColor: .white)
+        if let whiteOut = ScreenshotRenderer.render(baseImage: base, annotations: [whiteSolid]),
+           let whitePx = pixelRGBA(in: whiteOut, topLeftX: 65, topLeftY: 55) {
+            expect(whitePx == (255, 255, 255, 255), "Solid white redaction must paint opaque white, got \(whitePx)")
+        }
+
+        // 8. Spotlight dims exterior while keeping interior bright
+        let spotItem = AnnotationItem(
+            kind: .rectangle,
+            rect: CGRect(x: 50, y: 70, width: 100, height: 80),
+            color: .yellow,
+            strokeWidth: 3,
+            fillStyle: .spotlight
+        )
+        if let spotOut = ScreenshotRenderer.render(baseImage: base, annotations: [spotItem]),
+           let insideBefore = pixelRGBA(in: base, topLeftX: 100, topLeftY: 110),
+           let insideAfter = pixelRGBA(in: spotOut, topLeftX: 100, topLeftY: 110),
+           let outsideBefore = pixelRGBA(in: base, topLeftX: 10, topLeftY: 10),
+           let outsideAfter = pixelRGBA(in: spotOut, topLeftX: 10, topLeftY: 10) {
+            expect(insideBefore == insideAfter, "Spotlight interior pixels must remain un-dimmed")
+            expect(outsideAfter.2 < outsideBefore.2 / 2 + 25, "Spotlight exterior pixels must be dimmed (before \(outsideBefore), after \(outsideAfter))")
+        }
+
+        // 9. Tapered arrow, box highlighter, plain/filled text, outlined step badge, and Beautify padding
+        let richAnnotations: [AnnotationItem] = [
+            AnnotationItem(kind: .arrow, startPoint: CGPoint(x: 20, y: 20), endPoint: CGPoint(x: 140, y: 90), color: .red, strokeWidth: 4, arrowStyle: .tapered),
+            AnnotationItem(kind: .highlighter, rect: CGRect(x: 60, y: 120, width: 120, height: 28), color: .yellow, highlighterMode: .box, highlighterOpacity: .bold),
+            AnnotationItem(kind: .text, startPoint: CGPoint(x: 40, y: 180), color: .black, text: "Filled Pill", textFontSize: 22, textBackgroundStyle: .filled, textWeightStyle: .semibold, textCornerRadius: .large),
+            AnnotationItem(kind: .step, startPoint: CGPoint(x: 280, y: 80), color: .white, stepNumber: 7, stepSize: 22, stepStyle: .filled)
+        ]
+        let beautifyCfg = BeautifyConfig(enabled: true, backdrop: .sunset, padding: 24, cornerRadius: 12, shadowEnabled: true)
+        if let beautified = ScreenshotRenderer.render(baseImage: base, annotations: richAnnotations, cropRect: nil, beautify: beautifyCfg) {
+            expect(beautified.width == 448 && beautified.height == 348,
+                   "Beautify with 24px padding on 400x300 image must yield 448x348 (got \(beautified.width)x\(beautified.height))")
+            if let cornerPx = pixelRGBA(in: beautified, topLeftX: 4, topLeftY: 4) {
+                expect(cornerPx.0 > 180 && cornerPx.3 == 255, "Beautify sunset backdrop corner must be warm opaque gradient, got \(cornerPx)")
+            }
+        } else {
+            failures.append("Beautify rich render returned nil")
+        }
     }
 
     private static func testQuickScreenshotAutoRedactorPatterns() {
@@ -9928,6 +10158,115 @@ enum SelfTestRunner {
         let prose = "Deployed build 1732700000 on macOS 15.2 with 120ms latency and zero errors."
         let proseMatches = ScreenshotAutoRedactor.detectSensitiveMatches(in: prose)
         expect(proseMatches.isEmpty, "Ordinary prose and bare timestamps must not false-positive (got \(proseMatches))")
+
+        // Recovery / verification / OTP codes including OCR spellcheck-dot & diacritic artifacts
+        let cleanCodeText = "Your code is: kcob-ueah-rzlo-nwmu-fyfn"
+        let cleanCodeMatches = ScreenshotAutoRedactor.detectSensitiveMatches(in: cleanCodeText)
+        expect(cleanCodeMatches.contains(where: { $0.category == .secretCode && $0.rawValue.contains("kcob-ueah-rzlo-nwmu-fyfn") }),
+               "AutoRedactor must detect recovery code groups (got \(cleanCodeMatches))")
+
+        let ocrArtifactCode = "Your code is: Kçob.-ueah-rzlo-nwmu.-fyfn"
+        let ocrArtifactMatches = ScreenshotAutoRedactor.detectSensitiveMatches(in: ocrArtifactCode)
+        expect(ocrArtifactMatches.contains(where: { $0.category == .secretCode && $0.rawValue.contains("Kçob.-ueah") }),
+               "AutoRedactor must detect segmented codes even with OCR spellcheck-dot artifacts (got \(ocrArtifactMatches))")
+
+        let otpMatches = ScreenshotAutoRedactor.detectSensitiveMatches(in: "One-time OTP: 849201")
+        expect(otpMatches.contains(where: { $0.category == .secretCode }), "AutoRedactor must detect labeled OTP codes")
+
+        let falsePositiveCodeProse = "Status code is: valid and Password is: required for staging-branch-merge-check"
+        let fpCodeMatches = ScreenshotAutoRedactor.detectSensitiveMatches(in: falsePositiveCodeProse)
+        expect(fpCodeMatches.isEmpty, "Common English words after 'code is:' / 'password is:' must not trigger secretCode (got \(fpCodeMatches))")
+
+        // End-to-end OCR + AutoRedact scan on a small 554x44 banner containing a recovery code
+        if let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+           let ctx = CGContext(
+                data: nil,
+                width: 554,
+                height: 44,
+                bitsPerComponent: 8,
+                bytesPerRow: 554 * 4,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+           ) {
+            ctx.setFillColor(NSColor(white: 0.12, alpha: 1).cgColor)
+            ctx.fill(CGRect(x: 0, y: 0, width: 554, height: 44))
+            let nsCtx = NSGraphicsContext(cgContext: ctx, flipped: false)
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = nsCtx
+            let bannerAttrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.monospacedSystemFont(ofSize: 22, weight: .medium),
+                .foregroundColor: NSColor.white
+            ]
+            NSAttributedString(string: "Your code is: kcob-ueah-rzlo-nwmu-fyfn", attributes: bannerAttrs)
+                .draw(at: NSPoint(x: 16, y: 10))
+            NSGraphicsContext.restoreGraphicsState()
+            if let bannerImage = ctx.makeImage() {
+                let candidates = ScreenshotAutoRedactor.scanImage(bannerImage)
+                expect(candidates.contains(where: { $0.category == .secretCode && $0.rect.width > 120 && $0.rect.minX > 150 }),
+                       "ScreenshotAutoRedactor.scanImage must locate secretCode inside small 554x44 banners (got \(candidates))")
+            }
+        }
+
+        // Hybrid key filenames: generic-prefix keys redact only key ID; custom filenames redact the full file name
+        let p8Matches = ScreenshotAutoRedactor.detectSensitiveMatches(in: "SubscriptionKey_K6DYNDNLJC.p8")
+        expect(p8Matches.count == 1 && p8Matches[0].category == .secretCode && p8Matches[0].rawValue == "K6DYNDNLJC",
+               "AutoRedactor must redact only key ID on generic-prefix .p8 files (got \(p8Matches))")
+
+        let customKeyMatches = ScreenshotAutoRedactor.detectSensitiveMatches(in: "acme_prod_signing.p12 server.key")
+        expect(customKeyMatches.contains(where: { $0.category == .secretCode && $0.rawValue == "acme_prod_signing.p12" })
+               && customKeyMatches.contains(where: { $0.category == .secretCode && $0.rawValue == "server.key" }),
+               "AutoRedactor must redact full custom key/certificate filenames (got \(customKeyMatches))")
+
+        let keyTokenMatches = ScreenshotAutoRedactor.detectSensitiveMatches(in: "Using key AuthKey_9X8Y7Z6W5V for APNs")
+        expect(keyTokenMatches.contains(where: { $0.category == .secretCode && $0.rawValue == "9X8Y7Z6W5V" }),
+               "AutoRedactor must detect key-prefixed tokens (got \(keyTokenMatches))")
+
+        let fakeStripeKey = "sk_" + "live_51Nx92kL8mQ3pR7vW2yZ4cB6nM"
+        let fakeGoogleKey = "AIza" + "SyD4k9xP2mN8qR5vW7yZ3cB1nM6jH0fG2"
+        let cloudKeys = """
+        STRIPE=\(fakeStripeKey)
+        GOOGLE=\(fakeGoogleKey)
+        POSTGRES=postgres://admin:S3cr3tP4ss!@db.internal:5432/prod
+        """
+        let cloudMatches = ScreenshotAutoRedactor.detectSensitiveMatches(in: cloudKeys)
+        expect(cloudMatches.filter({ $0.category == .apiKey }).count >= 2,
+               "AutoRedactor must detect Stripe live & Google API keys (got \(cloudMatches))")
+        expect(cloudMatches.contains(where: { $0.rawValue == "S3cr3tP4ss!" }),
+               "AutoRedactor must detect URL-embedded passwords (got \(cloudMatches))")
+
+        let nonSecrets = "QuickScreenshotEditorView package.json api_key_settings auth_token_expired 2026-11-27T21:52:56Z"
+        let nonSecretMatches = ScreenshotAutoRedactor.detectSensitiveMatches(in: nonSecrets)
+        expect(nonSecretMatches.isEmpty, "Code identifiers and timestamps must not false-positive (got \(nonSecretMatches))")
+
+        // End-to-end OCR + AutoRedact scan on a 502x64 Finder row showing SubscriptionKey_K6DYNDNLJC.p8 (redacts key ID only)
+        if let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+           let ctx = CGContext(
+                data: nil,
+                width: 502,
+                height: 64,
+                bitsPerComponent: 8,
+                bytesPerRow: 502 * 4,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+           ) {
+            ctx.setFillColor(NSColor(white: 0.14, alpha: 1).cgColor)
+            ctx.fill(CGRect(x: 0, y: 0, width: 502, height: 64))
+            let nsCtx = NSGraphicsContext(cgContext: ctx, flipped: false)
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = nsCtx
+            let fileAttrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 28, weight: .medium),
+                .foregroundColor: NSColor(white: 0.88, alpha: 1)
+            ]
+            NSAttributedString(string: "SubscriptionKey_K6DYNDNLJC.p8", attributes: fileAttrs)
+                .draw(at: NSPoint(x: 44, y: 14))
+            NSGraphicsContext.restoreGraphicsState()
+            if let fileRowImage = ctx.makeImage() {
+                let candidates = ScreenshotAutoRedactor.scanImage(fileRowImage)
+                expect(candidates.contains(where: { $0.category == .secretCode && $0.rect.minX > 180 && $0.rect.width > 60 }),
+                       "ScreenshotAutoRedactor.scanImage must isolate K6DYNDNLJC inside SubscriptionKey_K6DYNDNLJC.p8 (got \(candidates))")
+            }
+        }
     }
 
     private static func testQuickScreenshotModuleLifecycleAndChordTap() {
@@ -10041,6 +10380,15 @@ enum SelfTestRunner {
                 c.forceClose()
             }
             expect(testModule.openEditorCount == 0, "Force-closing all editors must reset openEditorCount to 0")
+
+            // Pin on Screen cap & cleanup in diagnostic mode
+            for _ in 0..<(QuickScreenshotModule.maxPinnedWindows + 2) {
+                testModule.pinScreenshot(sampleImg)
+            }
+            expect(testModule.pinnedWindowCount == QuickScreenshotModule.maxPinnedWindows,
+                   "Pinned window count must cap at \(QuickScreenshotModule.maxPinnedWindows) (got \(testModule.pinnedWindowCount))")
+            testModule.closeAllPinnedScreenshots()
+            expect(testModule.pinnedWindowCount == 0, "closeAllPinnedScreenshots must reset pinnedWindowCount to 0")
         }
     }
 }

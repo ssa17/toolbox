@@ -15,6 +15,7 @@ struct QuickScreenshotSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             captureAndShortcutSection
+            toolDefaultsSection
             editorAndExportSection
         }
         .onAppear {
@@ -167,22 +168,37 @@ struct QuickScreenshotSettingsView: View {
         .id(ModuleFocusAnchor.shortcuts.rawValue)
     }
 
-    // MARK: - Editor & Export
+    // MARK: - Tool Defaults & Behavior
 
-    private var editorAndExportSection: some View {
+    private var toolDefaultsSection: some View {
         let cfg = configManager.config.quickScreenshot
+        let presets = cfg.toolPresets
 
         return FeatureSection(
-            "Editor & Export",
-            subtitle: "Defaults for redaction, file format, destination folder, and HUD confirmation."
+            "Tool Defaults & Behavior",
+            subtitle: "Customize starting tools, per-tool defaults, and whether Quick Editor remembers your last picks."
         ) {
             SettingRow(
-                "Default Redaction Style",
-                subtitle: "Solid Opaque Box overwrites pixels irreversibly with pure black; Smooth Blur softens the region; Pixelate applies a fine mosaic."
+                "Remember Last Tool Styles",
+                subtitle: cfg.rememberLastToolSettings
+                    ? "Automatically saves color, size, and style changes you make in Quick Editor for the next capture."
+                    : "Each capture starts fresh with your configured defaults below."
             ) {
-                Picker("", selection: $configManager.config.quickScreenshot.defaultRedactMode) {
-                    ForEach(RedactStyle.allCases) { style in
-                        Text(style.label).tag(style)
+                Toggle("", isOn: $configManager.config.quickScreenshot.rememberLastToolSettings)
+                    .labelsHidden()
+                    .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
+                    .pointerCursor()
+            }
+
+            Divider()
+
+            SettingRow(
+                "Default Starting Tool",
+                subtitle: "Which tool is active immediately when Quick Editor opens."
+            ) {
+                Picker("", selection: $configManager.config.quickScreenshot.defaultTool) {
+                    ForEach(ScreenshotStartingTool.allCases) { startingTool in
+                        Text(startingTool.label).tag(startingTool)
                     }
                 }
                 .labelsHidden()
@@ -192,6 +208,214 @@ struct QuickScreenshotSettingsView: View {
 
             Divider()
 
+            SettingRow(
+                "Default Redaction Style",
+                subtitle: "Pixelate applies a mosaic; Smooth Blur softens; Solid Box paints an opaque block; Smart Erase fills from the surrounding background. Auto-Redact scans 100% on-device with Apple Vision and flattens pixels permanently on Copy or Save."
+            ) {
+                Picker("", selection: $configManager.config.quickScreenshot.defaultRedactMode) {
+                    ForEach(RedactStyle.allCases) { style in
+                        Text(style.shortLabel).tag(style)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .frame(width: 248)
+                .pointerCursor()
+            }
+
+            if presets.redact.style == .pixelate || presets.redact.style == .blur {
+                Divider()
+
+                SettingRow(
+                    "Redaction Strength",
+                    subtitle: "Controls mosaic block size or blur radius for manual and Auto-Redact boxes."
+                ) {
+                    Picker("", selection: $configManager.config.quickScreenshot.toolPresets.redact.strength) {
+                        ForEach(RedactStrength.allCases) { strength in
+                            Text(strength.fullLabel).tag(strength)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 210)
+                    .pointerCursor()
+                }
+            } else if presets.redact.style == .solidBlack {
+                Divider()
+
+                SettingRow(
+                    "Solid Box Color",
+                    subtitle: "Opaque fill color used by Solid Box redactions."
+                ) {
+                    Picker("", selection: $configManager.config.quickScreenshot.toolPresets.redact.solidColor) {
+                        ForEach(RedactSolidColor.allCases) { solidColor in
+                            Text(solidColor.label).tag(solidColor)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 210)
+                    .pointerCursor()
+                }
+            }
+
+            Divider()
+
+            SettingRow(
+                "Default Annotation Color",
+                subtitle: "Used by Arrow, Rectangle, and Ellipse tools."
+            ) {
+                HStack(spacing: 5) {
+                    ForEach(AnnotationColor.allCases) { color in
+                        let isSelected = presets.arrow.color == color
+                        Button {
+                            var next = configManager.config.quickScreenshot.toolPresets
+                            next.arrow.color = color
+                            next.rectangle.color = color
+                            next.ellipse.color = color
+                            configManager.config.quickScreenshot.toolPresets = next
+                        } label: {
+                            Circle()
+                                .fill(color.swiftUIColor)
+                                .frame(width: 15, height: 15)
+                                .overlay(
+                                    Circle()
+                                        .strokeBorder(
+                                            isSelected ? Color.white : Color.white.opacity(0.28),
+                                            lineWidth: isSelected ? 2.2 : 1
+                                        )
+                                )
+                                .padding(2)
+                        }
+                        .buttonStyle(.plain)
+                        .focusEffectDisabled()
+                        .help(color.label)
+                        .pointerCursor()
+                    }
+                }
+            }
+
+            Divider()
+
+            SettingRow(
+                "Default Highlighter",
+                subtitle: "Color and mode (Freehand marker vs straight Box highlight)."
+            ) {
+                HStack(spacing: 10) {
+                    HStack(spacing: 4) {
+                        ForEach([AnnotationColor.yellow, .green, .blue, .orange, .red, .purple], id: \.self) { color in
+                            let isSelected = presets.highlighter.color == color
+                            Button {
+                                configManager.config.quickScreenshot.toolPresets.highlighter.color = color
+                            } label: {
+                                Circle()
+                                    .fill(color.swiftUIColor)
+                                    .frame(width: 13, height: 13)
+                                    .overlay(
+                                        Circle()
+                                            .strokeBorder(
+                                                isSelected ? Color.white : Color.white.opacity(0.28),
+                                                lineWidth: isSelected ? 2 : 1
+                                            )
+                                    )
+                                    .padding(1.5)
+                            }
+                            .buttonStyle(.plain)
+                            .focusEffectDisabled()
+                            .help(color.label)
+                            .pointerCursor()
+                        }
+                    }
+
+                    Picker("", selection: $configManager.config.quickScreenshot.toolPresets.highlighter.mode) {
+                        ForEach(HighlighterMode.allCases) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 146)
+                    .pointerCursor()
+                }
+            }
+
+            Divider()
+
+            SettingRow(
+                "Default Text Callout",
+                subtitle: "Backdrop style for new text annotations."
+            ) {
+                Picker("", selection: $configManager.config.quickScreenshot.toolPresets.text.backgroundStyle) {
+                    ForEach(TextBackgroundStyle.allCases) { bg in
+                        Text(bg.label).tag(bg)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .frame(width: 190)
+                .pointerCursor()
+            }
+
+            Divider()
+
+            SettingRow(
+                "Default Beautify Backdrop",
+                subtitle: "Wrap copied and saved screenshots in a gradient frame with rounded corners and soft shadow."
+            ) {
+                HStack(spacing: 10) {
+                    if presets.beautify.enabled {
+                        Picker("", selection: $configManager.config.quickScreenshot.toolPresets.beautify.backdrop) {
+                            ForEach(BeautifyBackdrop.allCases.filter { $0 != .none }) { backdrop in
+                                Text(backdrop.label).tag(backdrop)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 120)
+                        .pointerCursor()
+                    }
+
+                    Toggle("", isOn: $configManager.config.quickScreenshot.toolPresets.beautify.enabled)
+                        .labelsHidden()
+                        .toggleStyle(ToolboxSwitchToggleStyle(onColor: module.accentColor))
+                        .pointerCursor()
+                }
+            }
+
+            Divider()
+
+            SettingRow(
+                "Reset Tool Defaults",
+                subtitle: "Restore factory tool presets (Red arrows, Black text pill, White numbers, Yellow highlighter, Pixelate redaction)."
+            ) {
+                Button("Reset to Defaults") {
+                    configManager.config.quickScreenshot.defaultTool = .arrow
+                    configManager.config.quickScreenshot.lastUsedTool = .arrow
+                    configManager.config.quickScreenshot.toolPresets = ScreenshotToolPresets()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+                .disabled(
+                    cfg.defaultTool == .arrow
+                    && cfg.toolPresets == ScreenshotToolPresets()
+                )
+                .focusEffectDisabled()
+                .pointerCursor(
+                    cfg.defaultTool != .arrow
+                    || cfg.toolPresets != ScreenshotToolPresets()
+                )
+            }
+        }
+    }
+
+    // MARK: - Editor & Export
+
+    private var editorAndExportSection: some View {
+        let cfg = configManager.config.quickScreenshot
+
+        return FeatureSection(
+            "Export & Notifications",
+            subtitle: "File format, destination folder, and HUD confirmation."
+        ) {
             SettingRow(
                 "Save Format",
                 subtitle: "File format used by Save (⌘ S) and Save As… (⇧ ⌘ S)."

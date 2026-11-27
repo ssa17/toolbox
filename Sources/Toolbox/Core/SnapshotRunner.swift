@@ -252,18 +252,17 @@ enum SnapshotRunner {
         navQuickScreenshot.isSidebarVisible = true
         saveViewSnapshot(
             MainWindowController.makeRootView(navState: navQuickScreenshot),
-            size: NSSize(width: 940, height: 1120),
+            size: NSSize(width: 940, height: 1460),
             to: outURL.appendingPathComponent("module_quick_screenshot.png")
         )
         saveViewSnapshot(
             MainWindowController.makeRootView(navState: navQuickScreenshot),
-            size: NSSize(width: 820, height: 1180),
+            size: NSSize(width: 820, height: 1560),
             to: outURL.appendingPathComponent("module_quick_screenshot_minwidth.png")
         )
 
         if let editorSample = syntheticQuickScreenshotSample() {
-            let editorSession = ScreenshotEditorSession(image: editorSample, defaultRedactStyle: .solidBlack)
-            editorSession.activeTool = .redact
+            let editorSession = ScreenshotEditorSession(image: editorSample, defaultRedactStyle: .pixelate)
             editorSession.addStepBadge(at: CGPoint(x: 92, y: 170))
             editorSession.addAnnotation(
                 AnnotationItem(
@@ -271,16 +270,18 @@ enum SnapshotRunner {
                     startPoint: CGPoint(x: 112, y: 170),
                     endPoint: CGPoint(x: 344, y: 228),
                     color: .red,
-                    strokeWidth: 4
+                    strokeWidth: 4,
+                    arrowStyle: .tapered
                 ),
                 selectAfterAdd: false
             )
             editorSession.addAnnotation(
                 AnnotationItem(
-                    kind: .rectangle,
-                    rect: CGRect(x: 352, y: 205, width: 396, height: 64),
-                    color: .orange,
-                    strokeWidth: 4
+                    kind: .highlighter,
+                    rect: CGRect(x: 356, y: 212, width: 386, height: 48),
+                    color: .yellow,
+                    highlighterMode: .box,
+                    highlighterOpacity: .normal
                 ),
                 selectAfterAdd: false
             )
@@ -298,16 +299,17 @@ enum SnapshotRunner {
                     confidence: 0.96
                 )
             ])
-            editorSession.redactStyle = .pixelate
+            editorSession.updateRedactStyleForExistingSelectionOrTool(.pixelate)
             editorSession.addAnnotation(
                 AnnotationItem(
                     kind: .redact,
                     rect: CGRect(x: 452, y: 220, width: 280, height: 34),
-                    redactStyle: .pixelate
+                    redactStyle: .pixelate,
+                    redactStrength: .medium
                 ),
                 selectAfterAdd: true
             )
-            editorSession.activeTool = .select
+            editorSession.activeTool = .redact
             saveViewSnapshot(
                 QuickScreenshotEditorView(
                     session: editorSession,
@@ -315,13 +317,64 @@ enum SnapshotRunner {
                     onSave: {},
                     onSaveAs: {},
                     onShare: { _ in },
+                    onPin: {},
                     onAutoRedact: {},
                     onCopyOCR: {},
                     onRequestClose: {}
                 )
-                .frame(width: 1080, height: 740),
-                size: NSSize(width: 1080, height: 740),
+                .frame(width: 1160, height: 780),
+                size: NSSize(width: 1160, height: 780),
                 to: outURL.appendingPathComponent("quick_screenshot_editor.png")
+            )
+
+            let beautifySession = ScreenshotEditorSession(image: editorSample, defaultRedactStyle: .smartErase)
+            beautifySession.updateBeautify {
+                $0.enabled = true
+                $0.backdrop = .midnight
+                $0.padding = 48
+                $0.cornerRadius = 14
+                $0.shadowEnabled = true
+            }
+            beautifySession.addAnnotation(
+                AnnotationItem(
+                    kind: .rectangle,
+                    rect: CGRect(x: 118, y: 190, width: 650, height: 180),
+                    color: .blue,
+                    strokeWidth: 3,
+                    fillStyle: .spotlight,
+                    cornerRadius: .rounded
+                ),
+                selectAfterAdd: false
+            )
+            beautifySession.addAnnotation(
+                AnnotationItem(
+                    kind: .text,
+                    startPoint: CGPoint(x: 130, y: 138),
+                    color: .black,
+                    text: "API Response",
+                    textFontSize: 22,
+                    textBackgroundStyle: .filled,
+                    textWeightStyle: .semibold,
+                    textCornerRadius: .large
+                ),
+                selectAfterAdd: false
+            )
+            beautifySession.activeTool = .rectangle
+            saveViewSnapshot(
+                QuickScreenshotEditorView(
+                    session: beautifySession,
+                    onCopy: {},
+                    onSave: {},
+                    onSaveAs: {},
+                    onShare: { _ in },
+                    onPin: {},
+                    onAutoRedact: {},
+                    onCopyOCR: {},
+                    onRequestClose: {}
+                )
+                .frame(width: 1160, height: 780),
+                size: NSSize(width: 1160, height: 780),
+                to: outURL.appendingPathComponent("quick_screenshot_editor_beautify.png")
             )
         }
 
