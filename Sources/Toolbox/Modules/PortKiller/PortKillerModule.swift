@@ -343,6 +343,10 @@ final class PortKillerModule: NSObject, ToolboxModule, ObservableObject {
         }
     }
 
+    internal func replacePortsForTesting(_ simulated: [ListeningPort]) {
+        applyScannedPorts(simulated)
+    }
+
     func otherPorts(for entry: ListeningPort) -> [Int] {
         guard let all = portsByPID[entry.pid], all.count > 1 else { return [] }
         return all.filter { $0 != entry.port }

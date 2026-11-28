@@ -51,9 +51,40 @@ enum SnapshotRunner {
         )
         saveViewSnapshot(
             MainWindowController.makeRootView(navState: navDashboard),
-            size: NSSize(width: 1140, height: 870),
+            size: NSSize(width: 1140, height: 1040),
             to: outURL.appendingPathComponent("dashboard_active_default_width.png")
         )
+
+        // README hero Dashboard: show a clean, unclipped full grid with flagship modules active.
+        let prevReadmeConfig = configManager.config
+        let prevReadmeSimAX = PermissionsManager.shared.simulatedAccessibilityGranted
+        let prevReadmeOCRScreen = registry.screenOCR.screenRecordingGranted
+        let prevReadmeShotScreen = registry.quickScreenshot.screenRecordingGranted
+        let prevReadmeSwitcherScreen = registry.windowSwitcher.screenRecordingGranted
+        PermissionsManager.shared.setSimulatedAccessibilityGranted(true)
+        registry.screenOCR.setScreenRecordingGrantedForTesting(true)
+        registry.quickScreenshot.setScreenRecordingGrantedForTesting(true)
+        registry.windowSwitcher.setScreenRecordingGrantedForTesting(true)
+        configManager.config.dockMinimize.enabled = true
+        configManager.config.clipboard.enabled = true
+        configManager.config.portKiller.enabled = true
+        configManager.config.windowSnapper.enabled = true
+        configManager.config.windowSwitcher.enabled = true
+        configManager.config.quickScreenshot.enabled = true
+        configManager.config.callControls.enabled = true
+        registry.reloadAll(with: configManager.config)
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navDashboard),
+            size: NSSize(width: 1140, height: 1040),
+            to: outURL.appendingPathComponent("dashboard_readme.png")
+        )
+        configManager.config = prevReadmeConfig
+        registry.reloadAll(with: configManager.config)
+        PermissionsManager.shared.setSimulatedAccessibilityGranted(prevReadmeSimAX)
+        registry.screenOCR.setScreenRecordingGrantedForTesting(prevReadmeOCRScreen)
+        registry.quickScreenshot.setScreenRecordingGrantedForTesting(prevReadmeShotScreen)
+        registry.windowSwitcher.setScreenRecordingGrantedForTesting(prevReadmeSwitcherScreen)
+
         saveViewSnapshot(
             MainWindowController.makeRootView(navState: navDashboard),
             size: NSSize(width: 420, height: 680),
@@ -625,6 +656,11 @@ enum SnapshotRunner {
             MainWindowController.makeRootView(navState: navShortcuts),
             size: NSSize(width: 940, height: 1400),
             to: outURL.appendingPathComponent("shortcuts_hub_hyperkey_expanded.png")
+        )
+        saveViewSnapshot(
+            MainWindowController.makeRootView(navState: navShortcuts),
+            size: NSSize(width: 980, height: 960),
+            to: outURL.appendingPathComponent("shortcuts_hub_readme.png")
         )
         configManager.config.hyperKey = prevHyperKey
         PermissionsManager.shared.setSimulatedAccessibilityGranted(prevSimAXHyper)
@@ -1257,6 +1293,86 @@ enum SnapshotRunner {
         )
 
         let pkModule = ModuleRegistry.shared.portKiller
+        let prevPorts = pkModule.ports
+        let prevFavoritePorts = configManager.config.portKiller.favoritePorts
+        let samplePorts: [ListeningPort] = [
+            ListeningPort(
+                pid: 42108,
+                port: 3000,
+                processName: "node",
+                uid: nil,
+                addresses: ["127.0.0.1"],
+                executablePath: "/opt/homebrew/bin/node",
+                workingDirectory: "/Users/dev/projects/web-app",
+                isSystemDaemon: false,
+                requiresElevation: false,
+                seenInLsof: true
+            ),
+            ListeningPort(
+                pid: 42415,
+                port: 5173,
+                processName: "vite",
+                uid: nil,
+                addresses: ["127.0.0.1", "[::1]"],
+                executablePath: "/opt/homebrew/bin/node",
+                workingDirectory: "/Users/dev/projects/frontend",
+                isSystemDaemon: false,
+                requiresElevation: false,
+                seenInLsof: true
+            ),
+            ListeningPort(
+                pid: 43012,
+                port: 8000,
+                processName: "python3",
+                uid: nil,
+                addresses: ["127.0.0.1"],
+                executablePath: "/opt/homebrew/bin/python3",
+                workingDirectory: "/Users/dev/projects/api-server",
+                isSystemDaemon: false,
+                requiresElevation: false,
+                seenInLsof: true
+            ),
+            ListeningPort(
+                pid: 19204,
+                port: 5432,
+                processName: "postgres",
+                uid: nil,
+                addresses: ["127.0.0.1"],
+                executablePath: "/opt/homebrew/opt/postgresql/bin/postgres",
+                workingDirectory: "/opt/homebrew/var/postgresql",
+                isSystemDaemon: false,
+                requiresElevation: false,
+                seenInLsof: true
+            ),
+            ListeningPort(
+                pid: 19410,
+                port: 6379,
+                processName: "redis-server",
+                uid: nil,
+                addresses: ["127.0.0.1"],
+                executablePath: "/opt/homebrew/bin/redis-server",
+                workingDirectory: "/opt/homebrew/var/db/redis",
+                isSystemDaemon: false,
+                requiresElevation: false,
+                seenInLsof: true
+            ),
+            ListeningPort(
+                pid: 812,
+                port: 80,
+                processName: "nginx",
+                uid: 0,
+                addresses: ["*"],
+                executablePath: "/opt/homebrew/bin/nginx",
+                workingDirectory: "/opt/homebrew/etc/nginx",
+                isSystemDaemon: false,
+                requiresElevation: true,
+                seenInLsof: true
+            )
+        ]
+        configManager.config.portKiller.favoritePorts = [3000, 5173]
+        pkModule.reload(with: configManager.config)
+        pkModule.replacePortsForTesting(samplePorts)
+        pkModule.popoverState.resetForOpen(ports: samplePorts)
         saveViewSnapshot(
             ZStack(alignment: .topLeading) {
                 PortKillerPopoverView(
@@ -1266,12 +1382,15 @@ enum SnapshotRunner {
                 )
                 .background(Color(nsColor: .windowBackgroundColor))
 
-                PortKillerTooltipBubbleView(text: "Graceful Stop (SIGTERM) on PID 88038 (↩)")
+                PortKillerTooltipBubbleView(text: "Graceful Stop (SIGTERM) on PID 42108 (↩)")
                     .offset(x: 212, y: 114)
             },
             size: NSSize(width: 480, height: 500),
             to: outURL.appendingPathComponent("popover_port_killer.png")
         )
+        configManager.config.portKiller.favoritePorts = prevFavoritePorts
+        pkModule.reload(with: configManager.config)
+        pkModule.replacePortsForTesting(prevPorts)
 
         configManager.config.general.appEnabled = false
         registry.reloadAll(with: configManager.config)
